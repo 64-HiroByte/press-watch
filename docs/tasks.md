@@ -31,12 +31,12 @@
 
 ## Phase 1: 開発土台の作成
 
-- [ ] Git リポジトリを初期化する (`git init`)
-- [ ] 初回コミットを作成する
-- [ ] モノレポ構成を作成する
-- [ ] ルート README を作成する
-- [ ] `.gitignore` を作成する
-- [ ] `AGENTS.md` の初版を作成する
+- [x] Git リポジトリを初期化する (`git init`)
+- [x] 初回コミットを作成する
+- [x] モノレポ構成を作成する
+- [x] ルート README を作成する
+- [x] `.gitignore` を作成する
+- [x] `AGENTS.md` の初版を作成する
 - [ ] `apps/web` の Next.js プロジェクトを作成する
 - [ ] `apps/api` の FastAPI プロジェクトを作成する
 - [ ] `packages/scraper` の初期構成を作成する
