@@ -1,0 +1,10 @@
+{
+  "name": "press-watch",
+  "private": true,
+  "packageManager": "pnpm@10.0.0",
+  "scripts": {
+    "dev:web": "pnpm --filter @press-watch/web dev",
+    "build:web": "pnpm --filter @press-watch/web build",
+    "typecheck:web": "pnpm --filter @press-watch/web typecheck"
+  }
+}
