@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+!.env.example
+
+**/.next
+**/.venv
+**/__pycache__
+**/node_modules
+**/*.py[cod]
+**/*.tsbuildinfo
+
+.DS_Store
+Thumbs.db
+*.log

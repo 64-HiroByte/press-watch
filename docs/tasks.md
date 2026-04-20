@@ -40,11 +40,11 @@
 - [x] `apps/web` の Next.js プロジェクトを作成する
 - [x] `apps/api` の FastAPI プロジェクトを作成する
 - [x] `packages/scraper` の初期構成を作成する
-- [ ] Dockerfile を作成する
-- [ ] `compose.yml` または `docker-compose.yml` を作成する
-- [ ] Docker / docker compose でローカル開発環境を起動できるようにする
-- [ ] PostgreSQL コンテナを起動できるようにする
-- [ ] フロントエンド / バックエンド / DB のローカル起動手順を確認する
+- [x] Dockerfile を作成する
+- [x] `compose.yml` または `docker-compose.yml` を作成する
+- [x] Docker / docker compose でローカル開発環境を起動できるようにする
+- [x] PostgreSQL コンテナを起動できるようにする
+- [x] フロントエンド / バックエンド / DB のローカル起動手順を確認する
 
 ---
 

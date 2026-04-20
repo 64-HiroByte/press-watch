@@ -1,0 +1,53 @@
+name: press-watch
+
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: infra/docker/web.Dockerfile
+    command: pnpm --filter @press-watch/web dev --hostname 0.0.0.0
+    environment:
+      NEXT_TELEMETRY_DISABLED: "1"
+      NODE_ENV: development
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ..:/workspace
+      - web_root_node_modules:/workspace/node_modules
+      - web_app_node_modules:/workspace/apps/web/node_modules
+
+  api:
+    build:
+      context: ..
+      dockerfile: infra/docker/api.Dockerfile
+    command: uv run fastapi dev src/press_watch_api/main.py --host 0.0.0.0
+    environment:
+      DATABASE_URL: postgresql://presswatch:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/presswatch
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ../apps/api:/app
+      - api_venv:/app/.venv
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: presswatch
+      POSTGRES_USER: presswatch
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U presswatch -d presswatch"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  api_venv:
+  postgres_data:
+  web_app_node_modules:
+  web_root_node_modules:
