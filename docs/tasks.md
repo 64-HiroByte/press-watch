@@ -31,20 +31,20 @@
 
 ## Phase 1: 開発土台の作成
 
-- [ ] Git リポジトリを初期化する (`git init`)
-- [ ] 初回コミットを作成する
-- [ ] モノレポ構成を作成する
-- [ ] ルート README を作成する
-- [ ] `.gitignore` を作成する
-- [ ] `AGENTS.md` の初版を作成する
-- [ ] `apps/web` の Next.js プロジェクトを作成する
-- [ ] `apps/api` の FastAPI プロジェクトを作成する
-- [ ] `packages/scraper` の初期構成を作成する
-- [ ] Dockerfile を作成する
-- [ ] `compose.yml` または `docker-compose.yml` を作成する
-- [ ] Docker / docker compose でローカル開発環境を起動できるようにする
-- [ ] PostgreSQL コンテナを起動できるようにする
-- [ ] フロントエンド / バックエンド / DB のローカル起動手順を確認する
+- [x] Git リポジトリを初期化する (`git init`)
+- [x] 初回コミットを作成する
+- [x] モノレポ構成を作成する
+- [x] ルート README を作成する
+- [x] `.gitignore` を作成する
+- [x] `AGENTS.md` の初版を作成する
+- [x] `apps/web` の Next.js プロジェクトを作成する
+- [x] `apps/api` の FastAPI プロジェクトを作成する
+- [x] `packages/scraper` の初期構成を作成する
+- [x] Dockerfile を作成する
+- [x] `compose.yml` または `docker-compose.yml` を作成する
+- [x] Docker / docker compose でローカル開発環境を起動できるようにする
+- [x] PostgreSQL コンテナを起動できるようにする
+- [x] フロントエンド / バックエンド / DB のローカル起動手順を確認する
 
 ---
 
