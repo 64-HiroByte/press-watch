@@ -3,7 +3,10 @@ name = "press-watch-scraper"
 version = "0.1.0"
 description = "Scraper package for PressWatch."
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "beautifulsoup4>=4.14.3",
+    "lxml>=6.1.0",
+]
 
 [tool.uv]
 package = false
