@@ -38,7 +38,9 @@ _YEAR_PATTERN = r'(?P<year>\d{4})年'
 _MONTH_PATTERN = r'(?P<month>0?[1-9]|1[0-2])月'
 _DAY_PATTERN = r'(?P<day>0?[1-9]|[12]\d|3[01])日'
 
-_DATE_HEADING_RE = re.compile(rf'{_YEAR_PATTERN}{_MONTH_PATTERN}{_DAY_PATTERN}発表')
+_DATE_HEADING_RE = re.compile(
+    rf'{_YEAR_PATTERN}{_MONTH_PATTERN}{_DAY_PATTERN}発表'
+)
 _MONTH_LINK_RE = re.compile(rf'{_YEAR_PATTERN}{_MONTH_PATTERN}')
 
 
@@ -59,7 +61,7 @@ class PressRelease:
 
 @dataclass(frozen=True)
 class ArchiveMonthLink:
-    """環境省の報道発表一覧ページから取得した月別アーカイブリンク
+    """環境省の報道発表一覧ページから取得した月別リンク
 
     Attributes:
         year: アーカイブ対象の年
@@ -139,7 +141,7 @@ def parse_archive_month_links(
     html: str,
     base_url: str = BASE_URL,
 ) -> list[ArchiveMonthLink]:
-    """環境省の報道発表一覧HTMLから月別アーカイブリンクを抽出
+    """環境省の報道発表一覧HTMLから月別リンクを抽出
 
     Args:
         html: 報道発表一覧ページのHTML
@@ -155,7 +157,7 @@ def parse_archive_month_links(
     for link in soup.select(SELECTOR_ARCHIVE_MONTH_LINK):
         href = _attr_value(link, ATTR_HREF)
         aria_label = _attr_value(link, ATTR_ARIA_LABEL) or ''
-        match = _MONTH_LINK_RE.search(aria_label)
+        match = _MONTH_LINK_RE.fullmatch(aria_label)
         if href is None or match is None:
             continue
 
@@ -224,10 +226,10 @@ def _parse_heading_date(value: str) -> date | None:
         value: 報道発表日の見出し文字列
 
     Returns:
-        抽出した日付、形式不一致または実在しない日付の場合はNone
+        抽出した日付、無効な日付の場合はNone
     """
 
-    match = _DATE_HEADING_RE.search(value)
+    match = _DATE_HEADING_RE.fullmatch(value)
     if not match:
         return None
 
