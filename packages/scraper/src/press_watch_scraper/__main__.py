@@ -1,3 +1,5 @@
+"""スクレイパーパッケージをCLIとして実行する入口"""
+
 from __future__ import annotations
 
 import argparse
@@ -6,6 +8,7 @@ import json
 from pathlib import Path
 
 from .env_press import (
+    CHARSET,
     PRESS_INDEX_URL,
     fetch_press_index_html,
     parse_archive_month_links,
@@ -14,6 +17,12 @@ from .env_press import (
 
 
 def main() -> int:
+    """報道発表一覧HTMLを取得または読み込み、解析結果をJSONで出力
+
+    Returns:
+        正常終了時の終了コード
+    """
+
     parser = argparse.ArgumentParser(
         description='Fetch one Ministry of the Environment press list page.',
     )
@@ -27,16 +36,10 @@ def main() -> int:
         type=Path,
         help='Parse a saved HTML file instead of fetching.',
     )
-    parser.add_argument(
-        '--limit',
-        type=int,
-        default=5,
-        help='Number of parsed items to print.',
-    )
     args = parser.parse_args()
 
     if args.from_file is not None:
-        html = args.from_file.read_text(encoding='utf-8')
+        html = args.from_file.read_text(encoding=CHARSET)
         source_url = str(args.from_file)
     else:
         html = fetch_press_index_html(args.url)
@@ -49,7 +52,7 @@ def main() -> int:
             **asdict(item),
             'published_at': item.published_at.isoformat(),
         }
-        for item in releases[: max(args.limit, 0)]
+        for item in releases
     ]
 
     print(
