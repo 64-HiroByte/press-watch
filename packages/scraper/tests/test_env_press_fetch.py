@@ -2,8 +2,7 @@ import unittest
 from unittest.mock import patch
 from urllib.error import URLError
 
-from press_watch_scraper.env_press import USER_AGENT
-from press_watch_scraper.env_press import fetch_press_index_html
+from press_watch_scraper.env_press import USER_AGENT, fetch_press_index_html
 
 
 EXPECTED_HTML_TEXT = '環境省'

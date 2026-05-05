@@ -60,19 +60,27 @@ class ScraperCliTest(unittest.TestCase):
             html_path = Path(temp_dir) / 'index.html'
             html_path.write_text(_press_index_html(), encoding='utf-8')
 
-            payload = _run_cli(['--from-file', str(html_path), '--limit', '1'])
+            payload = _run_cli(['--from-file', str(html_path)])
 
         self.assertEqual(payload['exit_code'], 0)
         self.assertEqual(payload['source_url'], str(html_path))
         self.assertEqual(payload['count'], 2)
         self.assertEqual(payload['archive_month_link_count'], 1)
-        self.assertEqual(len(payload['items']), 1)
+        self.assertEqual(len(payload['items']), 2)
         self.assertEqual(
             payload['items'][0],
             {
                 'title': '1件目の発表',
                 'published_at': '2026-05-01',
                 'url': 'https://www.env.go.jp/press/press_00001.html',
+            },
+        )
+        self.assertEqual(
+            payload['items'][1],
+            {
+                'title': '2件目の発表',
+                'published_at': '2026-05-01',
+                'url': 'https://www.env.go.jp/press/press_00002.html',
             },
         )
 
@@ -104,25 +112,6 @@ class ScraperCliTest(unittest.TestCase):
 
             with self.assertRaises(URLError):
                 _run_cli(['--url', 'https://example.com/press/index.html'])
-
-    def test_main_returns_empty_items_when_limit_is_zero_or_less(self) -> None:
-        """limitが0以下の場合にitemsを空にすること"""
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            html_path = Path(temp_dir) / 'index.html'
-            html_path.write_text(_press_index_html(), encoding='utf-8')
-
-            zero_limit = _run_cli(
-                ['--from-file', str(html_path), '--limit', '0']
-            )
-            negative_limit = _run_cli(
-                ['--from-file', str(html_path), '--limit', '-1']
-            )
-
-        self.assertEqual(zero_limit['count'], 2)
-        self.assertEqual(zero_limit['items'], [])
-        self.assertEqual(negative_limit['count'], 2)
-        self.assertEqual(negative_limit['items'], [])
 
 
 if __name__ == '__main__':
