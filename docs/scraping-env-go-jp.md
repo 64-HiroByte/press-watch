@@ -1,0 +1,46 @@
+# 環境省報道発表スクレイピングメモ
+
+確認日: 2026-05-03
+
+## 対象
+
+- 報道発表一覧: `https://www.env.go.jp/press/index.html`
+- 利用条件: `https://www.env.go.jp/mail.html`
+- robots.txt: `https://www.env.go.jp/robots.txt`
+
+## robots.txt
+
+- `User-agent: *`
+- `Disallow: /cgi-bin`
+- 今回の対象である `/press/index.html` と `/press/YYYYMM.html` 形式の月別一覧は、確認時点では明示的な禁止対象ではない。
+
+## 利用条件の要点
+
+- 環境省ホームページのコンテンツは、特記がない限り環境省に著作権が帰属し、権利表記がない限り[公共データ利用規約 第1.0版](https://www.digital.go.jp/resources/open_data/public_data_license_v1.0)が適用される。
+- 利用時は出典を記載する必要がある。
+- 編集・加工した情報を利用する場合は、出典とは別に編集・加工したことと主体を記載する必要がある。
+- 環境省ホームページへのリンクは原則自由。ただし、環境省ホームページへのリンクであることを明記し、他サイト内に組み込まれるようなリンクは避ける。
+- 将来 UI や API で取得データを表示する場合は、出典URLを保持し、必要に応じて「環境省ホームページをもとに作成」等の加工明記を検討する。
+
+### 注記:
+
+- 公共データ利用規約 第1.0版では、出典記載を条件として複製、公衆送信、翻訳・変形等の翻案、商用利用を含む二次利用が認められる
+- 一方で、第三者の権利が含まれるもの、個別法令で制約されるもの、個別に別条件が示されるものは対象外または制限対象になり得る
+- PressWatch では、詳細ページURLを保持し、表示や加工結果には出典と加工主体を追記できる前提で扱う。
+
+## 一覧ページ構造
+
+- 一覧本文は `p-press-release-list` 配下にある。
+- 日付ごとに `details.p-press-release-list__block` があり、日付見出しは `span.p-press-release-list__heading` に `YYYY年MM月DD日発表` 形式で入る。
+- 各発表は `li.c-news-link__item` の中にある。
+- カテゴリは `span.p-news-link__tag` に表示される。
+- 詳細ページリンクは `a.c-news-link__link` で、href は `/press/press_04490.html` や `/press/111118_00047.html` のような相対URL。
+- 今回の最小実装では、`p-press-release-list__heading` から公開日を取得し、その日付見出し配下の `a.c-news-link__link` からタイトルと詳細ページURLを取得する。
+
+## ページネーション構造
+
+- 数字ページ送りではなく、月別一覧のリンク表で過去ページへ移動する構造。
+- `h2` の「月別一覧」「過去の月別一覧」配下に `table.c-table-month__table` があり、月リンクは `a.c-table-month__col__link`。
+- 月リンクの href は `/press/YYYYMM.html` 形式、`aria-label` は `YYYY年M月` 形式。
+- 未来月などリンクがない月は `li` のみで、`a` が存在しない。
+- 次回以降の複数ページ巡回では、この月別リンクを収集して1ページずつ順次取得する方針が自然。
