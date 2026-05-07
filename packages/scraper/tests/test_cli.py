@@ -40,6 +40,9 @@ def _press_index_html() -> str:
     <a href='/press/202605.html' class='c-table-month__col__link' aria-label='2026年5月'>
         5月
     </a>
+    <a href='/press/202604.html' class='c-table-month__col__link' aria-label='2026年4月'>
+        4月
+    </a>
     '''
 
 
@@ -72,7 +75,26 @@ class ScraperCliTest(unittest.TestCase):
         self.assertEqual(payload['exit_code'], 0)
         self.assertEqual(payload['source_url'], str(html_path))
         self.assertEqual(payload['count'], 2)
-        self.assertEqual(payload['archive_month_link_count'], 1)
+        self.assertEqual(payload['archive_month_link_count'], 2)
+        self.assertEqual(
+            payload['archive_month_link_count'],
+            len(payload['archive_month_links']),
+        )
+        self.assertEqual(
+            payload['archive_month_links'],
+            [
+                {
+                    'year': 2026,
+                    'month': 5,
+                    'url': 'https://www.env.go.jp/press/202605.html',
+                },
+                {
+                    'year': 2026,
+                    'month': 4,
+                    'url': 'https://www.env.go.jp/press/202604.html',
+                },
+            ],
+        )
         self.assertEqual(len(payload['items']), 2)
         self.assertEqual(
             payload['items'][0],
@@ -112,6 +134,14 @@ class ScraperCliTest(unittest.TestCase):
             'https://example.com/press/index.html',
         )
         self.assertEqual(payload['count'], 2)
+        self.assertEqual(
+            payload['items'][0]['url'],
+            'https://example.com/press/press_00001.html',
+        )
+        self.assertEqual(
+            payload['archive_month_links'][0]['url'],
+            'https://example.com/press/202605.html',
+        )
 
     def test_main_propagates_fetch_error(self) -> None:
         """HTML取得時の例外を呼び出し元へ伝播すること"""

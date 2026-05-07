@@ -13,6 +13,7 @@ EXPECTED_OLD_STYLE_PRESS_URL = 'https://www.env.go.jp/press/111111_00001.html'
 EXPECTED_ABSOLUTE_PRESS_URL = 'https://example.com/press/external.html'
 EXPECTED_CUSTOM_BASE_PRESS_URL = 'https://example.com/press/press_00001.html'
 EXPECTED_MONTH_URL = 'https://www.env.go.jp/press/202605.html'
+EXPECTED_PREVIOUS_MONTH_URL = 'https://www.env.go.jp/press/202604.html'
 EXPECTED_SOURCE_CATEGORY = '総合政策'
 EXPECTED_TITLE = '令和８年度テスト事業の公募について'
 MANY_LINK_COUNT = 10
@@ -112,10 +113,16 @@ class EnvPressParserTest(unittest.TestCase):
         self.assertEqual(releases[2].published_at, date(2026, 4, 30))
         self.assertEqual(releases[2].url, EXPECTED_OLD_STYLE_PRESS_URL)
         self.assertEqual(releases[2].source_categories, ())
-        self.assertEqual(len(archive_month_links), 1)
+        self.assertEqual(len(archive_month_links), 2)
         self.assertEqual(archive_month_links[0].year, 2026)
         self.assertEqual(archive_month_links[0].month, 5)
         self.assertEqual(archive_month_links[0].url, EXPECTED_MONTH_URL)
+        self.assertEqual(archive_month_links[1].year, 2026)
+        self.assertEqual(archive_month_links[1].month, 4)
+        self.assertEqual(
+            archive_month_links[1].url,
+            EXPECTED_PREVIOUS_MONTH_URL,
+        )
 
     def test_parse_press_releases_with_grouped_date(self) -> None:
         """日付ごとにまとまった報道発表を抽出すること"""

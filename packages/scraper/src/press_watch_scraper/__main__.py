@@ -41,12 +41,14 @@ def main() -> int:
     if args.from_file is not None:
         html = args.from_file.read_text(encoding=CHARSET)
         source_url = str(args.from_file)
+        base_url = PRESS_INDEX_URL
     else:
         html = fetch_press_index_html(args.url)
         source_url = args.url
+        base_url = args.url
 
-    releases = parse_press_releases(html)
-    archive_month_links = parse_archive_month_links(html)
+    releases = parse_press_releases(html, base_url=base_url)
+    archive_month_links = parse_archive_month_links(html, base_url=base_url)
     items = [
         {
             **asdict(item),
@@ -54,6 +56,7 @@ def main() -> int:
         }
         for item in releases
     ]
+    archive_month_link_items = [asdict(item) for item in archive_month_links]
 
     print(
         json.dumps(
@@ -61,6 +64,7 @@ def main() -> int:
                 'source_url': source_url,
                 'count': len(releases),
                 'archive_month_link_count': len(archive_month_links),
+                'archive_month_links': archive_month_link_items,
                 'items': items,
             },
             ensure_ascii=False,
