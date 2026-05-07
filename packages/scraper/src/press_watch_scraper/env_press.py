@@ -28,11 +28,13 @@ CLASS_ARCHIVE_MONTH_LINK = 'c-table-month__col__link'
 CLASS_PRESS_DATE_HEADING = 'p-press-release-list__heading'
 CLASS_PRESS_RELEASE_BLOCK = 'p-press-release-list__block'
 CLASS_PRESS_RELEASE_LINK = 'c-news-link__link'
+CLASS_SOURCE_CATEGORY_TAG = 'p-news-link__tag'
 
 SELECTOR_ARCHIVE_MONTH_LINK = f'.{CLASS_ARCHIVE_MONTH_LINK}'
 SELECTOR_PRESS_DATE_HEADING = f'.{CLASS_PRESS_DATE_HEADING}'
 SELECTOR_PRESS_RELEASE_BLOCK = f'.{CLASS_PRESS_RELEASE_BLOCK}'
 SELECTOR_PRESS_RELEASE_LINK = f'.{CLASS_PRESS_RELEASE_LINK}'
+SELECTOR_SOURCE_CATEGORY_TAG = f'.{CLASS_SOURCE_CATEGORY_TAG}'
 
 _YEAR_PATTERN = r'(?P<year>\d{4})年'
 _MONTH_PATTERN = r'(?P<month>0?[1-9]|1[0-2])月'
@@ -52,11 +54,13 @@ class PressRelease:
         title: 報道発表のタイトル
         published_at: 報道発表日
         url: 報道発表詳細ページの絶対URL
+        source_categories: 取得元ページに表示されているカテゴリ
     """
 
     title: str
     published_at: date
     url: str
+    source_categories: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -131,6 +135,10 @@ def parse_press_releases(
                     title=title,
                     published_at=published_at,
                     url=urljoin(base_url, href),
+                    source_categories=_source_categories_for_link(
+                        link,
+                        block,
+                    ),
                 )
             )
 
@@ -217,6 +225,45 @@ def _tag_text(tag: Tag) -> str:
     """
 
     return _normalize_text(tag.get_text(separator=' ', strip=True))
+
+
+def _source_categories_for_link(link: Tag, block: Tag) -> tuple[str, ...]:
+    """報道発表リンクに対応する取得元カテゴリを抽出
+
+    Args:
+        link: 報道発表詳細ページへのリンク
+        block: 日付ごとの報道発表ブロック
+
+    Returns:
+        リンクに近い発表要素内のカテゴリ一覧
+    """
+
+    container = _press_release_container(link, block)
+    return tuple(
+        category
+        for tag in container.select(SELECTOR_SOURCE_CATEGORY_TAG)
+        if (category := _tag_text(tag))
+    )
+
+
+def _press_release_container(link: Tag, block: Tag) -> Tag:
+    """報道発表リンクに対応する最小のHTML要素を取得
+
+    Args:
+        link: 報道発表詳細ページへのリンク
+        block: 日付ごとの報道発表ブロック
+
+    Returns:
+        リンクを含むli要素、見つからない場合はリンク自身
+    """
+
+    for parent in link.parents:
+        if parent is block:
+            break
+        if isinstance(parent, Tag) and parent.name == 'li':
+            return parent
+
+    return link
 
 
 def _parse_heading_date(value: str) -> date | None:

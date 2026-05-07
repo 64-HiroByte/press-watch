@@ -13,6 +13,7 @@ EXPECTED_OLD_STYLE_PRESS_URL = 'https://www.env.go.jp/press/111111_00001.html'
 EXPECTED_ABSOLUTE_PRESS_URL = 'https://example.com/press/external.html'
 EXPECTED_CUSTOM_BASE_PRESS_URL = 'https://example.com/press/press_00001.html'
 EXPECTED_MONTH_URL = 'https://www.env.go.jp/press/202605.html'
+EXPECTED_SOURCE_CATEGORY = '総合政策'
 EXPECTED_TITLE = '令和８年度テスト事業の公募について'
 MANY_LINK_COUNT = 10
 FIXTURE_DIR = Path(__file__).parent / 'fixtures'
@@ -91,6 +92,10 @@ class EnvPressParserTest(unittest.TestCase):
         self.assertEqual(releases[0].published_at, date(2026, 5, 1))
         self.assertEqual(releases[0].url, EXPECTED_PRESS_URL)
         self.assertEqual(
+            releases[0].source_categories,
+            (EXPECTED_SOURCE_CATEGORY,),
+        )
+        self.assertEqual(
             releases[1].title,
             'テスト会議の開催について',
         )
@@ -99,9 +104,14 @@ class EnvPressParserTest(unittest.TestCase):
             releases[1].url,
             'https://www.env.go.jp/press/press_00002.html',
         )
+        self.assertEqual(
+            releases[1].source_categories,
+            ('自然環境', '水・土壌'),
+        )
         self.assertEqual(releases[2].title, '別形式URLの発表')
         self.assertEqual(releases[2].published_at, date(2026, 4, 30))
         self.assertEqual(releases[2].url, EXPECTED_OLD_STYLE_PRESS_URL)
+        self.assertEqual(releases[2].source_categories, ())
         self.assertEqual(len(archive_month_links), 1)
         self.assertEqual(archive_month_links[0].year, 2026)
         self.assertEqual(archive_month_links[0].month, 5)
@@ -226,6 +236,45 @@ class EnvPressParserTest(unittest.TestCase):
             items[0].title,
             '令和８年度 テスト事業 の 公募について',
         )
+
+    def test_parse_press_releases_extracts_source_categories(self) -> None:
+        """取得元カテゴリを報道発表ごとに抽出すること"""
+
+        html = '''
+        <details class='p-press-release-list__block'>
+            <summary>
+                <span class='p-press-release-list__heading'>
+                    2026年05月01日発表
+                </span>
+            </summary>
+            <ul>
+                <li>
+                    <span class='p-news-link__tag'>総合政策</span>
+                    <span class='p-news-link__tag'>
+                        自然
+                        環境
+                    </span>
+                    <a href='/press/press_00001.html' class='c-news-link__link'>
+                        1件目の発表
+                    </a>
+                </li>
+                <li>
+                    <a href='/press/press_00002.html' class='c-news-link__link'>
+                        2件目の発表
+                    </a>
+                </li>
+            </ul>
+        </details>
+        '''
+
+        items = parse_press_releases(html)
+
+        self.assertEqual(len(items), 2)
+        self.assertEqual(
+            items[0].source_categories,
+            ('総合政策', '自然 環境'),
+        )
+        self.assertEqual(items[1].source_categories, ())
 
     def test_parse_press_releases_with_multiple_links_in_same_date_block(
         self,

@@ -23,12 +23,19 @@ def _press_index_html() -> str:
                 2026年05月01日発表
             </span>
         </summary>
-        <a href='/press/press_00001.html' class='c-news-link__link'>
-            1件目の発表
-        </a>
-        <a href='/press/press_00002.html' class='c-news-link__link'>
-            2件目の発表
-        </a>
+        <ul>
+            <li>
+                <span class='p-news-link__tag'>総合政策</span>
+                <a href='/press/press_00001.html' class='c-news-link__link'>
+                    1件目の発表
+                </a>
+            </li>
+            <li>
+                <a href='/press/press_00002.html' class='c-news-link__link'>
+                    2件目の発表
+                </a>
+            </li>
+        </ul>
     </details>
     <a href='/press/202605.html' class='c-table-month__col__link' aria-label='2026年5月'>
         5月
@@ -73,6 +80,7 @@ class ScraperCliTest(unittest.TestCase):
                 'title': '1件目の発表',
                 'published_at': '2026-05-01',
                 'url': 'https://www.env.go.jp/press/press_00001.html',
+                'source_categories': ['総合政策'],
             },
         )
         self.assertEqual(
@@ -81,6 +89,7 @@ class ScraperCliTest(unittest.TestCase):
                 'title': '2件目の発表',
                 'published_at': '2026-05-01',
                 'url': 'https://www.env.go.jp/press/press_00002.html',
+                'source_categories': [],
             },
         )
 
