@@ -4,6 +4,16 @@ from urllib.error import URLError
 from press_watch_scraper.env_press import crawl_press_releases
 
 
+START_URL = 'https://example.com/press/index.html'
+MAY_ARCHIVE_PATH = '/press/202605.html'
+APRIL_ARCHIVE_PATH = '/press/202604.html'
+MAY_ARCHIVE_URL = 'https://example.com/press/202605.html'
+APRIL_ARCHIVE_URL = 'https://example.com/press/202604.html'
+MAY_RELEASE_TITLE = '5月の発表'
+APRIL_RELEASE_TITLE = '4月の発表'
+DUPLICATED_RELEASE_TITLE = '重複する発表'
+
+
 def _press_release_block(
     heading: str,
     href: str,
@@ -48,9 +58,51 @@ def _press_index_with_archive_links() -> str:
                 '/press/index_only.html',
                 'トップページだけの発表',
             ),
-            _archive_month_link('2026年5月', '/press/202605.html'),
-            _archive_month_link('2026年4月', '/press/202604.html'),
+            _archive_month_link('2026年5月', MAY_ARCHIVE_PATH),
+            _archive_month_link('2026年4月', APRIL_ARCHIVE_PATH),
         ]
+    )
+
+
+def _press_index_with_duplicated_archive_links() -> str:
+    """重複する月別リンクを含むトップページHTMLを生成"""
+
+    return ''.join(
+        [
+            _archive_month_link('2026年5月', MAY_ARCHIVE_PATH),
+            _archive_month_link('2026年05月', MAY_ARCHIVE_PATH),
+            _archive_month_link('2026年4月', APRIL_ARCHIVE_PATH),
+        ]
+    )
+
+
+def _may_archive_page() -> str:
+    """5月アーカイブページHTMLを生成"""
+
+    return _press_release_block(
+        '2026年05月01日発表',
+        '/press/may.html',
+        MAY_RELEASE_TITLE,
+    )
+
+
+def _april_archive_page() -> str:
+    """4月アーカイブページHTMLを生成"""
+
+    return _press_release_block(
+        '2026年04月30日発表',
+        '/press/april.html',
+        APRIL_RELEASE_TITLE,
+    )
+
+
+def _duplicated_release_archive_page() -> str:
+    """重複発表を含むアーカイブページHTMLを生成"""
+
+    return _press_release_block(
+        '2026年05月01日発表',
+        '/press/duplicated.html',
+        DUPLICATED_RELEASE_TITLE,
     )
 
 
@@ -61,19 +113,9 @@ class EnvPressCrawlerTest(unittest.TestCase):
         """月別ページを指定件数だけ巡回して発表を取得すること"""
 
         html_by_url = {
-            'https://example.com/press/index.html': (
-                _press_index_with_archive_links()
-            ),
-            'https://example.com/press/202605.html': _press_release_block(
-                '2026年05月01日発表',
-                '/press/may.html',
-                '5月の発表',
-            ),
-            'https://example.com/press/202604.html': _press_release_block(
-                '2026年04月30日発表',
-                '/press/april.html',
-                '4月の発表',
-            ),
+            START_URL: _press_index_with_archive_links(),
+            MAY_ARCHIVE_URL: _may_archive_page(),
+            APRIL_ARCHIVE_URL: _april_archive_page(),
         }
         fetched_urls: list[str] = []
 
@@ -82,7 +124,7 @@ class EnvPressCrawlerTest(unittest.TestCase):
             return html_by_url[url]
 
         result = crawl_press_releases(
-            start_url='https://example.com/press/index.html',
+            start_url=START_URL,
             archive_month_limit=2,
             fetcher=fetcher,
         )
@@ -90,36 +132,30 @@ class EnvPressCrawlerTest(unittest.TestCase):
         self.assertEqual(
             fetched_urls,
             [
-                'https://example.com/press/index.html',
-                'https://example.com/press/202605.html',
-                'https://example.com/press/202604.html',
+                START_URL,
+                MAY_ARCHIVE_URL,
+                APRIL_ARCHIVE_URL,
             ],
         )
         self.assertEqual(
             result.fetched_page_urls,
             (
-                'https://example.com/press/202605.html',
-                'https://example.com/press/202604.html',
+                MAY_ARCHIVE_URL,
+                APRIL_ARCHIVE_URL,
             ),
         )
         self.assertEqual(len(result.archive_month_links), 2)
         self.assertEqual(
             [release.title for release in result.releases],
-            ['5月の発表', '4月の発表'],
+            [MAY_RELEASE_TITLE, APRIL_RELEASE_TITLE],
         )
 
     def test_crawl_press_releases_respects_archive_month_limit(self) -> None:
         """指定した月別ページ数だけを取得すること"""
 
         html_by_url = {
-            'https://example.com/press/index.html': (
-                _press_index_with_archive_links()
-            ),
-            'https://example.com/press/202605.html': _press_release_block(
-                '2026年05月01日発表',
-                '/press/may.html',
-                '5月の発表',
-            ),
+            START_URL: _press_index_with_archive_links(),
+            MAY_ARCHIVE_URL: _may_archive_page(),
         }
         fetched_urls: list[str] = []
 
@@ -128,7 +164,7 @@ class EnvPressCrawlerTest(unittest.TestCase):
             return html_by_url[url]
 
         result = crawl_press_releases(
-            start_url='https://example.com/press/index.html',
+            start_url=START_URL,
             archive_month_limit=1,
             fetcher=fetcher,
         )
@@ -136,13 +172,13 @@ class EnvPressCrawlerTest(unittest.TestCase):
         self.assertEqual(
             fetched_urls,
             [
-                'https://example.com/press/index.html',
-                'https://example.com/press/202605.html',
+                START_URL,
+                MAY_ARCHIVE_URL,
             ],
         )
         self.assertEqual(
             [release.title for release in result.releases],
-            ['5月の発表'],
+            [MAY_RELEASE_TITLE],
         )
 
     def test_crawl_press_releases_deduplicates_page_and_release_urls(
@@ -150,22 +186,11 @@ class EnvPressCrawlerTest(unittest.TestCase):
     ) -> None:
         """月別ページURLと発表URLの重複を除外すること"""
 
-        index_html = ''.join(
-            [
-                _archive_month_link('2026年5月', '/press/202605.html'),
-                _archive_month_link('2026年05月', '/press/202605.html'),
-                _archive_month_link('2026年4月', '/press/202604.html'),
-            ]
-        )
-        duplicated_release_html = _press_release_block(
-            '2026年05月01日発表',
-            '/press/duplicated.html',
-            '重複する発表',
-        )
+        duplicated_release_html = _duplicated_release_archive_page()
         html_by_url = {
-            'https://example.com/press/index.html': index_html,
-            'https://example.com/press/202605.html': duplicated_release_html,
-            'https://example.com/press/202604.html': duplicated_release_html,
+            START_URL: _press_index_with_duplicated_archive_links(),
+            MAY_ARCHIVE_URL: duplicated_release_html,
+            APRIL_ARCHIVE_URL: duplicated_release_html,
         }
         fetched_urls: list[str] = []
 
@@ -174,7 +199,7 @@ class EnvPressCrawlerTest(unittest.TestCase):
             return html_by_url[url]
 
         result = crawl_press_releases(
-            start_url='https://example.com/press/index.html',
+            start_url=START_URL,
             archive_month_limit=2,
             fetcher=fetcher,
         )
@@ -182,25 +207,25 @@ class EnvPressCrawlerTest(unittest.TestCase):
         self.assertEqual(
             fetched_urls,
             [
-                'https://example.com/press/index.html',
-                'https://example.com/press/202605.html',
-                'https://example.com/press/202604.html',
+                START_URL,
+                MAY_ARCHIVE_URL,
+                APRIL_ARCHIVE_URL,
             ],
         )
         self.assertEqual(len(result.releases), 1)
-        self.assertEqual(result.releases[0].title, '重複する発表')
+        self.assertEqual(result.releases[0].title, DUPLICATED_RELEASE_TITLE)
 
     def test_crawl_press_releases_propagates_fetch_error(self) -> None:
         """月別ページ取得時の例外を呼び出し元へ伝播すること"""
 
         def fetcher(url: str) -> str:
-            if url == 'https://example.com/press/index.html':
+            if url == START_URL:
                 return _press_index_with_archive_links()
             raise URLError('network unavailable')
 
         with self.assertRaises(URLError):
             crawl_press_releases(
-                start_url='https://example.com/press/index.html',
+                start_url=START_URL,
                 archive_month_limit=1,
                 fetcher=fetcher,
             )
