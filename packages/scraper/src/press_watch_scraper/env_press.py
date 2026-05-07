@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 import re
@@ -78,6 +79,21 @@ class ArchiveMonthLink:
     url: str
 
 
+@dataclass(frozen=True)
+class PressReleaseCrawlResult:
+    """月別アーカイブページ巡回で取得した報道発表
+
+    Attributes:
+        releases: 月別アーカイブページから取得した報道発表
+        archive_month_links: 巡回候補として抽出した月別リンク
+        fetched_page_urls: 報道発表の取得対象として解析した月別ページURL
+    """
+
+    releases: tuple[PressRelease, ...]
+    archive_month_links: tuple[ArchiveMonthLink, ...]
+    fetched_page_urls: tuple[str, ...]
+
+
 def fetch_press_index_html(
     url: str = PRESS_INDEX_URL,
     timeout: float = 20.0,
@@ -96,6 +112,61 @@ def fetch_press_index_html(
     with urlopen(request, timeout=timeout) as response:
         charset = response.headers.get_content_charset() or CHARSET
         return response.read().decode(charset, errors='replace')
+
+
+def crawl_press_releases(
+    start_url: str = PRESS_INDEX_URL,
+    archive_month_limit: int = 0,
+    fetcher: Callable[[str], str] = fetch_press_index_html,
+) -> PressReleaseCrawlResult:
+    """月別アーカイブページを指定件数だけ巡回して報道発表を取得
+
+    Args:
+        start_url: 月別リンクを抽出する報道発表一覧ページURL
+        archive_month_limit: 取得する月別アーカイブページ数
+        fetcher: URLを受け取りHTMLを返す取得関数
+
+    Returns:
+        月別アーカイブページから取得した報道発表と巡回情報
+
+    Raises:
+        ValueError: archive_month_limitが負の場合
+    """
+
+    if archive_month_limit < 0:
+        raise ValueError(
+            'archive_month_limit must be greater than or equal to 0'
+        )
+
+    index_html = fetcher(start_url)
+    archive_month_links = parse_archive_month_links(
+        index_html,
+        base_url=start_url,
+    )
+    selected_archive_links = _unique_archive_month_links(
+        archive_month_links,
+        limit=archive_month_limit,
+    )
+
+    releases: list[PressRelease] = []
+    fetched_page_urls: list[str] = []
+    seen_release_urls: set[str] = set()
+
+    for archive_link in selected_archive_links:
+        html = fetcher(archive_link.url)
+        fetched_page_urls.append(archive_link.url)
+
+        for release in parse_press_releases(html, base_url=archive_link.url):
+            if release.url in seen_release_urls:
+                continue
+            seen_release_urls.add(release.url)
+            releases.append(release)
+
+    return PressReleaseCrawlResult(
+        releases=tuple(releases),
+        archive_month_links=tuple(archive_month_links),
+        fetched_page_urls=tuple(fetched_page_urls),
+    )
 
 
 def parse_press_releases(
@@ -178,6 +249,34 @@ def parse_archive_month_links(
                 url=urljoin(base_url, href),
             )
         )
+
+    return items
+
+
+def _unique_archive_month_links(
+    archive_month_links: list[ArchiveMonthLink],
+    limit: int,
+) -> list[ArchiveMonthLink]:
+    """月別リンクの表示順を保ちながらURL重複を除外
+
+    Args:
+        archive_month_links: 月別リンク候補
+        limit: 返す月別リンク数
+
+    Returns:
+        URL重複を除外した月別リンク
+    """
+
+    items: list[ArchiveMonthLink] = []
+    seen_urls: set[str] = set()
+
+    for link in archive_month_links:
+        if len(items) >= limit:
+            break
+        if link.url in seen_urls:
+            continue
+        seen_urls.add(link.url)
+        items.append(link)
 
     return items
 
