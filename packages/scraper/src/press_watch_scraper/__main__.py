@@ -62,6 +62,7 @@ def main() -> int:
         releases = crawl_result.releases
         archive_month_links = crawl_result.archive_month_links
         fetched_page_urls = crawl_result.fetched_page_urls
+        stop_reason = crawl_result.stop_reason
     elif args.from_file is not None:
         html = args.from_file.read_text(encoding=CHARSET)
         source_url = str(args.from_file)
@@ -69,6 +70,7 @@ def main() -> int:
         releases = parse_press_releases(html, base_url=base_url)
         archive_month_links = parse_archive_month_links(html, base_url=base_url)
         fetched_page_urls: list[str] = []
+        stop_reason = None
     else:
         html = fetch_press_index_html(args.url)
         source_url = args.url
@@ -76,6 +78,7 @@ def main() -> int:
         releases = parse_press_releases(html, base_url=base_url)
         archive_month_links = parse_archive_month_links(html, base_url=base_url)
         fetched_page_urls = [source_url]
+        stop_reason = None
 
     items = [
         {
@@ -94,6 +97,7 @@ def main() -> int:
                 'archive_month_link_count': len(archive_month_links),
                 'archive_month_links': archive_month_link_items,
                 'fetched_page_urls': fetched_page_urls,
+                'stop_reason': stop_reason,
                 'items': items,
             },
             ensure_ascii=False,

@@ -93,6 +93,7 @@ class ScraperCliTest(unittest.TestCase):
         self.assertEqual(payload['source_url'], str(html_path))
         self.assertEqual(payload['count'], 2)
         self.assertEqual(payload['fetched_page_urls'], [])
+        self.assertIsNone(payload['stop_reason'])
         self.assertEqual(payload['archive_month_link_count'], 2)
         self.assertEqual(
             payload['archive_month_link_count'],
@@ -156,6 +157,7 @@ class ScraperCliTest(unittest.TestCase):
             payload['fetched_page_urls'],
             ['https://example.com/press/index.html'],
         )
+        self.assertIsNone(payload['stop_reason'])
         self.assertEqual(
             payload['items'][0]['url'],
             'https://example.com/press/press_00001.html',
@@ -216,8 +218,48 @@ class ScraperCliTest(unittest.TestCase):
             ],
         )
         self.assertEqual(
+            payload['stop_reason'],
+            'archive_month_links_exhausted',
+        )
+        self.assertEqual(
             [item['title'] for item in payload['items']],
             ['5月の発表', '4月の発表'],
+        )
+
+    def test_main_outputs_stop_reason_when_archive_month_limit_is_reached(
+        self,
+    ) -> None:
+        """月別ページ数上限で止まった理由をJSONに出力すること"""
+
+        html_by_url = {
+            'https://example.com/press/index.html': _press_index_html(),
+            'https://example.com/press/202605.html': _archive_page_html(
+                '5月の発表',
+                '/press/may.html',
+            ),
+        }
+
+        def fetcher(url: str) -> str:
+            return html_by_url[url]
+
+        with patch.object(cli, 'fetch_press_index_html', side_effect=fetcher):
+            payload = _run_cli(
+                [
+                    '--url',
+                    'https://example.com/press/index.html',
+                    '--archive-month-limit',
+                    '1',
+                ]
+            )
+
+        self.assertEqual(payload['count'], 1)
+        self.assertEqual(
+            payload['fetched_page_urls'],
+            ['https://example.com/press/202605.html'],
+        )
+        self.assertEqual(
+            payload['stop_reason'],
+            'archive_month_limit_reached',
         )
 
     def test_main_rejects_from_file_with_archive_month_limit(self) -> None:
