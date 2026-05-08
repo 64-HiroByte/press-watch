@@ -319,6 +319,39 @@ class EnvPressCrawlerTest(unittest.TestCase):
         self.assertEqual(result.releases, ())
         self.assertEqual(result.stop_reason, 'duplicate_release_detected')
 
+    def test_crawl_press_releases_accepts_known_release_url_collection(
+        self,
+    ) -> None:
+        """既知URLをset以外のコレクションでも扱えること"""
+
+        html_by_url = {
+            START_URL: _press_index_with_archive_links(),
+            MAY_ARCHIVE_URL: _known_release_archive_page(),
+            APRIL_ARCHIVE_URL: _april_archive_page(),
+        }
+        fetched_urls: list[str] = []
+
+        def fetcher(url: str) -> str:
+            fetched_urls.append(url)
+            return html_by_url[url]
+
+        result = crawl_press_releases(
+            start_url=START_URL,
+            archive_month_limit=2,
+            fetcher=fetcher,
+            known_release_urls=(KNOWN_RELEASE_URL,),
+        )
+
+        self.assertEqual(
+            fetched_urls,
+            [
+                START_URL,
+                MAY_ARCHIVE_URL,
+            ],
+        )
+        self.assertEqual(result.releases, ())
+        self.assertEqual(result.stop_reason, 'duplicate_release_detected')
+
     def test_crawl_press_releases_propagates_fetch_error(self) -> None:
         """月別ページ取得時の例外を呼び出し元へ伝播すること"""
 

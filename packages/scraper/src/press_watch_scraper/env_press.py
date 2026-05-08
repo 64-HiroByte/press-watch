@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from datetime import date
 import re
@@ -127,7 +127,7 @@ def crawl_press_releases(
     start_url: str = PRESS_INDEX_URL,
     archive_month_limit: int = 0,
     fetcher: Callable[[str], str] = fetch_press_index_html,
-    known_release_urls: set[str] | None = None,
+    known_release_urls: Collection[str] | None = None,
 ) -> PressReleaseCrawlResult:
     """月別アーカイブページを指定件数だけ巡回して報道発表を取得
 
@@ -301,7 +301,7 @@ def _fetch_archive_page_releases(
 
 def _contains_only_known_releases(
     releases: list[PressRelease],
-    known_release_urls: set[str],
+    known_release_urls: Collection[str],
 ) -> bool:
     """月別ページ内の発表がすべて取得済みか判定
 
