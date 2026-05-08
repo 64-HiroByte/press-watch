@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 import re
+from typing import Literal
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
@@ -46,6 +47,12 @@ _DATE_HEADING_RE = re.compile(
 )
 _MONTH_LINK_RE = re.compile(rf'{_YEAR_PATTERN}{_MONTH_PATTERN}')
 
+CrawlStopReason = Literal[
+    'archive_month_limit_reached',
+    'duplicate_release_detected',
+    'archive_month_links_exhausted',
+]
+
 
 @dataclass(frozen=True)
 class PressRelease:
@@ -87,11 +94,13 @@ class PressReleaseCrawlResult:
         releases: 月別アーカイブページから取得した報道発表
         archive_month_links: 巡回候補として抽出した月別リンク
         fetched_page_urls: 報道発表の取得対象として解析した月別ページURL
+        stop_reason: 巡回を終了した理由
     """
 
     releases: tuple[PressRelease, ...]
     archive_month_links: tuple[ArchiveMonthLink, ...]
     fetched_page_urls: tuple[str, ...]
+    stop_reason: CrawlStopReason
 
 
 def fetch_press_index_html(
@@ -118,6 +127,7 @@ def crawl_press_releases(
     start_url: str = PRESS_INDEX_URL,
     archive_month_limit: int = 0,
     fetcher: Callable[[str], str] = fetch_press_index_html,
+    known_release_urls: set[str] | None = None,
 ) -> PressReleaseCrawlResult:
     """月別アーカイブページを指定件数だけ巡回して報道発表を取得
 
@@ -125,6 +135,7 @@ def crawl_press_releases(
         start_url: 月別リンクを抽出する報道発表一覧ページURL
         archive_month_limit: 取得する月別アーカイブページ数
         fetcher: URLを受け取りHTMLを返す取得関数
+        known_release_urls: 取得済みとして扱う報道発表詳細ページURL
 
     Returns:
         月別アーカイブページから取得した報道発表と巡回情報
@@ -143,29 +154,46 @@ def crawl_press_releases(
         index_html,
         base_url=start_url,
     )
-    selected_archive_links = _unique_archive_month_links(
+    unique_archive_links = _unique_archive_month_links(archive_month_links)
+    selected_archive_links = _select_archive_month_links(
         archive_month_links,
         limit=archive_month_limit,
     )
 
     releases: list[PressRelease] = []
     fetched_page_urls: list[str] = []
-    seen_release_urls: set[str] = set()
+    known_urls = set(known_release_urls or set())
+    seen_release_urls: set[str] = set(known_urls)
+    stop_reason: CrawlStopReason | None = None
 
     for archive_link in selected_archive_links:
-        html = fetcher(archive_link.url)
+        page_releases = _fetch_archive_page_releases(
+            archive_link,
+            fetcher,
+        )
         fetched_page_urls.append(archive_link.url)
 
-        for release in parse_press_releases(html, base_url=archive_link.url):
-            if release.url in seen_release_urls:
-                continue
-            seen_release_urls.add(release.url)
-            releases.append(release)
+        if _contains_only_known_releases(page_releases, known_urls):
+            stop_reason = 'duplicate_release_detected'
+            break
+
+        _append_unseen_releases(
+            releases,
+            page_releases,
+            seen_release_urls,
+        )
+
+    if stop_reason is None:
+        stop_reason = _crawl_stop_reason_after_selected_pages(
+            selected_archive_links,
+            unique_archive_links,
+        )
 
     return PressReleaseCrawlResult(
         releases=tuple(releases),
         archive_month_links=tuple(archive_month_links),
         fetched_page_urls=tuple(fetched_page_urls),
+        stop_reason=stop_reason,
     )
 
 
@@ -253,15 +281,89 @@ def parse_archive_month_links(
     return items
 
 
+def _fetch_archive_page_releases(
+    archive_link: ArchiveMonthLink,
+    fetcher: Callable[[str], str],
+) -> list[PressRelease]:
+    """月別ページを取得して報道発表を抽出
+
+    Args:
+        archive_link: 取得対象の月別リンク
+        fetcher: URLを受け取りHTMLを返す取得関数
+
+    Returns:
+        月別ページから抽出した報道発表
+    """
+
+    html = fetcher(archive_link.url)
+    return parse_press_releases(html, base_url=archive_link.url)
+
+
+def _contains_only_known_releases(
+    releases: list[PressRelease],
+    known_release_urls: set[str],
+) -> bool:
+    """月別ページ内の発表がすべて取得済みか判定
+
+    Args:
+        releases: 月別ページから抽出した報道発表
+        known_release_urls: 取得済みとして扱う報道発表詳細ページURL
+
+    Returns:
+        発表が1件以上あり、すべて取得済みURLの場合はTrue
+    """
+
+    return bool(releases) and all(
+        release.url in known_release_urls for release in releases
+    )
+
+
+def _append_unseen_releases(
+    destination: list[PressRelease],
+    releases: list[PressRelease],
+    seen_release_urls: set[str],
+) -> None:
+    """未見の報道発表だけを追加
+
+    Args:
+        destination: 追加先の報道発表リスト
+        releases: 追加候補の報道発表
+        seen_release_urls: 追加済みとして扱う報道発表詳細ページURL
+    """
+
+    for release in releases:
+        if release.url in seen_release_urls:
+            continue
+        seen_release_urls.add(release.url)
+        destination.append(release)
+
+
+def _crawl_stop_reason_after_selected_pages(
+    selected_archive_links: list[ArchiveMonthLink],
+    archive_month_links: list[ArchiveMonthLink],
+) -> CrawlStopReason:
+    """選択済み月別ページを巡回し終えた場合の停止理由を判定
+
+    Args:
+        selected_archive_links: 実際に巡回対象として選んだ月別リンク
+        archive_month_links: URL重複を除外した月別リンク候補
+
+    Returns:
+        月別ページ数上限または候補枯渇を表す停止理由
+    """
+
+    if len(selected_archive_links) < len(archive_month_links):
+        return 'archive_month_limit_reached'
+    return 'archive_month_links_exhausted'
+
+
 def _unique_archive_month_links(
     archive_month_links: list[ArchiveMonthLink],
-    limit: int,
 ) -> list[ArchiveMonthLink]:
     """月別リンクの表示順を保ちながらURL重複を除外
 
     Args:
         archive_month_links: 月別リンク候補
-        limit: 返す月別リンク数
 
     Returns:
         URL重複を除外した月別リンク
@@ -271,14 +373,35 @@ def _unique_archive_month_links(
     seen_urls: set[str] = set()
 
     for link in archive_month_links:
-        if len(items) >= limit:
-            break
         if link.url in seen_urls:
             continue
         seen_urls.add(link.url)
         items.append(link)
 
     return items
+
+
+def _select_archive_month_links(
+    archive_month_links: list[ArchiveMonthLink],
+    limit: int,
+) -> list[ArchiveMonthLink]:
+    """年月の新しい順で巡回対象の月別リンクを選択
+
+    Args:
+        archive_month_links: 月別リンク候補
+        limit: 返す月別リンク数
+
+    Returns:
+        URL重複を除外し、年月降順に並べた月別リンク
+    """
+
+    unique_links = _unique_archive_month_links(archive_month_links)
+    latest_first_links = sorted(
+        unique_links,
+        key=lambda link: (link.year, link.month),
+        reverse=True,
+    )
+    return latest_first_links[:limit]
 
 
 def _attr_value(tag: Tag, name: str) -> str | None:

@@ -93,6 +93,7 @@ class ScraperCliTest(unittest.TestCase):
         self.assertEqual(payload['source_url'], str(html_path))
         self.assertEqual(payload['count'], 2)
         self.assertEqual(payload['fetched_page_urls'], [])
+        self.assertIsNone(payload['stop_reason'])
         self.assertEqual(payload['archive_month_link_count'], 2)
         self.assertEqual(
             payload['archive_month_link_count'],
@@ -156,6 +157,7 @@ class ScraperCliTest(unittest.TestCase):
             payload['fetched_page_urls'],
             ['https://example.com/press/index.html'],
         )
+        self.assertIsNone(payload['stop_reason'])
         self.assertEqual(
             payload['items'][0]['url'],
             'https://example.com/press/press_00001.html',
@@ -214,6 +216,10 @@ class ScraperCliTest(unittest.TestCase):
                 'https://example.com/press/202605.html',
                 'https://example.com/press/202604.html',
             ],
+        )
+        self.assertEqual(
+            payload['stop_reason'],
+            'archive_month_links_exhausted',
         )
         self.assertEqual(
             [item['title'] for item in payload['items']],

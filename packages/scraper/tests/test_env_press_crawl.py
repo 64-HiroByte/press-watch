@@ -9,9 +9,11 @@ MAY_ARCHIVE_PATH = '/press/202605.html'
 APRIL_ARCHIVE_PATH = '/press/202604.html'
 MAY_ARCHIVE_URL = 'https://example.com/press/202605.html'
 APRIL_ARCHIVE_URL = 'https://example.com/press/202604.html'
+KNOWN_RELEASE_URL = 'https://example.com/press/known.html'
 MAY_RELEASE_TITLE = '5月の発表'
 APRIL_RELEASE_TITLE = '4月の発表'
 DUPLICATED_RELEASE_TITLE = '重複する発表'
+KNOWN_RELEASE_TITLE = '既知の発表'
 
 
 def _press_release_block(
@@ -76,6 +78,17 @@ def _press_index_with_duplicated_archive_links() -> str:
     )
 
 
+def _press_index_with_unsorted_archive_links() -> str:
+    """古い月が先に表示されるトップページHTMLを生成"""
+
+    return ''.join(
+        [
+            _archive_month_link('2026年4月', APRIL_ARCHIVE_PATH),
+            _archive_month_link('2026年5月', MAY_ARCHIVE_PATH),
+        ]
+    )
+
+
 def _may_archive_page() -> str:
     """5月アーカイブページHTMLを生成"""
 
@@ -103,6 +116,16 @@ def _duplicated_release_archive_page() -> str:
         '2026年05月01日発表',
         '/press/duplicated.html',
         DUPLICATED_RELEASE_TITLE,
+    )
+
+
+def _known_release_archive_page() -> str:
+    """既知URLだけを含むアーカイブページHTMLを生成"""
+
+    return _press_release_block(
+        '2026年05月01日発表',
+        '/press/known.html',
+        KNOWN_RELEASE_TITLE,
     )
 
 
@@ -149,6 +172,10 @@ class EnvPressCrawlerTest(unittest.TestCase):
             [release.title for release in result.releases],
             [MAY_RELEASE_TITLE, APRIL_RELEASE_TITLE],
         )
+        self.assertEqual(
+            result.stop_reason,
+            'archive_month_links_exhausted',
+        )
 
     def test_crawl_press_releases_respects_archive_month_limit(self) -> None:
         """指定した月別ページ数だけを取得すること"""
@@ -179,6 +206,45 @@ class EnvPressCrawlerTest(unittest.TestCase):
         self.assertEqual(
             [release.title for release in result.releases],
             [MAY_RELEASE_TITLE],
+        )
+        self.assertEqual(
+            result.stop_reason,
+            'archive_month_limit_reached',
+        )
+
+    def test_crawl_press_releases_fetches_latest_month_first(self) -> None:
+        """HTML表示順に依存せず最新年月の月別ページから取得すること"""
+
+        html_by_url = {
+            START_URL: _press_index_with_unsorted_archive_links(),
+            MAY_ARCHIVE_URL: _may_archive_page(),
+        }
+        fetched_urls: list[str] = []
+
+        def fetcher(url: str) -> str:
+            fetched_urls.append(url)
+            return html_by_url[url]
+
+        result = crawl_press_releases(
+            start_url=START_URL,
+            archive_month_limit=1,
+            fetcher=fetcher,
+        )
+
+        self.assertEqual(
+            fetched_urls,
+            [
+                START_URL,
+                MAY_ARCHIVE_URL,
+            ],
+        )
+        self.assertEqual(
+            [release.title for release in result.releases],
+            [MAY_RELEASE_TITLE],
+        )
+        self.assertEqual(
+            result.stop_reason,
+            'archive_month_limit_reached',
         )
 
     def test_crawl_press_releases_deduplicates_page_and_release_urls(
@@ -214,6 +280,44 @@ class EnvPressCrawlerTest(unittest.TestCase):
         )
         self.assertEqual(len(result.releases), 1)
         self.assertEqual(result.releases[0].title, DUPLICATED_RELEASE_TITLE)
+        self.assertEqual(
+            result.stop_reason,
+            'archive_month_links_exhausted',
+        )
+
+    def test_crawl_press_releases_stops_when_page_is_all_known(
+        self,
+    ) -> None:
+        """月別ページの発表がすべて既知URLなら巡回を停止すること"""
+
+        html_by_url = {
+            START_URL: _press_index_with_archive_links(),
+            MAY_ARCHIVE_URL: _known_release_archive_page(),
+            APRIL_ARCHIVE_URL: _april_archive_page(),
+        }
+        fetched_urls: list[str] = []
+
+        def fetcher(url: str) -> str:
+            fetched_urls.append(url)
+            return html_by_url[url]
+
+        result = crawl_press_releases(
+            start_url=START_URL,
+            archive_month_limit=2,
+            fetcher=fetcher,
+            known_release_urls={KNOWN_RELEASE_URL},
+        )
+
+        self.assertEqual(
+            fetched_urls,
+            [
+                START_URL,
+                MAY_ARCHIVE_URL,
+            ],
+        )
+        self.assertEqual(result.fetched_page_urls, (MAY_ARCHIVE_URL,))
+        self.assertEqual(result.releases, ())
+        self.assertEqual(result.stop_reason, 'duplicate_release_detected')
 
     def test_crawl_press_releases_propagates_fetch_error(self) -> None:
         """月別ページ取得時の例外を呼び出し元へ伝播すること"""
