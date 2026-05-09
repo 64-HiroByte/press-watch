@@ -132,6 +132,7 @@ def _known_release_archive_page() -> str:
 class EnvPressCrawlerTest(unittest.TestCase):
     """環境省報道発表の月別ページ巡回処理のテスト"""
 
+    # 月別リンクを選び、月別ページから発表を取得する。
     def test_crawl_press_releases_fetches_archive_month_pages(self) -> None:
         """月別ページを指定件数だけ巡回して発表を取得すること"""
 
@@ -212,6 +213,7 @@ class EnvPressCrawlerTest(unittest.TestCase):
             'archive_month_limit_reached',
         )
 
+    # HTML上の並びや重複リンクに左右されないことを確認する。
     def test_crawl_press_releases_fetches_latest_month_first(self) -> None:
         """HTML表示順に依存せず最新年月の月別ページから取得すること"""
 
@@ -222,6 +224,7 @@ class EnvPressCrawlerTest(unittest.TestCase):
         fetched_urls: list[str] = []
 
         def fetcher(url: str) -> str:
+            # HTML上の表示順ではなく、年月順で取得されることを確認する。
             fetched_urls.append(url)
             return html_by_url[url]
 
@@ -261,6 +264,7 @@ class EnvPressCrawlerTest(unittest.TestCase):
         fetched_urls: list[str] = []
 
         def fetcher(url: str) -> str:
+            # 重複リンクがあっても、同じURL取得が増えないことを確認する。
             fetched_urls.append(url)
             return html_by_url[url]
 
@@ -285,6 +289,7 @@ class EnvPressCrawlerTest(unittest.TestCase):
             'archive_month_links_exhausted',
         )
 
+    # 既知URLだけの月に到達したら古い月へ進まない。
     def test_crawl_press_releases_stops_when_page_is_all_known(
         self,
     ) -> None:
@@ -298,6 +303,7 @@ class EnvPressCrawlerTest(unittest.TestCase):
         fetched_urls: list[str] = []
 
         def fetcher(url: str) -> str:
+            # 既知URLだけの月で止まり、古い月へ進まないことを確認する。
             fetched_urls.append(url)
             return html_by_url[url]
 
@@ -319,6 +325,7 @@ class EnvPressCrawlerTest(unittest.TestCase):
         self.assertEqual(result.releases, ())
         self.assertEqual(result.stop_reason, 'duplicate_release_detected')
 
+    # 呼び出し元がset以外を渡しても既知URLとして扱える。
     def test_crawl_press_releases_accepts_known_release_url_collection(
         self,
     ) -> None:
@@ -352,10 +359,12 @@ class EnvPressCrawlerTest(unittest.TestCase):
         self.assertEqual(result.releases, ())
         self.assertEqual(result.stop_reason, 'duplicate_release_detected')
 
+    # 取得失敗や不正な指定は呼び出し元へ明確に返す。
     def test_crawl_press_releases_propagates_fetch_error(self) -> None:
         """月別ページ取得時の例外を呼び出し元へ伝播すること"""
 
         def fetcher(url: str) -> str:
+            # index.html取得後の月別ページ取得だけを失敗させる。
             if url == START_URL:
                 return _press_index_with_archive_links()
             raise URLError('network unavailable')

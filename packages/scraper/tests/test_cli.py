@@ -79,6 +79,7 @@ def _run_cli_raw(args: list[str]) -> tuple[int, str, str]:
     stdout = io.StringIO()
     stderr = io.StringIO()
 
+    # main()を直接呼ぶため、CLI引数と標準出力をテスト内で差し替える。
     with patch('sys.argv', ['press-watch-scraper', *args]):
         with redirect_stdout(stdout), redirect_stderr(stderr):
             exit_code = cli.main()
@@ -89,9 +90,11 @@ def _run_cli_raw(args: list[str]) -> tuple[int, str, str]:
 class ScraperCliTest(unittest.TestCase):
     """スクレイパーCLIのテスト"""
 
+    # 入力元ごとのJSON出力と月別巡回の結果を確認する。
     def test_main_reads_html_from_file_and_outputs_json(self) -> None:
         """保存済みHTMLを読み込んでJSONを出力すること"""
 
+        # --from-fileで読み込ませるHTMLを、一時ディレクトリ内に用意する。
         with tempfile.TemporaryDirectory() as temp_dir:
             html_path = Path(temp_dir) / 'index.html'
             html_path.write_text(_press_index_html(), encoding='utf-8')
@@ -146,6 +149,7 @@ class ScraperCliTest(unittest.TestCase):
     def test_main_uses_url_fetch_when_from_file_is_not_given(self) -> None:
         """HTMLファイル未指定時にURLから取得すること"""
 
+        # 実HTTP取得を避け、CLIの引数解釈とJSON出力を確認する。
         with patch.object(cli, 'fetch_press_index_html') as mock_fetch:
             mock_fetch.return_value = _press_index_html()
 
@@ -195,9 +199,11 @@ class ScraperCliTest(unittest.TestCase):
         fetched_urls: list[str] = []
 
         def fetcher(url: str) -> str:
+            # どの順番でURL取得されたかも確認できるように記録する。
             fetched_urls.append(url)
             return html_by_url[url]
 
+        # URLごとに用意したHTMLを返し、実HTTP取得を避ける。
         with patch.object(cli, 'fetch_press_index_html', side_effect=fetcher):
             payload = _run_cli(
                 [
@@ -254,6 +260,7 @@ class ScraperCliTest(unittest.TestCase):
         def fetcher(url: str) -> str:
             return html_by_url[url]
 
+        # 月別リンクが複数ある状態で、limit=1の停止理由を確認する。
         with patch.object(cli, 'fetch_press_index_html', side_effect=fetcher):
             payload = _run_cli(
                 [
@@ -274,15 +281,18 @@ class ScraperCliTest(unittest.TestCase):
             'archive_month_limit_reached',
         )
 
+    # argparseが終了コード2で拒否するケースを確認する。
     def test_main_rejects_from_file_with_archive_month_limit(self) -> None:
         """保存済みHTMLと月別ページ巡回指定の併用を拒否すること"""
 
         stderr = io.StringIO()
 
+        # 存在するHTMLファイルを渡し、エラー理由が引数の組み合わせに絞られるようにする。
         with tempfile.TemporaryDirectory() as temp_dir:
             html_path = Path(temp_dir) / 'index.html'
             html_path.write_text(_press_index_html(), encoding='utf-8')
 
+            # argparseのエラー経路を見るため、sys.argvを直接差し替える。
             with patch(
                 'sys.argv',
                 [
@@ -294,6 +304,7 @@ class ScraperCliTest(unittest.TestCase):
                 ],
             ):
                 with redirect_stderr(stderr):
+                    # parser.errorはSystemExitを送出するため、ここで捕まえる。
                     with self.assertRaises(SystemExit) as raised:
                         cli.main()
 
@@ -308,6 +319,7 @@ class ScraperCliTest(unittest.TestCase):
 
         stderr = io.StringIO()
 
+        # argparseのエラー経路を見るため、sys.argvを直接差し替える。
         with patch(
             'sys.argv',
             [
@@ -326,11 +338,13 @@ class ScraperCliTest(unittest.TestCase):
             stderr.getvalue(),
         )
 
+    # 実行時エラーでは、stderr、終了コード、途中JSONを出さないことを確認する。
     def test_main_outputs_runtime_error_to_stderr_on_fetch_error(
         self,
     ) -> None:
         """HTML取得時の例外をstderrへ出して終了コード1を返すこと"""
 
+        # URL取得だけを失敗させ、CLIの失敗時出力を確認する。
         with patch.object(cli, 'fetch_press_index_html') as mock_fetch:
             mock_fetch.side_effect = URLError(FETCH_ERROR_REASON)
 
@@ -351,6 +365,7 @@ class ScraperCliTest(unittest.TestCase):
     def test_main_outputs_from_file_error_to_stderr(self) -> None:
         """保存済みHTML読み込み時の例外に対象パスを含めること"""
 
+        # 存在しないパスを安全に作るため、一時ディレクトリ内の名前を使う。
         with tempfile.TemporaryDirectory() as temp_dir:
             missing_path = Path(temp_dir) / 'missing-index.html'
 
@@ -367,6 +382,7 @@ class ScraperCliTest(unittest.TestCase):
     def test_main_uses_no_detail_for_empty_exception_reason(self) -> None:
         """例外理由が空ならno detailを出力すること"""
 
+        # 空メッセージの例外で、reasonの補完だけを確認する。
         with patch.object(cli, 'fetch_press_index_html') as mock_fetch:
             mock_fetch.side_effect = RuntimeError()
 
@@ -383,10 +399,12 @@ class ScraperCliTest(unittest.TestCase):
         """月別ページ取得時の例外で途中結果をJSON出力しないこと"""
 
         def fetcher(url: str) -> str:
+            # 最初のindex.html取得だけ成功させ、月別ページ取得で失敗させる。
             if url == 'https://example.com/press/index.html':
                 return _press_index_html()
             raise URLError(FETCH_ERROR_REASON)
 
+        # 失敗した月別ページURLがstderrのtargetになることも確認する。
         with patch.object(cli, 'fetch_press_index_html', side_effect=fetcher):
             exit_code, stdout, stderr = _run_cli_raw(
                 [
@@ -413,6 +431,7 @@ class ScraperCliTest(unittest.TestCase):
         with patch.object(cli, 'fetch_press_index_html') as mock_fetch:
             mock_fetch.return_value = _press_index_html()
 
+            # 取得後のJSON出力で失敗しても、同じエラー形式に揃える。
             with patch.object(cli.json, 'dumps') as mock_json_dumps:
                 mock_json_dumps.side_effect = RuntimeError(
                     'json output\nfailed'
@@ -433,6 +452,7 @@ class ScraperCliTest(unittest.TestCase):
         self.assertEqual(stderr.count('\n'), 1)
         self.assertNotIn('Traceback', stderr)
 
+    # ユーザー中断や明示終了は通常の実行時エラーにしない。
     def test_main_does_not_catch_keyboard_interrupt(self) -> None:
         """KeyboardInterruptは捕捉しないこと"""
 

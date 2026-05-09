@@ -62,6 +62,7 @@ def _read_fixture(name: str) -> str:
 class EnvPressParserTest(unittest.TestCase):
     """環境省報道発表HTMLのパース処理のテスト"""
 
+    # 対象要素がないHTMLでは空の結果を返す。
     def test_parse_press_releases_returns_empty_for_empty_html(
         self,
     ) -> None:
@@ -80,6 +81,7 @@ class EnvPressParserTest(unittest.TestCase):
 
         self.assertEqual(links, [])
 
+    # 実HTMLに近い構造から必要な項目を抽出する。
     def test_parse_env_press_sample_fixture(self) -> None:
         """実HTMLに近いfixtureから必要項目を抽出すること"""
 
@@ -124,6 +126,7 @@ class EnvPressParserTest(unittest.TestCase):
             EXPECTED_PREVIOUS_MONTH_URL,
         )
 
+    # 日付、タイトル、カテゴリ、URLの扱いを確認する。
     def test_parse_press_releases_with_grouped_date(self) -> None:
         """日付ごとにまとまった報道発表を抽出すること"""
 
@@ -424,6 +427,7 @@ class EnvPressParserTest(unittest.TestCase):
     def test_parse_archive_month_links(self) -> None:
         """月別アーカイブリンクを抽出すること"""
 
+        # 未来月などリンクがない月は、月別巡回候補に含めない。
         html = f'''
         {_archive_month_link('2026年5月')}
         <li class='c-table-month__col__item'>6月</li>
@@ -436,6 +440,7 @@ class EnvPressParserTest(unittest.TestCase):
         self.assertEqual(links[0].month, 5)
         self.assertEqual(links[0].url, EXPECTED_MONTH_URL)
 
+    # 有効な年月表記とURL正規化を確認する。
     def test_parse_archive_month_links_accepts_valid_month_values(
         self,
     ) -> None:
@@ -485,6 +490,7 @@ class EnvPressParserTest(unittest.TestCase):
         self.assertEqual(len(links), 1)
         self.assertEqual(links[0].url, 'https://example.com/press/202605.html')
 
+    # 不完全なHTMLや想定外の表記はスキップする。
     def test_parse_press_releases_skips_invalid_date(self) -> None:
         """無効な日付を含む発表をスキップすること"""
 
@@ -545,6 +551,7 @@ class EnvPressParserTest(unittest.TestCase):
         links = parse_archive_month_links(html)
 
         self.assertEqual(links, [])
+
 
 if __name__ == '__main__':
     unittest.main()
