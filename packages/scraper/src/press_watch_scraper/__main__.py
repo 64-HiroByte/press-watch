@@ -57,6 +57,8 @@ def main() -> int:
         str(args.from_file) if args.from_file is not None else args.url
     )
 
+    # 成功時だけJSONをstdoutへ出す。途中で失敗した場合は、
+    # 途中結果を出さずにstderrと終了コードで失敗を伝える。
     try:
         if args.archive_month_limit > 0:
             source_url = args.url
@@ -64,6 +66,7 @@ def main() -> int:
             def fetcher(url: str) -> str:
                 nonlocal error_target
 
+                # 取得に失敗したとき、stderrへそのURLを表示できるようにする。
                 error_target = url
                 return fetch_press_index_html(url)
 
@@ -134,6 +137,7 @@ def main() -> int:
 def _print_runtime_error(target: str, exc: Exception) -> None:
     """実行時エラーをCLI向けの簡潔な形式でstderrへ出力"""
 
+    # 例外メッセージに改行が含まれても、stderrでは1行で読める形にする。
     reason = ' '.join(str(exc).split()) or 'no detail'
     print(
         (

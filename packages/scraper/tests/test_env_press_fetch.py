@@ -43,9 +43,11 @@ class _Response:
 class EnvPressFetchTest(unittest.TestCase):
     """報道発表一覧HTML取得処理のテスト"""
 
+    # HTTP取得時のリクエスト条件とデコード方針を確認する。
     def test_fetch_press_index_html_sends_user_agent_and_timeout(self) -> None:
         """User-Agentとtimeoutを指定してHTTP取得すること"""
 
+        # 実HTTP通信を避け、urlopenに渡したRequestとtimeoutを確認する。
         with patch('press_watch_scraper.env_press.urlopen') as mock_urlopen:
             mock_urlopen.return_value = _Response(
                 EXPECTED_HTML_TEXT.encode('utf-8'),
@@ -108,6 +110,7 @@ class EnvPressFetchTest(unittest.TestCase):
 
         self.assertEqual(html, DECODE_REPLACEMENT_CHARACTER)
 
+    # 通信エラーは取得関数側で握りつぶさない。
     def test_fetch_press_index_html_propagates_urlopen_error(self) -> None:
         """urlopenの例外を呼び出し元へ伝播すること"""
 

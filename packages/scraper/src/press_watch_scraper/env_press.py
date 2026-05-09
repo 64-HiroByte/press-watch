@@ -94,7 +94,7 @@ class PressReleaseCrawlResult:
         releases: 月別アーカイブページから取得した報道発表
         archive_month_links: 巡回候補として抽出した月別リンク
         fetched_page_urls: 報道発表の取得対象として解析した月別ページURL
-        stop_reason: 巡回を終了した理由
+        stop_reason: 正常に巡回を終了した理由
     """
 
     releases: tuple[PressRelease, ...]
@@ -149,6 +149,8 @@ def crawl_press_releases(
             'archive_month_limit must be greater than or equal to 0'
         )
 
+    # 月別巡回では、index.htmlからは月別リンクだけを拾う。
+    # 報道発表データは各月別ページから取得する。
     index_html = fetcher(start_url)
     archive_month_links = parse_archive_month_links(
         index_html,
@@ -163,6 +165,7 @@ def crawl_press_releases(
     releases: list[PressRelease] = []
     fetched_page_urls: list[str] = []
     known_urls = set(known_release_urls or set())
+    # 同じ発表かどうかは、タイトルや日付ではなく詳細ページURLで判断する。
     seen_release_urls: set[str] = set(known_urls)
     stop_reason: CrawlStopReason | None = None
 
@@ -173,6 +176,8 @@ def crawl_press_releases(
         )
         fetched_page_urls.append(archive_link.url)
 
+        # 新しい月から順に見るため、既知URLだけの月に着いたら
+        # それより古い月も取得済みとみなして巡回を止める。
         if _contains_only_known_releases(page_releases, known_urls):
             stop_reason = 'duplicate_release_detected'
             break
@@ -183,6 +188,8 @@ def crawl_press_releases(
             seen_release_urls,
         )
 
+    # stop_reasonには正常に止まった理由だけを入れる。
+    # 取得や解析の失敗は、ここでは止めずに呼び出し元へ伝える。
     if stop_reason is None:
         stop_reason = _crawl_stop_reason_after_selected_pages(
             selected_archive_links,
@@ -215,6 +222,7 @@ def parse_press_releases(
     items: list[PressRelease] = []
 
     for block in soup.select(SELECTOR_PRESS_RELEASE_BLOCK):
+        # 日付見出しがないブロックは、発表日の判断ができないため扱わない。
         heading = block.select_one(SELECTOR_PRESS_DATE_HEADING)
         if heading is None:
             continue
@@ -264,6 +272,7 @@ def parse_archive_month_links(
     for link in soup.select(SELECTOR_ARCHIVE_MONTH_LINK):
         href = _attr_value(link, ATTR_HREF)
         aria_label = _attr_value(link, ATTR_ARIA_LABEL) or ''
+        # 巡回順を決めるため、aria-labelの年月表記を使う。
         match = _MONTH_LINK_RE.fullmatch(aria_label)
         if href is None or match is None:
             continue
@@ -373,6 +382,7 @@ def _unique_archive_month_links(
     seen_urls: set[str] = set()
 
     for link in archive_month_links:
+        # 同じ月別ページが複数箇所に出ても、取得は1回だけにする。
         if link.url in seen_urls:
             continue
         seen_urls.add(link.url)
@@ -396,6 +406,7 @@ def _select_archive_month_links(
     """
 
     unique_links = _unique_archive_month_links(archive_month_links)
+    # HTML上の並びに依存せず、年月の新しい順に巡回する。
     latest_first_links = sorted(
         unique_links,
         key=lambda link: (link.year, link.month),
