@@ -66,15 +66,24 @@ def _archive_page_html(title: str, href: str) -> str:
 def _run_cli(args: list[str]) -> dict[str, object]:
     """CLIを実行してJSON出力と終了コードを取得"""
 
-    stdout = io.StringIO()
+    exit_code, stdout, _stderr = _run_cli_raw(args)
 
-    with patch('sys.argv', ['press-watch-scraper', *args]):
-        with redirect_stdout(stdout):
-            exit_code = cli.main()
-
-    payload = json.loads(stdout.getvalue())
+    payload = json.loads(stdout)
     payload['exit_code'] = exit_code
     return payload
+
+
+def _run_cli_raw(args: list[str]) -> tuple[int, str, str]:
+    """CLIを実行して終了コード、stdout、stderrを取得"""
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+
+    with patch('sys.argv', ['press-watch-scraper', *args]):
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            exit_code = cli.main()
+
+    return exit_code, stdout.getvalue(), stderr.getvalue()
 
 
 class ScraperCliTest(unittest.TestCase):
@@ -208,7 +217,10 @@ class ScraperCliTest(unittest.TestCase):
                 'https://example.com/press/202604.html',
             ],
         )
-        self.assertEqual(payload['source_url'], 'https://example.com/press/index.html')
+        self.assertEqual(
+            payload['source_url'],
+            'https://example.com/press/index.html',
+        )
         self.assertEqual(payload['count'], 2)
         self.assertEqual(
             payload['fetched_page_urls'],
@@ -314,14 +326,132 @@ class ScraperCliTest(unittest.TestCase):
             stderr.getvalue(),
         )
 
-    def test_main_propagates_fetch_error(self) -> None:
-        """HTML取得時の例外を呼び出し元へ伝播すること"""
+    def test_main_outputs_runtime_error_to_stderr_on_fetch_error(
+        self,
+    ) -> None:
+        """HTML取得時の例外をstderrへ出して終了コード1を返すこと"""
 
         with patch.object(cli, 'fetch_press_index_html') as mock_fetch:
             mock_fetch.side_effect = URLError(FETCH_ERROR_REASON)
 
-            with self.assertRaises(URLError):
-                _run_cli(['--url', 'https://example.com/press/index.html'])
+            exit_code, stdout, stderr = _run_cli_raw(
+                ['--url', 'https://example.com/press/index.html']
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout, '')
+        self.assertIn(
+            'target=https://example.com/press/index.html',
+            stderr,
+        )
+        self.assertIn('exception=URLError', stderr)
+        self.assertIn(FETCH_ERROR_REASON, stderr)
+        self.assertNotIn('Traceback', stderr)
+
+    def test_main_outputs_from_file_error_to_stderr(self) -> None:
+        """保存済みHTML読み込み時の例外に対象パスを含めること"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            missing_path = Path(temp_dir) / 'missing-index.html'
+
+            exit_code, stdout, stderr = _run_cli_raw(
+                ['--from-file', str(missing_path)]
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout, '')
+        self.assertIn(f'target={missing_path}', stderr)
+        self.assertIn('exception=FileNotFoundError', stderr)
+        self.assertNotIn('Traceback', stderr)
+
+    def test_main_uses_no_detail_for_empty_exception_reason(self) -> None:
+        """例外理由が空ならno detailを出力すること"""
+
+        with patch.object(cli, 'fetch_press_index_html') as mock_fetch:
+            mock_fetch.side_effect = RuntimeError()
+
+            exit_code, stdout, stderr = _run_cli_raw(
+                ['--url', 'https://example.com/press/index.html']
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout, '')
+        self.assertIn('exception=RuntimeError', stderr)
+        self.assertIn('reason=no detail', stderr)
+
+    def test_main_stops_when_archive_month_page_fetch_fails(self) -> None:
+        """月別ページ取得時の例外で途中結果をJSON出力しないこと"""
+
+        def fetcher(url: str) -> str:
+            if url == 'https://example.com/press/index.html':
+                return _press_index_html()
+            raise URLError(FETCH_ERROR_REASON)
+
+        with patch.object(cli, 'fetch_press_index_html', side_effect=fetcher):
+            exit_code, stdout, stderr = _run_cli_raw(
+                [
+                    '--url',
+                    'https://example.com/press/index.html',
+                    '--archive-month-limit',
+                    '1',
+                ]
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout, '')
+        self.assertIn(
+            'target=https://example.com/press/202605.html',
+            stderr,
+        )
+        self.assertIn('exception=URLError', stderr)
+        self.assertIn(FETCH_ERROR_REASON, stderr)
+        self.assertNotIn('stop_reason', stderr)
+
+    def test_main_outputs_runtime_error_when_json_output_fails(self) -> None:
+        """JSON生成時の例外もstderrへ出して終了コード1を返すこと"""
+
+        with patch.object(cli, 'fetch_press_index_html') as mock_fetch:
+            mock_fetch.return_value = _press_index_html()
+
+            with patch.object(cli.json, 'dumps') as mock_json_dumps:
+                mock_json_dumps.side_effect = RuntimeError(
+                    'json output\nfailed'
+                )
+
+                exit_code, stdout, stderr = _run_cli_raw(
+                    ['--url', 'https://example.com/press/index.html']
+                )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout, '')
+        self.assertIn(
+            'target=https://example.com/press/index.html',
+            stderr,
+        )
+        self.assertIn('exception=RuntimeError', stderr)
+        self.assertIn('reason=json output failed', stderr)
+        self.assertEqual(stderr.count('\n'), 1)
+        self.assertNotIn('Traceback', stderr)
+
+    def test_main_does_not_catch_keyboard_interrupt(self) -> None:
+        """KeyboardInterruptは捕捉しないこと"""
+
+        with patch.object(cli, 'fetch_press_index_html') as mock_fetch:
+            mock_fetch.side_effect = KeyboardInterrupt()
+
+            with self.assertRaises(KeyboardInterrupt):
+                _run_cli_raw(['--url', 'https://example.com/press/index.html'])
+
+    def test_main_does_not_catch_system_exit(self) -> None:
+        """SystemExitは捕捉しないこと"""
+
+        with patch.object(cli, 'fetch_press_index_html') as mock_fetch:
+            mock_fetch.side_effect = SystemExit(99)
+
+            with self.assertRaises(SystemExit) as raised:
+                _run_cli_raw(['--url', 'https://example.com/press/index.html'])
+
+        self.assertEqual(raised.exception.code, 99)
 
 
 if __name__ == '__main__':
