@@ -41,17 +41,31 @@ def main() -> int:
     parser.add_argument(
         '--archive-month-limit',
         type=int,
-        default=0,
         help='Number of archive month pages to fetch after the index page.',
+    )
+    parser.add_argument(
+        '--all-archive-months',
+        action='store_true',
+        help='Fetch all archive month pages found on the index page.',
     )
     args = parser.parse_args()
 
-    if args.archive_month_limit < 0:
+    archive_month_limit = args.archive_month_limit
+    if archive_month_limit is not None and archive_month_limit < 0:
         parser.error(
             '--archive-month-limit must be greater than or equal to 0.'
         )
-    if args.from_file is not None and args.archive_month_limit > 0:
+    if args.from_file is not None and args.all_archive_months:
+        parser.error('--from-file cannot be used with --all-archive-months.')
+    has_archive_month_limit = (
+        archive_month_limit is not None and archive_month_limit > 0
+    )
+    if args.from_file is not None and has_archive_month_limit:
         parser.error('--from-file cannot be used with --archive-month-limit.')
+    if args.all_archive_months and archive_month_limit is not None:
+        parser.error(
+            '--archive-month-limit cannot be used with --all-archive-months.'
+        )
 
     error_target = (
         str(args.from_file) if args.from_file is not None else args.url
@@ -60,7 +74,8 @@ def main() -> int:
     # 成功時だけJSONをstdoutへ出す。途中で失敗した場合は、
     # 途中結果を出さずにstderrと終了コードで失敗を伝える。
     try:
-        if args.archive_month_limit > 0:
+        archive_month_limit_value = archive_month_limit or 0
+        if args.all_archive_months or archive_month_limit_value > 0:
             source_url = args.url
 
             def fetcher(url: str) -> str:
@@ -72,7 +87,8 @@ def main() -> int:
 
             crawl_result = crawl_press_releases(
                 start_url=args.url,
-                archive_month_limit=args.archive_month_limit,
+                archive_month_limit=archive_month_limit_value,
+                all_archive_months=args.all_archive_months,
                 fetcher=fetcher,
             )
             releases = crawl_result.releases

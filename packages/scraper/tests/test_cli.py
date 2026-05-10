@@ -10,11 +10,47 @@ from urllib.error import URLError
 from press_watch_scraper import __main__ as cli
 
 
+PROGRAM_NAME = 'press-watch-scraper'
+FETCH_PRESS_INDEX_HTML_ATTR = 'fetch_press_index_html'
 FETCH_ERROR_REASON = 'network unavailable'
+EXAMPLE_INDEX_URL = 'https://example.com/press/index.html'
+EXAMPLE_MAY_ARCHIVE_URL = 'https://example.com/press/202605.html'
+EXAMPLE_APRIL_ARCHIVE_URL = 'https://example.com/press/202604.html'
+EXAMPLE_FIRST_RELEASE_URL = 'https://example.com/press/press_00001.html'
+ENV_MAY_ARCHIVE_URL = 'https://www.env.go.jp/press/202605.html'
+ENV_APRIL_ARCHIVE_URL = 'https://www.env.go.jp/press/202604.html'
+FIRST_RELEASE_URL = 'https://www.env.go.jp/press/press_00001.html'
+SECOND_RELEASE_URL = 'https://www.env.go.jp/press/press_00002.html'
+MAY_RELEASE_TITLE = '5月の発表'
+APRIL_RELEASE_TITLE = '4月の発表'
+MAY_RELEASE_PATH = '/press/may.html'
+APRIL_RELEASE_PATH = '/press/april.html'
+ALL_ARCHIVE_MONTHS_ARG = '--all-archive-months'
+ARCHIVE_MONTH_LIMIT_ARG = '--archive-month-limit'
+FROM_FILE_ARG = '--from-file'
+URL_ARG = '--url'
+ARCHIVE_MONTH_LINKS_EXHAUSTED = 'archive_month_links_exhausted'
+ARCHIVE_MONTH_LIMIT_REACHED = 'archive_month_limit_reached'
+FROM_FILE_WITH_ARCHIVE_MONTH_LIMIT_ERROR = (
+    '--from-file cannot be used with --archive-month-limit'
+)
+FROM_FILE_WITH_ALL_ARCHIVE_MONTHS_ERROR = (
+    '--from-file cannot be used with --all-archive-months'
+)
+ARCHIVE_MONTH_LIMIT_WITH_ALL_ARCHIVE_MONTHS_ERROR = (
+    '--archive-month-limit cannot be used with --all-archive-months'
+)
+NEGATIVE_ARCHIVE_MONTH_LIMIT_ERROR = (
+    '--archive-month-limit must be greater than or equal to 0'
+)
 
 
 def _press_index_html() -> str:
-    """CLIテスト用の報道発表一覧HTMLを生成"""
+    """CLIテスト用の報道発表一覧HTMLを生成
+
+    Returns:
+        報道発表2件と月別リンク2件を含むHTML
+    """
 
     return '''
     <details class='p-press-release-list__block'>
@@ -47,7 +83,15 @@ def _press_index_html() -> str:
 
 
 def _archive_page_html(title: str, href: str) -> str:
-    """CLIテスト用の月別ページHTMLを生成"""
+    """CLIテスト用の月別ページHTMLを生成
+
+    Args:
+        title: 月別ページに含める報道発表タイトル
+        href: 報道発表リンクのhref属性値
+
+    Returns:
+        報道発表1件を含む月別ページHTML
+    """
 
     return f'''
     <details class='p-press-release-list__block'>
@@ -63,24 +107,131 @@ def _archive_page_html(title: str, href: str) -> str:
     '''
 
 
-def _run_cli(args: list[str]) -> dict[str, object]:
-    """CLIを実行してJSON出力と終了コードを取得"""
+def _archive_html_by_url(
+    *,
+    include_april: bool = True,
+) -> dict[str, str]:
+    """CLIテスト用の月別巡回HTMLをURLごとに用意
 
-    exit_code, stdout, _stderr = _run_cli_raw(args)
+    Args:
+        include_april: 4月の月別ページHTMLも含めるかどうか
+
+    Returns:
+        取得URLをキー、返却するHTMLを値にした辞書
+    """
+
+    html_by_url = {
+        EXAMPLE_INDEX_URL: _press_index_html(),
+        EXAMPLE_MAY_ARCHIVE_URL: _archive_page_html(
+            MAY_RELEASE_TITLE,
+            MAY_RELEASE_PATH,
+        ),
+    }
+    if include_april:
+        html_by_url[EXAMPLE_APRIL_ARCHIVE_URL] = _archive_page_html(
+            APRIL_RELEASE_TITLE,
+            APRIL_RELEASE_PATH,
+        )
+    return html_by_url
+
+
+def _url_args(url: str = EXAMPLE_INDEX_URL) -> tuple[str, str]:
+    """URL取得モードのCLI引数を生成
+
+    Args:
+        url: `--url` に渡す取得対象URL
+
+    Returns:
+        `--url` とURL値の引数列
+    """
+
+    return (URL_ARG, url)
+
+
+def _from_file_args(path: Path) -> tuple[str, str]:
+    """保存済みHTML読み込みモードのCLI引数を生成
+
+    Args:
+        path: `--from-file` に渡すHTMLファイルパス
+
+    Returns:
+        `--from-file` とファイルパス値の引数列
+    """
+
+    return (FROM_FILE_ARG, str(path))
+
+
+def _archive_month_limit_args(limit: int) -> tuple[str, str]:
+    """月別ページ数指定のCLI引数を生成
+
+    Args:
+        limit: `--archive-month-limit` に渡す月別ページ数
+
+    Returns:
+        `--archive-month-limit` と件数値の引数列
+    """
+
+    return (ARCHIVE_MONTH_LIMIT_ARG, str(limit))
+
+
+def _all_archive_months_args() -> tuple[str]:
+    """全月別ページ巡回のCLI引数を生成
+
+    Returns:
+        `--all-archive-months` の引数列
+    """
+
+    return (ALL_ARCHIVE_MONTHS_ARG,)
+
+
+def _cli_argv(*args: str) -> list[str]:
+    """sys.argv用にプログラム名付きのCLI引数列を生成
+
+    Args:
+        args: プログラム名を除くCLI引数
+
+    Returns:
+        先頭にプログラム名を付けた `sys.argv` 用の引数列
+    """
+
+    return [PROGRAM_NAME, *args]
+
+
+def _run_cli(*args: str) -> dict[str, object]:
+    """CLIを実行してJSON出力と終了コードを取得
+
+    Args:
+        args: プログラム名を除くCLI引数。`_url_args()` や
+            `_archive_month_limit_args()` などで生成した値を展開して渡す。
+            例: `*_url_args(), *_archive_month_limit_args(limit=1)`
+
+    Returns:
+        stdoutのJSONへ終了コードを加えた辞書
+    """
+
+    exit_code, stdout, _stderr = _run_cli_raw(*args)
 
     payload = json.loads(stdout)
     payload['exit_code'] = exit_code
     return payload
 
 
-def _run_cli_raw(args: list[str]) -> tuple[int, str, str]:
-    """CLIを実行して終了コード、stdout、stderrを取得"""
+def _run_cli_raw(*args: str) -> tuple[int, str, str]:
+    """CLIを実行して終了コード、stdout、stderrを取得
+
+    Args:
+        args: プログラム名を除くCLI引数。stderrを検証したい失敗系で使う。
+            例: `*_from_file_args(path), *_all_archive_months_args()`
+
+    Returns:
+        終了コード、stdout、stderr
+    """
 
     stdout = io.StringIO()
     stderr = io.StringIO()
 
     # main()を直接呼ぶため、CLI引数と標準出力をテスト内で差し替える。
-    with patch('sys.argv', ['press-watch-scraper', *args]):
+    with patch('sys.argv', _cli_argv(*args)):
         with redirect_stdout(stdout), redirect_stderr(stderr):
             exit_code = cli.main()
 
@@ -99,7 +250,7 @@ class ScraperCliTest(unittest.TestCase):
             html_path = Path(temp_dir) / 'index.html'
             html_path.write_text(_press_index_html(), encoding='utf-8')
 
-            payload = _run_cli(['--from-file', str(html_path)])
+            payload = _run_cli(*_from_file_args(html_path))
 
         self.assertEqual(payload['exit_code'], 0)
         self.assertEqual(payload['source_url'], str(html_path))
@@ -117,12 +268,12 @@ class ScraperCliTest(unittest.TestCase):
                 {
                     'year': 2026,
                     'month': 5,
-                    'url': 'https://www.env.go.jp/press/202605.html',
+                    'url': ENV_MAY_ARCHIVE_URL,
                 },
                 {
                     'year': 2026,
                     'month': 4,
-                    'url': 'https://www.env.go.jp/press/202604.html',
+                    'url': ENV_APRIL_ARCHIVE_URL,
                 },
             ],
         )
@@ -132,7 +283,7 @@ class ScraperCliTest(unittest.TestCase):
             {
                 'title': '1件目の発表',
                 'published_at': '2026-05-01',
-                'url': 'https://www.env.go.jp/press/press_00001.html',
+                'url': FIRST_RELEASE_URL,
                 'source_categories': ['総合政策'],
             },
         )
@@ -141,7 +292,7 @@ class ScraperCliTest(unittest.TestCase):
             {
                 'title': '2件目の発表',
                 'published_at': '2026-05-01',
-                'url': 'https://www.env.go.jp/press/press_00002.html',
+                'url': SECOND_RELEASE_URL,
                 'source_categories': [],
             },
         )
@@ -150,34 +301,30 @@ class ScraperCliTest(unittest.TestCase):
         """HTMLファイル未指定時にURLから取得すること"""
 
         # 実HTTP取得を避け、CLIの引数解釈とJSON出力を確認する。
-        with patch.object(cli, 'fetch_press_index_html') as mock_fetch:
+        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
             mock_fetch.return_value = _press_index_html()
 
-            payload = _run_cli(
-                ['--url', 'https://example.com/press/index.html']
-            )
+            payload = _run_cli(*_url_args())
 
-        mock_fetch.assert_called_once_with(
-            'https://example.com/press/index.html'
-        )
+        mock_fetch.assert_called_once_with(EXAMPLE_INDEX_URL)
         self.assertEqual(payload['exit_code'], 0)
         self.assertEqual(
             payload['source_url'],
-            'https://example.com/press/index.html',
+            EXAMPLE_INDEX_URL,
         )
         self.assertEqual(payload['count'], 2)
         self.assertEqual(
             payload['fetched_page_urls'],
-            ['https://example.com/press/index.html'],
+            [EXAMPLE_INDEX_URL],
         )
         self.assertIsNone(payload['stop_reason'])
         self.assertEqual(
             payload['items'][0]['url'],
-            'https://example.com/press/press_00001.html',
+            EXAMPLE_FIRST_RELEASE_URL,
         )
         self.assertEqual(
             payload['archive_month_links'][0]['url'],
-            'https://example.com/press/202605.html',
+            EXAMPLE_MAY_ARCHIVE_URL,
         )
 
     def test_main_fetches_archive_month_pages_when_limit_is_given(
@@ -185,17 +332,7 @@ class ScraperCliTest(unittest.TestCase):
     ) -> None:
         """月別ページ数指定時に月別ページ由来のJSONを出力すること"""
 
-        html_by_url = {
-            'https://example.com/press/index.html': _press_index_html(),
-            'https://example.com/press/202605.html': _archive_page_html(
-                '5月の発表',
-                '/press/may.html',
-            ),
-            'https://example.com/press/202604.html': _archive_page_html(
-                '4月の発表',
-                '/press/april.html',
-            ),
-        }
+        html_by_url = _archive_html_by_url()
         fetched_urls: list[str] = []
 
         def fetcher(url: str) -> str:
@@ -204,44 +341,44 @@ class ScraperCliTest(unittest.TestCase):
             return html_by_url[url]
 
         # URLごとに用意したHTMLを返し、実HTTP取得を避ける。
-        with patch.object(cli, 'fetch_press_index_html', side_effect=fetcher):
+        with patch.object(
+            cli,
+            FETCH_PRESS_INDEX_HTML_ATTR,
+            side_effect=fetcher,
+        ):
             payload = _run_cli(
-                [
-                    '--url',
-                    'https://example.com/press/index.html',
-                    '--archive-month-limit',
-                    '2',
-                ]
+                *_url_args(),
+                *_archive_month_limit_args(limit=2),
             )
 
         self.assertEqual(payload['exit_code'], 0)
         self.assertEqual(
             fetched_urls,
             [
-                'https://example.com/press/index.html',
-                'https://example.com/press/202605.html',
-                'https://example.com/press/202604.html',
+                EXAMPLE_INDEX_URL,
+                EXAMPLE_MAY_ARCHIVE_URL,
+                EXAMPLE_APRIL_ARCHIVE_URL,
             ],
         )
         self.assertEqual(
             payload['source_url'],
-            'https://example.com/press/index.html',
+            EXAMPLE_INDEX_URL,
         )
         self.assertEqual(payload['count'], 2)
         self.assertEqual(
             payload['fetched_page_urls'],
             [
-                'https://example.com/press/202605.html',
-                'https://example.com/press/202604.html',
+                EXAMPLE_MAY_ARCHIVE_URL,
+                EXAMPLE_APRIL_ARCHIVE_URL,
             ],
         )
         self.assertEqual(
             payload['stop_reason'],
-            'archive_month_links_exhausted',
+            ARCHIVE_MONTH_LINKS_EXHAUSTED,
         )
         self.assertEqual(
             [item['title'] for item in payload['items']],
-            ['5月の発表', '4月の発表'],
+            [MAY_RELEASE_TITLE, APRIL_RELEASE_TITLE],
         )
 
     def test_main_outputs_stop_reason_when_archive_month_limit_is_reached(
@@ -249,37 +386,101 @@ class ScraperCliTest(unittest.TestCase):
     ) -> None:
         """月別ページ数上限で止まった理由をJSONに出力すること"""
 
-        html_by_url = {
-            'https://example.com/press/index.html': _press_index_html(),
-            'https://example.com/press/202605.html': _archive_page_html(
-                '5月の発表',
-                '/press/may.html',
-            ),
-        }
+        html_by_url = _archive_html_by_url(include_april=False)
 
         def fetcher(url: str) -> str:
             return html_by_url[url]
 
         # 月別リンクが複数ある状態で、limit=1の停止理由を確認する。
-        with patch.object(cli, 'fetch_press_index_html', side_effect=fetcher):
+        with patch.object(
+            cli,
+            FETCH_PRESS_INDEX_HTML_ATTR,
+            side_effect=fetcher,
+        ):
             payload = _run_cli(
-                [
-                    '--url',
-                    'https://example.com/press/index.html',
-                    '--archive-month-limit',
-                    '1',
-                ]
+                *_url_args(),
+                *_archive_month_limit_args(limit=1),
             )
 
         self.assertEqual(payload['count'], 1)
         self.assertEqual(
             payload['fetched_page_urls'],
-            ['https://example.com/press/202605.html'],
+            [EXAMPLE_MAY_ARCHIVE_URL],
         )
         self.assertEqual(
             payload['stop_reason'],
-            'archive_month_limit_reached',
+            ARCHIVE_MONTH_LIMIT_REACHED,
         )
+
+    def test_main_fetches_all_archive_month_pages_when_flag_is_given(
+        self,
+    ) -> None:
+        """全件巡回フラグ指定時に月別ページ候補をすべて取得すること"""
+
+        html_by_url = _archive_html_by_url()
+        fetched_urls: list[str] = []
+
+        def fetcher(url: str) -> str:
+            fetched_urls.append(url)
+            return html_by_url[url]
+
+        with patch.object(
+            cli,
+            FETCH_PRESS_INDEX_HTML_ATTR,
+            side_effect=fetcher,
+        ):
+            payload = _run_cli(
+                *_url_args(),
+                *_all_archive_months_args(),
+            )
+
+        self.assertEqual(payload['exit_code'], 0)
+        self.assertEqual(
+            fetched_urls,
+            [
+                EXAMPLE_INDEX_URL,
+                EXAMPLE_MAY_ARCHIVE_URL,
+                EXAMPLE_APRIL_ARCHIVE_URL,
+            ],
+        )
+        self.assertEqual(payload['count'], 2)
+        self.assertEqual(
+            payload['fetched_page_urls'],
+            [
+                EXAMPLE_MAY_ARCHIVE_URL,
+                EXAMPLE_APRIL_ARCHIVE_URL,
+            ],
+        )
+        self.assertEqual(
+            payload['stop_reason'],
+            ARCHIVE_MONTH_LINKS_EXHAUSTED,
+        )
+        self.assertEqual(
+            [item['title'] for item in payload['items']],
+            [MAY_RELEASE_TITLE, APRIL_RELEASE_TITLE],
+        )
+
+    def test_main_keeps_single_page_mode_when_archive_month_limit_is_zero(
+        self,
+    ) -> None:
+        """月別ページ数0指定時は単一ページ解析のままにすること"""
+
+        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+            mock_fetch.return_value = _press_index_html()
+
+            payload = _run_cli(
+                *_url_args(),
+                *_archive_month_limit_args(limit=0),
+            )
+
+        mock_fetch.assert_called_once_with(EXAMPLE_INDEX_URL)
+        self.assertEqual(payload['exit_code'], 0)
+        self.assertEqual(payload['count'], 2)
+        self.assertEqual(
+            payload['fetched_page_urls'],
+            [EXAMPLE_INDEX_URL],
+        )
+        self.assertIsNone(payload['stop_reason'])
 
     # argparseが終了コード2で拒否するケースを確認する。
     def test_main_rejects_from_file_with_archive_month_limit(self) -> None:
@@ -295,13 +496,10 @@ class ScraperCliTest(unittest.TestCase):
             # argparseのエラー経路を見るため、sys.argvを直接差し替える。
             with patch(
                 'sys.argv',
-                [
-                    'press-watch-scraper',
-                    '--from-file',
-                    str(html_path),
-                    '--archive-month-limit',
-                    '1',
-                ],
+                _cli_argv(
+                    *_from_file_args(html_path),
+                    *_archive_month_limit_args(limit=1),
+                ),
             ):
                 with redirect_stderr(stderr):
                     # parser.errorはSystemExitを送出するため、ここで捕まえる。
@@ -310,7 +508,77 @@ class ScraperCliTest(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, 2)
         self.assertIn(
-            '--from-file cannot be used with --archive-month-limit',
+            FROM_FILE_WITH_ARCHIVE_MONTH_LIMIT_ERROR,
+            stderr.getvalue(),
+        )
+
+    def test_main_keeps_from_file_mode_when_archive_month_limit_is_zero(
+        self,
+    ) -> None:
+        """保存済みHTMLと月別ページ数0指定なら単一ページ解析にすること"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / 'index.html'
+            html_path.write_text(_press_index_html(), encoding='utf-8')
+
+            payload = _run_cli(
+                *_from_file_args(html_path),
+                *_archive_month_limit_args(limit=0),
+            )
+
+        self.assertEqual(payload['exit_code'], 0)
+        self.assertEqual(payload['source_url'], str(html_path))
+        self.assertEqual(payload['count'], 2)
+        self.assertEqual(payload['fetched_page_urls'], [])
+        self.assertIsNone(payload['stop_reason'])
+
+    def test_main_rejects_from_file_with_all_archive_months(self) -> None:
+        """保存済みHTMLと全件巡回フラグの併用を拒否すること"""
+
+        stderr = io.StringIO()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / 'index.html'
+            html_path.write_text(_press_index_html(), encoding='utf-8')
+
+            with patch(
+                'sys.argv',
+                _cli_argv(
+                    *_from_file_args(html_path),
+                    *_all_archive_months_args(),
+                ),
+            ):
+                with redirect_stderr(stderr):
+                    with self.assertRaises(SystemExit) as raised:
+                        cli.main()
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn(
+            FROM_FILE_WITH_ALL_ARCHIVE_MONTHS_ERROR,
+            stderr.getvalue(),
+        )
+
+    def test_main_rejects_archive_month_limit_with_all_archive_months(
+        self,
+    ) -> None:
+        """月別ページ数指定と全件巡回フラグの併用を拒否すること"""
+
+        stderr = io.StringIO()
+
+        with patch(
+            'sys.argv',
+            _cli_argv(
+                *_archive_month_limit_args(limit=0),
+                *_all_archive_months_args(),
+            ),
+        ):
+            with redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as raised:
+                    cli.main()
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn(
+            ARCHIVE_MONTH_LIMIT_WITH_ALL_ARCHIVE_MONTHS_ERROR,
             stderr.getvalue(),
         )
 
@@ -322,11 +590,7 @@ class ScraperCliTest(unittest.TestCase):
         # argparseのエラー経路を見るため、sys.argvを直接差し替える。
         with patch(
             'sys.argv',
-            [
-                'press-watch-scraper',
-                '--archive-month-limit',
-                '-1',
-            ],
+            _cli_argv(*_archive_month_limit_args(limit=-1)),
         ):
             with redirect_stderr(stderr):
                 with self.assertRaises(SystemExit) as raised:
@@ -334,7 +598,7 @@ class ScraperCliTest(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, 2)
         self.assertIn(
-            '--archive-month-limit must be greater than or equal to 0',
+            NEGATIVE_ARCHIVE_MONTH_LIMIT_ERROR,
             stderr.getvalue(),
         )
 
@@ -345,17 +609,17 @@ class ScraperCliTest(unittest.TestCase):
         """HTML取得時の例外をstderrへ出して終了コード1を返すこと"""
 
         # URL取得だけを失敗させ、CLIの失敗時出力を確認する。
-        with patch.object(cli, 'fetch_press_index_html') as mock_fetch:
+        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
             mock_fetch.side_effect = URLError(FETCH_ERROR_REASON)
 
             exit_code, stdout, stderr = _run_cli_raw(
-                ['--url', 'https://example.com/press/index.html']
+                *_url_args()
             )
 
         self.assertEqual(exit_code, 1)
         self.assertEqual(stdout, '')
         self.assertIn(
-            'target=https://example.com/press/index.html',
+            f'target={EXAMPLE_INDEX_URL}',
             stderr,
         )
         self.assertIn('exception=URLError', stderr)
@@ -370,7 +634,7 @@ class ScraperCliTest(unittest.TestCase):
             missing_path = Path(temp_dir) / 'missing-index.html'
 
             exit_code, stdout, stderr = _run_cli_raw(
-                ['--from-file', str(missing_path)]
+                *_from_file_args(missing_path)
             )
 
         self.assertEqual(exit_code, 1)
@@ -383,11 +647,11 @@ class ScraperCliTest(unittest.TestCase):
         """例外理由が空ならno detailを出力すること"""
 
         # 空メッセージの例外で、reasonの補完だけを確認する。
-        with patch.object(cli, 'fetch_press_index_html') as mock_fetch:
+        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
             mock_fetch.side_effect = RuntimeError()
 
             exit_code, stdout, stderr = _run_cli_raw(
-                ['--url', 'https://example.com/press/index.html']
+                *_url_args()
             )
 
         self.assertEqual(exit_code, 1)
@@ -400,25 +664,25 @@ class ScraperCliTest(unittest.TestCase):
 
         def fetcher(url: str) -> str:
             # 最初のindex.html取得だけ成功させ、月別ページ取得で失敗させる。
-            if url == 'https://example.com/press/index.html':
+            if url == EXAMPLE_INDEX_URL:
                 return _press_index_html()
             raise URLError(FETCH_ERROR_REASON)
 
         # 失敗した月別ページURLがstderrのtargetになることも確認する。
-        with patch.object(cli, 'fetch_press_index_html', side_effect=fetcher):
+        with patch.object(
+            cli,
+            FETCH_PRESS_INDEX_HTML_ATTR,
+            side_effect=fetcher,
+        ):
             exit_code, stdout, stderr = _run_cli_raw(
-                [
-                    '--url',
-                    'https://example.com/press/index.html',
-                    '--archive-month-limit',
-                    '1',
-                ]
+                *_url_args(),
+                *_archive_month_limit_args(limit=1),
             )
 
         self.assertEqual(exit_code, 1)
         self.assertEqual(stdout, '')
         self.assertIn(
-            'target=https://example.com/press/202605.html',
+            f'target={EXAMPLE_MAY_ARCHIVE_URL}',
             stderr,
         )
         self.assertIn('exception=URLError', stderr)
@@ -428,7 +692,7 @@ class ScraperCliTest(unittest.TestCase):
     def test_main_outputs_runtime_error_when_json_output_fails(self) -> None:
         """JSON生成時の例外もstderrへ出して終了コード1を返すこと"""
 
-        with patch.object(cli, 'fetch_press_index_html') as mock_fetch:
+        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
             mock_fetch.return_value = _press_index_html()
 
             # 取得後のJSON出力で失敗しても、同じエラー形式に揃える。
@@ -438,13 +702,13 @@ class ScraperCliTest(unittest.TestCase):
                 )
 
                 exit_code, stdout, stderr = _run_cli_raw(
-                    ['--url', 'https://example.com/press/index.html']
+                    *_url_args()
                 )
 
         self.assertEqual(exit_code, 1)
         self.assertEqual(stdout, '')
         self.assertIn(
-            'target=https://example.com/press/index.html',
+            f'target={EXAMPLE_INDEX_URL}',
             stderr,
         )
         self.assertIn('exception=RuntimeError', stderr)
@@ -456,20 +720,20 @@ class ScraperCliTest(unittest.TestCase):
     def test_main_does_not_catch_keyboard_interrupt(self) -> None:
         """KeyboardInterruptは捕捉しないこと"""
 
-        with patch.object(cli, 'fetch_press_index_html') as mock_fetch:
+        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
             mock_fetch.side_effect = KeyboardInterrupt()
 
             with self.assertRaises(KeyboardInterrupt):
-                _run_cli_raw(['--url', 'https://example.com/press/index.html'])
+                _run_cli_raw(*_url_args())
 
     def test_main_does_not_catch_system_exit(self) -> None:
         """SystemExitは捕捉しないこと"""
 
-        with patch.object(cli, 'fetch_press_index_html') as mock_fetch:
+        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
             mock_fetch.side_effect = SystemExit(99)
 
             with self.assertRaises(SystemExit) as raised:
-                _run_cli_raw(['--url', 'https://example.com/press/index.html'])
+                _run_cli_raw(*_url_args())
 
         self.assertEqual(raised.exception.code, 99)
 
