@@ -512,6 +512,26 @@ class ScraperCliTest(unittest.TestCase):
             stderr.getvalue(),
         )
 
+    def test_main_keeps_from_file_mode_when_archive_month_limit_is_zero(
+        self,
+    ) -> None:
+        """保存済みHTMLと月別ページ数0指定なら単一ページ解析にすること"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / 'index.html'
+            html_path.write_text(_press_index_html(), encoding='utf-8')
+
+            payload = _run_cli(
+                *_from_file_args(html_path),
+                *_archive_month_limit_args(limit=0),
+            )
+
+        self.assertEqual(payload['exit_code'], 0)
+        self.assertEqual(payload['source_url'], str(html_path))
+        self.assertEqual(payload['count'], 2)
+        self.assertEqual(payload['fetched_page_urls'], [])
+        self.assertIsNone(payload['stop_reason'])
+
     def test_main_rejects_from_file_with_all_archive_months(self) -> None:
         """保存済みHTMLと全件巡回フラグの併用を拒否すること"""
 

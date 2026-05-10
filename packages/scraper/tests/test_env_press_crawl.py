@@ -492,6 +492,17 @@ class EnvPressCrawlerTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             crawl_press_releases(archive_month_limit=-1)
 
+    def test_crawl_press_releases_rejects_limit_with_all_archive_months(
+        self,
+    ) -> None:
+        """件数指定と全件巡回指定の併用を拒否すること"""
+
+        with self.assertRaises(ValueError):
+            crawl_press_releases(
+                archive_month_limit=1,
+                all_archive_months=True,
+            )
+
 
 if __name__ == '__main__':
     unittest.main()
