@@ -126,14 +126,16 @@ def fetch_press_index_html(
 def crawl_press_releases(
     start_url: str = PRESS_INDEX_URL,
     archive_month_limit: int = 0,
+    all_archive_months: bool = False,
     fetcher: Callable[[str], str] = fetch_press_index_html,
     known_release_urls: Collection[str] | None = None,
 ) -> PressReleaseCrawlResult:
-    """月別アーカイブページを指定件数だけ巡回して報道発表を取得
+    """月別アーカイブページを巡回して報道発表を取得
 
     Args:
         start_url: 月別リンクを抽出する報道発表一覧ページURL
         archive_month_limit: 取得する月別アーカイブページ数
+        all_archive_months: 月別リンク候補をすべて巡回するかどうか
         fetcher: URLを受け取りHTMLを返す取得関数
         known_release_urls: 取得済みとして扱う報道発表詳細ページURL
 
@@ -141,12 +143,16 @@ def crawl_press_releases(
         月別アーカイブページから取得した報道発表と巡回情報
 
     Raises:
-        ValueError: archive_month_limitが負の場合
+        ValueError: 月別ページ数指定が不正な場合
     """
 
     if archive_month_limit < 0:
         raise ValueError(
             'archive_month_limit must be greater than or equal to 0'
+        )
+    if all_archive_months and archive_month_limit > 0:
+        raise ValueError(
+            'archive_month_limit cannot be used with all_archive_months'
         )
 
     # 月別巡回では、index.htmlからは月別リンクだけを拾う。
@@ -159,7 +165,7 @@ def crawl_press_releases(
     unique_archive_links = _unique_archive_month_links(archive_month_links)
     selected_archive_links = _select_archive_month_links(
         archive_month_links,
-        limit=archive_month_limit,
+        limit=None if all_archive_months else archive_month_limit,
     )
 
     releases: list[PressRelease] = []
@@ -393,13 +399,13 @@ def _unique_archive_month_links(
 
 def _select_archive_month_links(
     archive_month_links: list[ArchiveMonthLink],
-    limit: int,
+    limit: int | None,
 ) -> list[ArchiveMonthLink]:
     """年月の新しい順で巡回対象の月別リンクを選択
 
     Args:
         archive_month_links: 月別リンク候補
-        limit: 返す月別リンク数
+        limit: 返す月別リンク数、Noneの場合は全件
 
     Returns:
         URL重複を除外し、年月降順に並べた月別リンク
@@ -412,6 +418,8 @@ def _select_archive_month_links(
         key=lambda link: (link.year, link.month),
         reverse=True,
     )
+    if limit is None:
+        return latest_first_links
     return latest_first_links[:limit]
 
 
