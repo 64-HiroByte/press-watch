@@ -105,6 +105,27 @@ PYTHONPATH=src uv run python -m press_watch_scraper --from-file tests/fixtures/e
 cd ../..
 ```
 
+取得結果をローカルで確認したい場合は、CLI の stdout JSON を一時ファイルへリダイレクトします。現段階の最終保存先は PostgreSQL の予定なので、JSON ファイル保存は本格機能ではなく、DB 保存実装前の確認手段として扱います。
+
+```bash
+cd packages/scraper
+PYTHONPATH=src uv run python -m press_watch_scraper --from-file tests/fixtures/env_press_index_sample.html > /tmp/env_press_sample.json
+python -m json.tool /tmp/env_press_sample.json
+cd ../..
+```
+
+全件取得は再取得コストが高いため、DB 保存が整うまでは検証用 JSON スナップショットを残せるようにします。`--output` はまだ未実装ですが、次のスクレイパー実装では、成功時の stdout JSON と同じ内容を指定ファイルにも保存する方針です。
+
+実装後の想定コマンドは次の形です。
+
+```bash
+cd packages/scraper
+PYTHONPATH=src uv run python -m press_watch_scraper --all-archive-months --output /tmp/env_press_all.json
+cd ../..
+```
+
+`--output` は開発・検証用の補助機能として扱い、差分保存や履歴管理は行いません。取得件数、重複URLの有無、カテゴリ、`stop_reason` などを後から確認するためのスナップショット用途に限定します。
+
 実HTTPで環境省の報道発表一覧を取得する場合は、`--from-file` を外します。月別ページを巡回する場合は、意図しない大量取得を避けるため `--archive-month-limit N` または `--all-archive-months` を明示します。
 
 Docker Compose の通常起動には scraper はまだ含めていません。
