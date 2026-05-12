@@ -19,6 +19,7 @@ from .env_press import (
 
 
 JSON_OUTPUT_ENCODING = 'utf-8'
+OUTPUT_PARENT_NOT_FOUND_REASON = 'output parent directory does not exist'
 
 
 def main() -> int:
@@ -82,6 +83,15 @@ def main() -> int:
     # 成功時だけJSONをstdoutへ出す。途中で失敗した場合は、
     # 途中結果を出さずにstderrと終了コードで失敗を伝える。
     try:
+        if args.output is not None:
+            error_target = str(args.output)
+            _validate_output_path(args.output)
+            error_target = (
+                str(args.from_file)
+                if args.from_file is not None
+                else args.url
+            )
+
         archive_month_limit_value = archive_month_limit or 0
         if args.all_archive_months or archive_month_limit_value > 0:
             source_url = args.url
@@ -164,6 +174,22 @@ def main() -> int:
     except Exception as exc:
         _print_runtime_error(error_target, exc)
         return 1
+
+
+def _validate_output_path(path: Path) -> None:
+    """JSONスナップショット出力先の事前検証
+
+    Args:
+        path: `--output` に指定された出力先パス
+
+    Raises:
+        FileNotFoundError: 親ディレクトリが存在しない場合
+    """
+
+    if not path.parent.exists():
+        raise FileNotFoundError(
+            f'{OUTPUT_PARENT_NOT_FOUND_REASON}: {path.parent}'
+        )
 
 
 def _print_runtime_error(target: str, exc: Exception) -> None:
