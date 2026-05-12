@@ -13,6 +13,7 @@ from press_watch_scraper import __main__ as cli
 PROGRAM_NAME = 'press-watch-scraper'
 FETCH_PRESS_INDEX_HTML_ATTR = 'fetch_press_index_html'
 FETCH_ERROR_REASON = 'network unavailable'
+EXISTING_OUTPUT_JSON = '{"status": "existing"}\n'
 EXAMPLE_INDEX_URL = 'https://example.com/press/index.html'
 EXAMPLE_MAY_ARCHIVE_URL = 'https://example.com/press/202605.html'
 EXAMPLE_APRIL_ARCHIVE_URL = 'https://example.com/press/202604.html'
@@ -28,6 +29,7 @@ APRIL_RELEASE_PATH = '/press/april.html'
 ALL_ARCHIVE_MONTHS_ARG = '--all-archive-months'
 ARCHIVE_MONTH_LIMIT_ARG = '--archive-month-limit'
 FROM_FILE_ARG = '--from-file'
+OUTPUT_ARG = '--output'
 URL_ARG = '--url'
 ARCHIVE_MONTH_LINKS_EXHAUSTED = 'archive_month_links_exhausted'
 ARCHIVE_MONTH_LIMIT_REACHED = 'archive_month_limit_reached'
@@ -159,6 +161,19 @@ def _from_file_args(path: Path) -> tuple[str, str]:
     """
 
     return (FROM_FILE_ARG, str(path))
+
+
+def _output_args(path: Path) -> tuple[str, str]:
+    """JSONスナップショット出力先のCLI引数を生成
+
+    Args:
+        path: `--output` に渡す出力先パス
+
+    Returns:
+        `--output` と出力先パス値の引数列
+    """
+
+    return (OUTPUT_ARG, str(path))
 
 
 def _archive_month_limit_args(limit: int) -> tuple[str, str]:
@@ -296,6 +311,28 @@ class ScraperCliTest(unittest.TestCase):
                 'source_categories': [],
             },
         )
+
+    def test_main_writes_same_json_to_output_file(self) -> None:
+        """指定されたパスへstdoutと同じJSONを保存すること"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / 'index.html'
+            output_path = Path(temp_dir) / 'snapshot.json'
+            html_path.write_text(_press_index_html(), encoding='utf-8')
+
+            exit_code, stdout, stderr = _run_cli_raw(
+                *_from_file_args(html_path),
+                *_output_args(output_path),
+            )
+
+            saved_json = output_path.read_text(
+                encoding=cli.JSON_OUTPUT_ENCODING,
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stderr, '')
+        self.assertEqual(saved_json, stdout)
+        self.assertEqual(json.loads(saved_json), json.loads(stdout))
 
     def test_main_uses_url_fetch_when_from_file_is_not_given(self) -> None:
         """HTMLファイル未指定時にURLから取得すること"""
@@ -625,6 +662,54 @@ class ScraperCliTest(unittest.TestCase):
         self.assertIn('exception=URLError', stderr)
         self.assertIn(FETCH_ERROR_REASON, stderr)
         self.assertNotIn('Traceback', stderr)
+
+    def test_main_does_not_create_output_file_on_fetch_error(self) -> None:
+        """HTML取得失敗時にJSONスナップショットを作成しないこと"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / 'snapshot.json'
+
+            with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+                mock_fetch.side_effect = URLError(FETCH_ERROR_REASON)
+
+                exit_code, stdout, stderr = _run_cli_raw(
+                    *_url_args(),
+                    *_output_args(output_path),
+                )
+
+            output_exists = output_path.exists()
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout, '')
+        self.assertIn('exception=URLError', stderr)
+        self.assertFalse(output_exists)
+
+    def test_main_keeps_existing_output_file_on_fetch_error(self) -> None:
+        """HTML取得失敗時に既存スナップショットを変更しないこと"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / 'snapshot.json'
+            output_path.write_text(
+                EXISTING_OUTPUT_JSON,
+                encoding=cli.JSON_OUTPUT_ENCODING,
+            )
+
+            with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+                mock_fetch.side_effect = URLError(FETCH_ERROR_REASON)
+
+                exit_code, stdout, stderr = _run_cli_raw(
+                    *_url_args(),
+                    *_output_args(output_path),
+                )
+
+            saved_json = output_path.read_text(
+                encoding=cli.JSON_OUTPUT_ENCODING,
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout, '')
+        self.assertIn('exception=URLError', stderr)
+        self.assertEqual(saved_json, EXISTING_OUTPUT_JSON)
 
     def test_main_outputs_from_file_error_to_stderr(self) -> None:
         """保存済みHTML読み込み時の例外に対象パスを含めること"""
