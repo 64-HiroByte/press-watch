@@ -18,6 +18,9 @@ from .env_press import (
 )
 
 
+JSON_OUTPUT_ENCODING = 'utf-8'
+
+
 def main() -> int:
     """報道発表一覧HTMLを取得または読み込み、解析結果をJSONで出力
 
@@ -47,6 +50,11 @@ def main() -> int:
         '--all-archive-months',
         action='store_true',
         help='Fetch all archive month pages found on the index page.',
+    )
+    parser.add_argument(
+        '--output',
+        type=Path,
+        help='Write the same JSON snapshot as stdout to this path.',
     )
     args = parser.parse_args()
 
@@ -129,21 +137,29 @@ def main() -> int:
             asdict(item) for item in archive_month_links
         ]
 
-        print(
-            json.dumps(
-                {
-                    'source_url': source_url,
-                    'count': len(releases),
-                    'archive_month_link_count': len(archive_month_links),
-                    'archive_month_links': archive_month_link_items,
-                    'fetched_page_urls': fetched_page_urls,
-                    'stop_reason': stop_reason,
-                    'items': items,
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
+        json_text = json.dumps(
+            {
+                'source_url': source_url,
+                'count': len(releases),
+                'archive_month_link_count': len(archive_month_links),
+                'archive_month_links': archive_month_link_items,
+                'fetched_page_urls': fetched_page_urls,
+                'stop_reason': stop_reason,
+                'items': items,
+            },
+            ensure_ascii=False,
+            indent=2,
         )
+        json_output = f'{json_text}\n'
+
+        if args.output is not None:
+            error_target = str(args.output)
+            args.output.write_text(
+                json_output,
+                encoding=JSON_OUTPUT_ENCODING,
+            )
+
+        sys.stdout.write(json_output)
         return 0
     except Exception as exc:
         _print_runtime_error(error_target, exc)
