@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
@@ -146,6 +147,43 @@ def _archive_html_by_url(
             APRIL_RELEASE_PATH,
         )
     return html_by_url
+
+
+def _html_fetcher(html_by_url: dict[str, str]) -> Callable[[str], str]:
+    """URLごとのHTMLを返すCLIテスト用fetcherを生成
+
+    Args:
+        html_by_url: 取得URLごとに返すHTMLの辞書
+
+    Returns:
+        URLを受け取り、対応するHTMLを返す関数
+    """
+
+    def fetcher(url: str) -> str:
+        return html_by_url[url]
+
+    return fetcher
+
+
+def _recording_html_fetcher(
+    html_by_url: dict[str, str],
+    fetched_urls: list[str],
+) -> Callable[[str], str]:
+    """取得URLを記録するCLIテスト用fetcherを生成
+
+    Args:
+        html_by_url: 取得URLごとに返すHTMLの辞書
+        fetched_urls: fetcherが呼ばれたURLの記録先リスト
+
+    Returns:
+        URLを受け取り、記録後に対応するHTMLを返す関数
+    """
+
+    def fetcher(url: str) -> str:
+        fetched_urls.append(url)
+        return html_by_url[url]
+
+    return fetcher
 
 
 def _url_args(url: str = EXAMPLE_INDEX_URL) -> tuple[str, str]:
@@ -383,16 +421,11 @@ class ScraperCliTest(unittest.TestCase):
         html_by_url = _archive_html_by_url()
         fetched_urls: list[str] = []
 
-        def fetcher(url: str) -> str:
-            # どの順番でURL取得されたかも確認できるように記録する。
-            fetched_urls.append(url)
-            return html_by_url[url]
-
         # URLごとに用意したHTMLを返し、実HTTP取得を避ける。
         with patch.object(
             cli,
             FETCH_PRESS_INDEX_HTML_ATTR,
-            side_effect=fetcher,
+            side_effect=_recording_html_fetcher(html_by_url, fetched_urls),
         ):
             payload = _run_cli(
                 *_url_args(),
@@ -436,14 +469,11 @@ class ScraperCliTest(unittest.TestCase):
 
         html_by_url = _archive_html_by_url(include_april=False)
 
-        def fetcher(url: str) -> str:
-            return html_by_url[url]
-
         # 月別リンクが複数ある状態で、limit=1の停止理由を確認する。
         with patch.object(
             cli,
             FETCH_PRESS_INDEX_HTML_ATTR,
-            side_effect=fetcher,
+            side_effect=_html_fetcher(html_by_url),
         ):
             payload = _run_cli(
                 *_url_args(),
@@ -468,14 +498,10 @@ class ScraperCliTest(unittest.TestCase):
         html_by_url = _archive_html_by_url()
         fetched_urls: list[str] = []
 
-        def fetcher(url: str) -> str:
-            fetched_urls.append(url)
-            return html_by_url[url]
-
         with patch.object(
             cli,
             FETCH_PRESS_INDEX_HTML_ATTR,
-            side_effect=fetcher,
+            side_effect=_recording_html_fetcher(html_by_url, fetched_urls),
         ):
             payload = _run_cli(
                 *_url_args(),

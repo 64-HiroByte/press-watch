@@ -11,6 +11,9 @@ import sys
 from .env_press import (
     CHARSET,
     PRESS_INDEX_URL,
+    ArchiveMonthLink,
+    CrawlStopReason,
+    PressRelease,
     crawl_press_releases,
     fetch_press_index_html,
     parse_archive_month_links,
@@ -136,31 +139,13 @@ def main() -> int:
             fetched_page_urls = [source_url]
             stop_reason = None
 
-        items = [
-            {
-                **asdict(item),
-                'published_at': item.published_at.isoformat(),
-            }
-            for item in releases
-        ]
-        archive_month_link_items = [
-            asdict(item) for item in archive_month_links
-        ]
-
-        json_text = json.dumps(
-            {
-                'source_url': source_url,
-                'count': len(releases),
-                'archive_month_link_count': len(archive_month_links),
-                'archive_month_links': archive_month_link_items,
-                'fetched_page_urls': fetched_page_urls,
-                'stop_reason': stop_reason,
-                'items': items,
-            },
-            ensure_ascii=False,
-            indent=2,
+        json_output = _build_snapshot_json(
+            source_url=source_url,
+            releases=releases,
+            archive_month_links=archive_month_links,
+            fetched_page_urls=fetched_page_urls,
+            stop_reason=stop_reason,
         )
-        json_output = f'{json_text}\n'
 
         if args.output is not None:
             error_target = str(args.output)
@@ -174,6 +159,54 @@ def main() -> int:
     except Exception as exc:
         _print_runtime_error(error_target, exc)
         return 1
+
+
+def _build_snapshot_json(
+    *,
+    source_url: str,
+    releases: list[PressRelease] | tuple[PressRelease, ...],
+    archive_month_links: list[ArchiveMonthLink] | tuple[ArchiveMonthLink, ...],
+    fetched_page_urls: list[str] | tuple[str, ...],
+    stop_reason: CrawlStopReason | None,
+) -> str:
+    """CLIが出力するJSONスナップショット文字列を生成
+
+    Args:
+        source_url: CLI入力元としてJSONへ記録するURLまたはファイルパス
+        releases: JSONのitemsへ変換する報道発表
+        archive_month_links: JSONへ含める月別リンク候補
+        fetched_page_urls: 報道発表取得対象として解析したページURL
+        stop_reason: 月別巡回が正常終了した理由
+
+    Returns:
+        stdoutと `--output` に共通で使う改行付きJSON文字列
+    """
+
+    items = [
+        {
+            **asdict(item),
+            'published_at': item.published_at.isoformat(),
+        }
+        for item in releases
+    ]
+    archive_month_link_items = [
+        asdict(item) for item in archive_month_links
+    ]
+
+    json_text = json.dumps(
+        {
+            'source_url': source_url,
+            'count': len(releases),
+            'archive_month_link_count': len(archive_month_links),
+            'archive_month_links': archive_month_link_items,
+            'fetched_page_urls': fetched_page_urls,
+            'stop_reason': stop_reason,
+            'items': items,
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+    return f'{json_text}\n'
 
 
 def _validate_output_path(path: Path) -> None:
