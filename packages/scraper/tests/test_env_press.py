@@ -24,7 +24,15 @@ def _press_release_block(
     heading: str,
     href: str = '/press/press_00001.html',
 ) -> str:
-    """報道発表1件分のHTML断片を生成"""
+    """報道発表1件分のHTML断片を生成
+
+    Args:
+        heading: 報道発表日の見出し文字列
+        href: 報道発表リンクのhref属性値
+
+    Returns:
+        報道発表1件を含むHTML断片
+    """
 
     return f'''
     <details class='p-press-release-list__block'>
@@ -44,7 +52,15 @@ def _archive_month_link(
     aria_label: str,
     href: str = '/press/202605.html',
 ) -> str:
-    """月別アーカイブリンク1件分のHTML断片を生成"""
+    """月別アーカイブリンク1件分のHTML断片を生成
+
+    Args:
+        aria_label: 月別リンクのaria-label属性値
+        href: 月別リンクのhref属性値
+
+    Returns:
+        月別リンク1件分のHTML断片
+    """
 
     return f'''
     <a href='{href}' class='c-table-month__col__link' aria-label='{aria_label}'>
@@ -54,7 +70,14 @@ def _archive_month_link(
 
 
 def _read_fixture(name: str) -> str:
-    """fixture HTMLを読み込む"""
+    """fixture HTMLを読み込む
+
+    Args:
+        name: `tests/fixtures` 配下のfixtureファイル名
+
+    Returns:
+        fixtureファイルのHTML文字列
+    """
 
     return (FIXTURE_DIR / name).read_text(encoding='utf-8')
 
