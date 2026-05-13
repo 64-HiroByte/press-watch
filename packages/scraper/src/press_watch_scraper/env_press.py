@@ -160,9 +160,9 @@ def crawl_press_releases(
         raise ValueError(
             'archive_month_limit cannot be used with all_archive_months'
         )
-    if request_interval_seconds < 0:
+    if request_interval_seconds <= 0:
         raise ValueError(
-            'request_interval_seconds must be greater than or equal to 0'
+            'request_interval_seconds must be greater than 0'
         )
 
     # 月別巡回では、index.htmlからは月別リンクだけを拾う。
@@ -187,8 +187,7 @@ def crawl_press_releases(
 
     for archive_link in selected_archive_links:
         # 環境省サイトへ連続アクセスしないよう、ページ取得の間隔を空ける。
-        if request_interval_seconds > 0:
-            sleeper(request_interval_seconds)
+        sleeper(request_interval_seconds)
 
         page_releases = _fetch_archive_page_releases(
             archive_link,

@@ -288,7 +288,7 @@ def _run_cli(*args: str) -> dict[str, object]:
 
 def _run_cli_raw(
     *args: str,
-    request_interval_seconds: float = 0.0,
+    request_interval_seconds: float = 3.0,
 ) -> tuple[int, str, str]:
     """CLIを実行して終了コード、stdout、stderrを取得
 

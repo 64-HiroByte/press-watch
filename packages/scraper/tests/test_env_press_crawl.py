@@ -256,7 +256,7 @@ def _crawl_press_releases_for_test(
     all_archive_months: bool = False,
     fetcher: Callable[[str], str] | None = None,
     known_release_urls: Collection[str] | None = None,
-    request_interval_seconds: float = 0.0,
+    request_interval_seconds: float = REQUEST_INTERVAL_SECONDS,
     sleeper: Callable[[float], None] = _no_sleep,
 ) -> PressReleaseCrawlResult:
     """テスト用に実時間待機を無効化して巡回処理を実行
@@ -590,6 +590,14 @@ class EnvPressCrawlerTest(unittest.TestCase):
                 archive_month_limit=1,
                 all_archive_months=True,
             )
+
+    def test_crawl_press_releases_rejects_zero_request_interval(
+        self,
+    ) -> None:
+        """0秒の待機秒数を拒否すること"""
+
+        with self.assertRaises(ValueError):
+            _crawl_press_releases_for_test(request_interval_seconds=0.0)
 
     def test_crawl_press_releases_rejects_negative_request_interval(
         self,
