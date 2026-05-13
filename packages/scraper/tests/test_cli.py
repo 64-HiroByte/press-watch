@@ -53,6 +53,9 @@ FROM_FILE_WITH_ARCHIVE_MONTH_LIMIT_ERROR = (
 FROM_FILE_WITH_ALL_ARCHIVE_MONTHS_ERROR = (
     '--from-file cannot be used with --all-archive-months'
 )
+NO_STDOUT_JSON_WITHOUT_OUTPUT_ERROR = (
+    '--no-stdout-json requires --output'
+)
 ARCHIVE_MONTH_LIMIT_WITH_ALL_ARCHIVE_MONTHS_ERROR = (
     '--archive-month-limit cannot be used with --all-archive-months'
 )
@@ -517,21 +520,30 @@ class ScraperCliTest(unittest.TestCase):
 
         html_by_url = _archive_html_by_url(include_april=False)
 
-        with patch.object(
-            cli,
-            FETCH_PRESS_INDEX_HTML_ATTR,
-            side_effect=html_by_url.__getitem__,
-        ):
-            exit_code, stdout, stderr = _run_cli_raw(
-                *_url_args(),
-                *_archive_month_limit_args(limit=1),
-                *_verbose_args(),
-                *_no_stdout_json_args(),
-                request_interval_seconds=3.0,
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / 'snapshot.json'
+
+            with patch.object(
+                cli,
+                FETCH_PRESS_INDEX_HTML_ATTR,
+                side_effect=html_by_url.__getitem__,
+            ):
+                exit_code, stdout, stderr = _run_cli_raw(
+                    *_url_args(),
+                    *_archive_month_limit_args(limit=1),
+                    *_verbose_args(),
+                    *_no_stdout_json_args(),
+                    *_output_args(output_path),
+                    request_interval_seconds=3.0,
+                )
+
+            saved_payload = json.loads(
+                output_path.read_text(encoding=cli.JSON_OUTPUT_ENCODING)
             )
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(stdout, '')
+        self.assertEqual(saved_payload['count'], 1)
         self.assertIn(f'fetching index: {EXAMPLE_INDEX_URL}', stderr)
         self.assertIn(
             'waiting 3s before fetching archive page',
@@ -753,6 +765,25 @@ class ScraperCliTest(unittest.TestCase):
         self.assertEqual(raised.exception.code, 2)
         self.assertIn(
             NEGATIVE_ARCHIVE_MONTH_LIMIT_ERROR,
+            stderr.getvalue(),
+        )
+
+    def test_main_rejects_no_stdout_json_without_output(self) -> None:
+        """stdout JSON抑止はoutput指定なしでは拒否すること"""
+
+        stderr = io.StringIO()
+
+        with patch(
+            'sys.argv',
+            _cli_argv(*_no_stdout_json_args()),
+        ):
+            with redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as raised:
+                    cli.main()
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn(
+            NO_STDOUT_JSON_WITHOUT_OUTPUT_ERROR,
             stderr.getvalue(),
         )
 

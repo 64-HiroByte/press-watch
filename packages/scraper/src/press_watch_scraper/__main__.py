@@ -90,6 +90,8 @@ def main() -> int:
         parser.error(
             '--archive-month-limit cannot be used with --all-archive-months.'
         )
+    if args.no_stdout_json and args.output is None:
+        parser.error('--no-stdout-json requires --output.')
 
     error_target = (
         str(args.from_file) if args.from_file is not None else args.url
