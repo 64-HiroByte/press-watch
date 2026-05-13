@@ -149,22 +149,6 @@ def _archive_html_by_url(
     return html_by_url
 
 
-def _html_fetcher(html_by_url: dict[str, str]) -> Callable[[str], str]:
-    """URLごとのHTMLを返すCLIテスト用fetcherを生成
-
-    Args:
-        html_by_url: 取得URLごとに返すHTMLの辞書
-
-    Returns:
-        URLを受け取り、対応するHTMLを返す関数
-    """
-
-    def fetcher(url: str) -> str:
-        return html_by_url[url]
-
-    return fetcher
-
-
 def _recording_html_fetcher(
     html_by_url: dict[str, str],
     fetched_urls: list[str],
@@ -473,7 +457,7 @@ class ScraperCliTest(unittest.TestCase):
         with patch.object(
             cli,
             FETCH_PRESS_INDEX_HTML_ATTR,
-            side_effect=_html_fetcher(html_by_url),
+            side_effect=html_by_url.__getitem__,
         ):
             payload = _run_cli(
                 *_url_args(),
