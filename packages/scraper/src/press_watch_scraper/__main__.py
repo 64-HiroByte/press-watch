@@ -14,6 +14,7 @@ from .env_press import (
     ArchiveMonthLink,
     CrawlStopReason,
     PressRelease,
+    REQUEST_INTERVAL_SECONDS,
     crawl_press_releases,
     fetch_press_index_html,
     parse_archive_month_links,
@@ -111,6 +112,7 @@ def main() -> int:
                 archive_month_limit=archive_month_limit_value,
                 all_archive_months=args.all_archive_months,
                 fetcher=fetcher,
+                request_interval_seconds=REQUEST_INTERVAL_SECONDS,
             )
             releases = crawl_result.releases
             archive_month_links = crawl_result.archive_month_links
