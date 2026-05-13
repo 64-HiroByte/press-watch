@@ -1,8 +1,12 @@
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 import unittest
 from urllib.error import URLError
 
-from press_watch_scraper.env_press import crawl_press_releases
+from press_watch_scraper.env_press import (
+    REQUEST_INTERVAL_SECONDS,
+    PressReleaseCrawlResult,
+    crawl_press_releases,
+)
 
 
 START_URL = 'https://example.com/press/index.html'
@@ -30,6 +34,12 @@ ARCHIVE_MONTH_LINKS_EXHAUSTED = 'archive_month_links_exhausted'
 ARCHIVE_MONTH_LIMIT_REACHED = 'archive_month_limit_reached'
 DUPLICATE_RELEASE_DETECTED = 'duplicate_release_detected'
 FETCH_ERROR_REASON = 'network unavailable'
+
+
+def _no_sleep(_seconds: float) -> None:
+    """巡回テストで実時間待機を避けるためのsleeper"""
+
+    return None
 
 
 def _press_release_block(
@@ -239,6 +249,52 @@ def _recording_fetcher(
     return fetcher
 
 
+def _crawl_press_releases_for_test(
+    *,
+    start_url: str = START_URL,
+    archive_month_limit: int = 0,
+    all_archive_months: bool = False,
+    fetcher: Callable[[str], str] | None = None,
+    known_release_urls: Collection[str] | None = None,
+    request_interval_seconds: float = 0.0,
+    sleeper: Callable[[float], None] = _no_sleep,
+) -> PressReleaseCrawlResult:
+    """テスト用に実時間待機を無効化して巡回処理を実行
+
+    Args:
+        start_url: 月別リンクを抽出する報道発表一覧ページURL
+        archive_month_limit: 取得する月別アーカイブページ数
+        all_archive_months: 月別リンク候補をすべて巡回するかどうか
+        fetcher: URLを受け取りHTMLを返す取得関数
+        known_release_urls: 取得済みとして扱う報道発表詳細ページURL
+        request_interval_seconds: ページ取得の間に空ける秒数
+        sleeper: 待機処理を行う関数
+
+    Returns:
+        月別アーカイブページから取得した報道発表と巡回情報
+    """
+
+    if fetcher is not None:
+        return crawl_press_releases(
+            start_url=start_url,
+            archive_month_limit=archive_month_limit,
+            all_archive_months=all_archive_months,
+            fetcher=fetcher,
+            known_release_urls=known_release_urls,
+            request_interval_seconds=request_interval_seconds,
+            sleeper=sleeper,
+        )
+
+    return crawl_press_releases(
+        start_url=start_url,
+        archive_month_limit=archive_month_limit,
+        all_archive_months=all_archive_months,
+        known_release_urls=known_release_urls,
+        request_interval_seconds=request_interval_seconds,
+        sleeper=sleeper,
+    )
+
+
 class EnvPressCrawlerTest(unittest.TestCase):
     """環境省報道発表の月別ページ巡回処理のテスト"""
 
@@ -249,7 +305,7 @@ class EnvPressCrawlerTest(unittest.TestCase):
         html_by_url = _archive_html_by_url()
         fetched_urls: list[str] = []
 
-        result = crawl_press_releases(
+        result = _crawl_press_releases_for_test(
             start_url=START_URL,
             archive_month_limit=2,
             fetcher=_recording_fetcher(html_by_url, fetched_urls),
@@ -286,7 +342,7 @@ class EnvPressCrawlerTest(unittest.TestCase):
         html_by_url = _archive_html_by_url(include_april=False)
         fetched_urls: list[str] = []
 
-        result = crawl_press_releases(
+        result = _crawl_press_releases_for_test(
             start_url=START_URL,
             archive_month_limit=1,
             fetcher=_recording_fetcher(html_by_url, fetched_urls),
@@ -316,7 +372,7 @@ class EnvPressCrawlerTest(unittest.TestCase):
         html_by_url = _archive_html_by_url()
         fetched_urls: list[str] = []
 
-        result = crawl_press_releases(
+        result = _crawl_press_releases_for_test(
             start_url=START_URL,
             all_archive_months=True,
             fetcher=_recording_fetcher(html_by_url, fetched_urls),
@@ -346,6 +402,38 @@ class EnvPressCrawlerTest(unittest.TestCase):
             ARCHIVE_MONTH_LINKS_EXHAUSTED,
         )
 
+    def test_crawl_press_releases_waits_between_page_fetches(self) -> None:
+        """月別ページ取得の前に既定秒数だけ待機すること"""
+
+        html_by_url = _archive_html_by_url()
+        events: list[str] = []
+
+        def fetcher(url: str) -> str:
+            events.append(f'fetch:{url}')
+            return html_by_url[url]
+
+        def sleeper(seconds: float) -> None:
+            events.append(f'sleep:{seconds}')
+
+        _crawl_press_releases_for_test(
+            start_url=START_URL,
+            archive_month_limit=2,
+            fetcher=fetcher,
+            request_interval_seconds=REQUEST_INTERVAL_SECONDS,
+            sleeper=sleeper,
+        )
+
+        self.assertEqual(
+            events,
+            [
+                f'fetch:{START_URL}',
+                f'sleep:{REQUEST_INTERVAL_SECONDS}',
+                f'fetch:{MAY_ARCHIVE_URL}',
+                f'sleep:{REQUEST_INTERVAL_SECONDS}',
+                f'fetch:{APRIL_ARCHIVE_URL}',
+            ],
+        )
+
     # HTML上の並びや重複リンクに左右されないことを確認する。
     def test_crawl_press_releases_fetches_latest_month_first(self) -> None:
         """HTML表示順に依存せず最新年月の月別ページから取得すること"""
@@ -356,7 +444,7 @@ class EnvPressCrawlerTest(unittest.TestCase):
         )
         fetched_urls: list[str] = []
 
-        result = crawl_press_releases(
+        result = _crawl_press_releases_for_test(
             start_url=START_URL,
             archive_month_limit=1,
             fetcher=_recording_fetcher(html_by_url, fetched_urls),
@@ -391,7 +479,7 @@ class EnvPressCrawlerTest(unittest.TestCase):
         )
         fetched_urls: list[str] = []
 
-        result = crawl_press_releases(
+        result = _crawl_press_releases_for_test(
             start_url=START_URL,
             archive_month_limit=2,
             fetcher=_recording_fetcher(html_by_url, fetched_urls),
@@ -423,7 +511,7 @@ class EnvPressCrawlerTest(unittest.TestCase):
         )
         fetched_urls: list[str] = []
 
-        result = crawl_press_releases(
+        result = _crawl_press_releases_for_test(
             start_url=START_URL,
             archive_month_limit=2,
             fetcher=_recording_fetcher(html_by_url, fetched_urls),
@@ -452,7 +540,7 @@ class EnvPressCrawlerTest(unittest.TestCase):
         )
         fetched_urls: list[str] = []
 
-        result = crawl_press_releases(
+        result = _crawl_press_releases_for_test(
             start_url=START_URL,
             archive_month_limit=2,
             fetcher=_recording_fetcher(html_by_url, fetched_urls),
@@ -480,7 +568,7 @@ class EnvPressCrawlerTest(unittest.TestCase):
             raise URLError(FETCH_ERROR_REASON)
 
         with self.assertRaises(URLError):
-            crawl_press_releases(
+            _crawl_press_releases_for_test(
                 start_url=START_URL,
                 archive_month_limit=1,
                 fetcher=fetcher,
@@ -490,7 +578,7 @@ class EnvPressCrawlerTest(unittest.TestCase):
         """負の月別ページ数を拒否すること"""
 
         with self.assertRaises(ValueError):
-            crawl_press_releases(archive_month_limit=-1)
+            _crawl_press_releases_for_test(archive_month_limit=-1)
 
     def test_crawl_press_releases_rejects_limit_with_all_archive_months(
         self,
@@ -498,10 +586,18 @@ class EnvPressCrawlerTest(unittest.TestCase):
         """件数指定と全件巡回指定の併用を拒否すること"""
 
         with self.assertRaises(ValueError):
-            crawl_press_releases(
+            _crawl_press_releases_for_test(
                 archive_month_limit=1,
                 all_archive_months=True,
             )
+
+    def test_crawl_press_releases_rejects_negative_request_interval(
+        self,
+    ) -> None:
+        """負の待機秒数を拒否すること"""
+
+        with self.assertRaises(ValueError):
+            _crawl_press_releases_for_test(request_interval_seconds=-1.0)
 
 
 if __name__ == '__main__':

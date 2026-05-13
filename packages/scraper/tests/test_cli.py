@@ -278,10 +278,11 @@ def _run_cli_raw(*args: str) -> tuple[int, str, str]:
     stdout = io.StringIO()
     stderr = io.StringIO()
 
-    # main()を直接呼ぶため、CLI引数と標準出力をテスト内で差し替える。
+    # main()を直接呼ぶため、CLI引数・標準出力・巡回待機をテスト内で差し替える。
     with patch('sys.argv', _cli_argv(*args)):
-        with redirect_stdout(stdout), redirect_stderr(stderr):
-            exit_code = cli.main()
+        with patch.object(cli, 'REQUEST_INTERVAL_SECONDS', 0.0):
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                exit_code = cli.main()
 
     return exit_code, stdout.getvalue(), stderr.getvalue()
 
