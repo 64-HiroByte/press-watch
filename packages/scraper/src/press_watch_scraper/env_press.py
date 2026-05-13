@@ -4,6 +4,7 @@ from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from datetime import date
 import re
+from time import sleep
 from typing import Literal
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
@@ -25,6 +26,7 @@ ATTR_HREF = 'href'
 CHARSET = 'utf-8'
 USER_AGENT_HEADER = 'User-Agent'
 PARSER = 'lxml'
+REQUEST_INTERVAL_SECONDS = 3.0
 
 CLASS_ARCHIVE_MONTH_LINK = 'c-table-month__col__link'
 CLASS_PRESS_DATE_HEADING = 'p-press-release-list__heading'
@@ -129,6 +131,8 @@ def crawl_press_releases(
     all_archive_months: bool = False,
     fetcher: Callable[[str], str] = fetch_press_index_html,
     known_release_urls: Collection[str] | None = None,
+    request_interval_seconds: float = REQUEST_INTERVAL_SECONDS,
+    sleeper: Callable[[float], None] = sleep,
 ) -> PressReleaseCrawlResult:
     """月別アーカイブページを巡回して報道発表を取得
 
@@ -138,12 +142,14 @@ def crawl_press_releases(
         all_archive_months: 月別リンク候補をすべて巡回するかどうか
         fetcher: URLを受け取りHTMLを返す取得関数
         known_release_urls: 取得済みとして扱う報道発表詳細ページURL
+        request_interval_seconds: ページ取得の間に空ける秒数
+        sleeper: 待機処理を行う関数
 
     Returns:
         月別アーカイブページから取得した報道発表と巡回情報
 
     Raises:
-        ValueError: 月別ページ数指定が不正な場合
+        ValueError: 月別ページ数または待機秒数の指定が不正な場合
     """
 
     if archive_month_limit < 0:
@@ -153,6 +159,10 @@ def crawl_press_releases(
     if all_archive_months and archive_month_limit > 0:
         raise ValueError(
             'archive_month_limit cannot be used with all_archive_months'
+        )
+    if request_interval_seconds <= 0:
+        raise ValueError(
+            'request_interval_seconds must be greater than 0'
         )
 
     # 月別巡回では、index.htmlからは月別リンクだけを拾う。
@@ -176,6 +186,9 @@ def crawl_press_releases(
     stop_reason: CrawlStopReason | None = None
 
     for archive_link in selected_archive_links:
+        # 環境省サイトへ連続アクセスしないよう、ページ取得の間隔を空ける。
+        sleeper(request_interval_seconds)
+
         page_releases = _fetch_archive_page_releases(
             archive_link,
             fetcher,

@@ -41,8 +41,10 @@ ARCHIVE_MONTH_LIMIT_REACHED = 'archive_month_limit_reached'
 ALL_ARCHIVE_MONTHS_ARG = '--all-archive-months'
 ARCHIVE_MONTH_LIMIT_ARG = '--archive-month-limit'
 FROM_FILE_ARG = '--from-file'
+NO_STDOUT_JSON_ARG = '--no-stdout-json'
 OUTPUT_ARG = '--output'
 URL_ARG = '--url'
+VERBOSE_ARG = '--verbose'
 
 # argparseのエラーメッセージ
 FROM_FILE_WITH_ARCHIVE_MONTH_LIMIT_ERROR = (
@@ -50,6 +52,9 @@ FROM_FILE_WITH_ARCHIVE_MONTH_LIMIT_ERROR = (
 )
 FROM_FILE_WITH_ALL_ARCHIVE_MONTHS_ERROR = (
     '--from-file cannot be used with --all-archive-months'
+)
+NO_STDOUT_JSON_WITHOUT_OUTPUT_ERROR = (
+    '--no-stdout-json requires --output'
 )
 ARCHIVE_MONTH_LIMIT_WITH_ALL_ARCHIVE_MONTHS_ERROR = (
     '--archive-month-limit cannot be used with --all-archive-months'
@@ -209,6 +214,26 @@ def _output_args(path: Path) -> tuple[str, str]:
     return (OUTPUT_ARG, str(path))
 
 
+def _no_stdout_json_args() -> tuple[str]:
+    """stdout JSON抑止のCLI引数を生成
+
+    Returns:
+        `--no-stdout-json` の引数列
+    """
+
+    return (NO_STDOUT_JSON_ARG,)
+
+
+def _verbose_args() -> tuple[str]:
+    """進捗表示のCLI引数を生成
+
+    Returns:
+        `--verbose` の引数列
+    """
+
+    return (VERBOSE_ARG,)
+
+
 def _archive_month_limit_args(limit: int) -> tuple[str, str]:
     """月別ページ数指定のCLI引数を生成
 
@@ -264,12 +289,16 @@ def _run_cli(*args: str) -> dict[str, object]:
     return payload
 
 
-def _run_cli_raw(*args: str) -> tuple[int, str, str]:
+def _run_cli_raw(
+    *args: str,
+    request_interval_seconds: float = 3.0,
+) -> tuple[int, str, str]:
     """CLIを実行して終了コード、stdout、stderrを取得
 
     Args:
         args: プログラム名を除くCLI引数。stderrを検証したい失敗系で使う。
             例: `*_from_file_args(path), *_all_archive_months_args()`
+        request_interval_seconds: テスト時に差し替える巡回待機秒数
 
     Returns:
         終了コード、stdout、stderr
@@ -278,10 +307,17 @@ def _run_cli_raw(*args: str) -> tuple[int, str, str]:
     stdout = io.StringIO()
     stderr = io.StringIO()
 
-    # main()を直接呼ぶため、CLI引数と標準出力をテスト内で差し替える。
+    # main()を直接呼ぶため、CLI引数・標準出力・巡回待機をテスト内で差し替える。
     with patch('sys.argv', _cli_argv(*args)):
-        with redirect_stdout(stdout), redirect_stderr(stderr):
-            exit_code = cli.main()
+        with patch.object(
+            cli,
+            'REQUEST_INTERVAL_SECONDS',
+            request_interval_seconds,
+        ):
+            with patch.object(cli, 'sleep', create=True) as mock_sleep:
+                mock_sleep.return_value = None
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    exit_code = cli.main()
 
     return exit_code, stdout.getvalue(), stderr.getvalue()
 
@@ -444,6 +480,78 @@ class ScraperCliTest(unittest.TestCase):
         self.assertEqual(
             [item['title'] for item in payload['items']],
             [MAY_RELEASE_TITLE, APRIL_RELEASE_TITLE],
+        )
+
+    def test_main_outputs_progress_to_stderr_when_verbose(self) -> None:
+        """verbose指定時に月別巡回の進捗をstderrへ出すこと"""
+
+        html_by_url = _archive_html_by_url()
+
+        with patch.object(
+            cli,
+            FETCH_PRESS_INDEX_HTML_ATTR,
+            side_effect=html_by_url.__getitem__,
+        ):
+            exit_code, stdout, stderr = _run_cli_raw(
+                *_url_args(),
+                *_archive_month_limit_args(limit=2),
+                *_verbose_args(),
+                request_interval_seconds=3.0,
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(stdout)['count'], 2)
+        self.assertIn(f'fetching index: {EXAMPLE_INDEX_URL}', stderr)
+        self.assertIn(
+            'waiting 3s before fetching archive page',
+            stderr,
+        )
+        self.assertIn(
+            f'fetching archive page: {EXAMPLE_MAY_ARCHIVE_URL}',
+            stderr,
+        )
+        self.assertIn(
+            f'fetching archive page: {EXAMPLE_APRIL_ARCHIVE_URL}',
+            stderr,
+        )
+
+    def test_main_can_show_progress_without_stdout_json(self) -> None:
+        """stdout JSONを出さずにstderrの進捗だけ確認できること"""
+
+        html_by_url = _archive_html_by_url(include_april=False)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / 'snapshot.json'
+
+            with patch.object(
+                cli,
+                FETCH_PRESS_INDEX_HTML_ATTR,
+                side_effect=html_by_url.__getitem__,
+            ):
+                exit_code, stdout, stderr = _run_cli_raw(
+                    *_url_args(),
+                    *_archive_month_limit_args(limit=1),
+                    *_verbose_args(),
+                    *_no_stdout_json_args(),
+                    *_output_args(output_path),
+                    request_interval_seconds=3.0,
+                )
+
+            saved_payload = json.loads(
+                output_path.read_text(encoding=cli.JSON_OUTPUT_ENCODING)
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stdout, '')
+        self.assertEqual(saved_payload['count'], 1)
+        self.assertIn(f'fetching index: {EXAMPLE_INDEX_URL}', stderr)
+        self.assertIn(
+            'waiting 3s before fetching archive page',
+            stderr,
+        )
+        self.assertIn(
+            f'fetching archive page: {EXAMPLE_MAY_ARCHIVE_URL}',
+            stderr,
         )
 
     def test_main_outputs_stop_reason_when_archive_month_limit_is_reached(
@@ -657,6 +765,25 @@ class ScraperCliTest(unittest.TestCase):
         self.assertEqual(raised.exception.code, 2)
         self.assertIn(
             NEGATIVE_ARCHIVE_MONTH_LIMIT_ERROR,
+            stderr.getvalue(),
+        )
+
+    def test_main_rejects_no_stdout_json_without_output(self) -> None:
+        """stdout JSON抑止はoutput指定なしでは拒否すること"""
+
+        stderr = io.StringIO()
+
+        with patch(
+            'sys.argv',
+            _cli_argv(*_no_stdout_json_args()),
+        ):
+            with redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as raised:
+                    cli.main()
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn(
+            NO_STDOUT_JSON_WITHOUT_OUTPUT_ERROR,
             stderr.getvalue(),
         )
 
