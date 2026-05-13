@@ -132,6 +132,15 @@ python -m json.tool /tmp/env_press_all.json
 cd ../..
 ```
 
+取得中のURLや待機をターミナルで確認したい場合は、`--verbose` を指定します。進捗は stderr に出力し、stdout のJSONとは分けて扱います。JSONをstdoutへ出さず、進捗だけを見ながらスナップショットを保存したい場合は、`--no-stdout-json` と `--output` を併用します。
+
+```bash
+cd packages/scraper
+PYTHONPATH=src uv run python -m press_watch_scraper --archive-month-limit 2 --verbose --no-stdout-json --output /tmp/env_press_sample.json
+python -m json.tool /tmp/env_press_sample.json
+cd ../..
+```
+
 `--output` は開発・検証用の補助機能として扱い、差分保存や履歴管理は行いません。取得件数、重複URLの有無、カテゴリ、`stop_reason` などを後から確認するためのスナップショット用途に限定します。親ディレクトリは自動作成しないため、任意の保存先を使う場合は先に `mkdir -p /path/to/dir` でディレクトリを作成してください。存在しないディレクトリを指定した場合は、取得前にエラーとして終了します。取得やJSON生成、ファイル書き込みに失敗した場合、途中結果は保存しません。
 
 実HTTPで環境省の報道発表一覧を取得する場合は、`--from-file` を外します。月別ページを巡回する場合は、意図しない大量取得を避けるため `--archive-month-limit N` または `--all-archive-months` を明示します。
