@@ -7,6 +7,7 @@ from dataclasses import asdict
 import json
 from pathlib import Path
 import sys
+from time import sleep
 
 from .env_press import (
     CHARSET,
@@ -61,6 +62,16 @@ def main() -> int:
         type=Path,
         help='Write the same JSON snapshot as stdout to this path.',
     )
+    parser.add_argument(
+        '--verbose',
+        action='store_true',
+        help='Write progress messages to stderr.',
+    )
+    parser.add_argument(
+        '--no-stdout-json',
+        action='store_true',
+        help='Do not write the JSON snapshot to stdout.',
+    )
     args = parser.parse_args()
 
     archive_month_limit = args.archive_month_limit
@@ -105,7 +116,21 @@ def main() -> int:
 
                 # 取得に失敗したとき、stderrへそのURLを表示できるようにする。
                 error_target = url
+                if url == args.url:
+                    _print_progress(args.verbose, f'fetching index: {url}')
+                else:
+                    _print_progress(
+                        args.verbose,
+                        f'fetching archive page: {url}',
+                    )
                 return fetch_press_index_html(url)
+
+            def sleeper(seconds: float) -> None:
+                _print_progress(
+                    args.verbose,
+                    f'waiting {seconds:g}s before fetching archive page',
+                )
+                sleep(seconds)
 
             crawl_result = crawl_press_releases(
                 start_url=args.url,
@@ -113,12 +138,14 @@ def main() -> int:
                 all_archive_months=args.all_archive_months,
                 fetcher=fetcher,
                 request_interval_seconds=REQUEST_INTERVAL_SECONDS,
+                sleeper=sleeper,
             )
             releases = crawl_result.releases
             archive_month_links = crawl_result.archive_month_links
             fetched_page_urls = crawl_result.fetched_page_urls
             stop_reason = crawl_result.stop_reason
         elif args.from_file is not None:
+            _print_progress(args.verbose, f'reading file: {args.from_file}')
             html = args.from_file.read_text(encoding=CHARSET)
             source_url = str(args.from_file)
             base_url = PRESS_INDEX_URL
@@ -130,6 +157,7 @@ def main() -> int:
             fetched_page_urls: list[str] = []
             stop_reason = None
         else:
+            _print_progress(args.verbose, f'fetching page: {args.url}')
             html = fetch_press_index_html(args.url)
             source_url = args.url
             base_url = args.url
@@ -156,7 +184,8 @@ def main() -> int:
                 encoding=JSON_OUTPUT_ENCODING,
             )
 
-        sys.stdout.write(json_output)
+        if not args.no_stdout_json:
+            sys.stdout.write(json_output)
         return 0
     except Exception as exc:
         _print_runtime_error(error_target, exc)
@@ -225,6 +254,18 @@ def _validate_output_path(path: Path) -> None:
         raise FileNotFoundError(
             f'{OUTPUT_PARENT_NOT_FOUND_REASON}: {path.parent}'
         )
+
+
+def _print_progress(enabled: bool, message: str) -> None:
+    """CLIの進捗メッセージをstderrへ出力
+
+    Args:
+        enabled: 進捗を出力するかどうか
+        message: stderrへ出す進捗メッセージ
+    """
+
+    if enabled:
+        print(message, file=sys.stderr)
 
 
 def _print_runtime_error(target: str, exc: Exception) -> None:
