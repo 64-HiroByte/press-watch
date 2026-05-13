@@ -18,6 +18,10 @@ from .env_press import (
 )
 
 
+JSON_OUTPUT_ENCODING = 'utf-8'
+OUTPUT_PARENT_NOT_FOUND_REASON = 'output parent directory does not exist'
+
+
 def main() -> int:
     """報道発表一覧HTMLを取得または読み込み、解析結果をJSONで出力
 
@@ -48,6 +52,11 @@ def main() -> int:
         action='store_true',
         help='Fetch all archive month pages found on the index page.',
     )
+    parser.add_argument(
+        '--output',
+        type=Path,
+        help='Write the same JSON snapshot as stdout to this path.',
+    )
     args = parser.parse_args()
 
     archive_month_limit = args.archive_month_limit
@@ -74,6 +83,15 @@ def main() -> int:
     # 成功時だけJSONをstdoutへ出す。途中で失敗した場合は、
     # 途中結果を出さずにstderrと終了コードで失敗を伝える。
     try:
+        if args.output is not None:
+            error_target = str(args.output)
+            _validate_output_path(args.output)
+            error_target = (
+                str(args.from_file)
+                if args.from_file is not None
+                else args.url
+            )
+
         archive_month_limit_value = archive_month_limit or 0
         if args.all_archive_months or archive_month_limit_value > 0:
             source_url = args.url
@@ -129,25 +147,49 @@ def main() -> int:
             asdict(item) for item in archive_month_links
         ]
 
-        print(
-            json.dumps(
-                {
-                    'source_url': source_url,
-                    'count': len(releases),
-                    'archive_month_link_count': len(archive_month_links),
-                    'archive_month_links': archive_month_link_items,
-                    'fetched_page_urls': fetched_page_urls,
-                    'stop_reason': stop_reason,
-                    'items': items,
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
+        json_text = json.dumps(
+            {
+                'source_url': source_url,
+                'count': len(releases),
+                'archive_month_link_count': len(archive_month_links),
+                'archive_month_links': archive_month_link_items,
+                'fetched_page_urls': fetched_page_urls,
+                'stop_reason': stop_reason,
+                'items': items,
+            },
+            ensure_ascii=False,
+            indent=2,
         )
+        json_output = f'{json_text}\n'
+
+        if args.output is not None:
+            error_target = str(args.output)
+            args.output.write_text(
+                json_output,
+                encoding=JSON_OUTPUT_ENCODING,
+            )
+
+        sys.stdout.write(json_output)
         return 0
     except Exception as exc:
         _print_runtime_error(error_target, exc)
         return 1
+
+
+def _validate_output_path(path: Path) -> None:
+    """JSONスナップショット出力先の事前検証
+
+    Args:
+        path: `--output` に指定された出力先パス
+
+    Raises:
+        FileNotFoundError: 親ディレクトリが存在しない場合
+    """
+
+    if not path.parent.exists():
+        raise FileNotFoundError(
+            f'{OUTPUT_PARENT_NOT_FOUND_REASON}: {path.parent}'
+        )
 
 
 def _print_runtime_error(target: str, exc: Exception) -> None:

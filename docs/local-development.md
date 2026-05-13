@@ -114,17 +114,25 @@ python -m json.tool /tmp/env_press_sample.json
 cd ../..
 ```
 
-全件取得は再取得コストが高いため、DB 保存が整うまでは検証用 JSON スナップショットを残せるようにします。`--output` はまだ未実装ですが、次のスクレイパー実装では、成功時の stdout JSON と同じ内容を指定ファイルにも保存する方針です。
+全件取得は再取得コストが高いため、DB 保存が整うまでは検証用 JSON スナップショットを残せるようにします。`--output PATH` を指定すると、成功時の stdout JSON と同じ内容を指定ファイルにも保存します。
 
-実装後の想定コマンドは次の形です。
+```bash
+cd packages/scraper
+PYTHONPATH=src uv run python -m press_watch_scraper --from-file tests/fixtures/env_press_index_sample.html --output /tmp/env_press_sample.json
+python -m json.tool /tmp/env_press_sample.json
+cd ../..
+```
+
+実HTTPで全月別アーカイブを巡回し、結果をスナップショットとして残す場合は次の形です。
 
 ```bash
 cd packages/scraper
 PYTHONPATH=src uv run python -m press_watch_scraper --all-archive-months --output /tmp/env_press_all.json
+python -m json.tool /tmp/env_press_all.json
 cd ../..
 ```
 
-`--output` は開発・検証用の補助機能として扱い、差分保存や履歴管理は行いません。取得件数、重複URLの有無、カテゴリ、`stop_reason` などを後から確認するためのスナップショット用途に限定します。
+`--output` は開発・検証用の補助機能として扱い、差分保存や履歴管理は行いません。取得件数、重複URLの有無、カテゴリ、`stop_reason` などを後から確認するためのスナップショット用途に限定します。親ディレクトリは自動作成しないため、任意の保存先を使う場合は先に `mkdir -p /path/to/dir` でディレクトリを作成してください。存在しないディレクトリを指定した場合は、取得前にエラーとして終了します。取得やJSON生成、ファイル書き込みに失敗した場合、途中結果は保存しません。
 
 実HTTPで環境省の報道発表一覧を取得する場合は、`--from-file` を外します。月別ページを巡回する場合は、意図しない大量取得を避けるため `--archive-month-limit N` または `--all-archive-months` を明示します。
 
