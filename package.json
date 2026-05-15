@@ -6,5 +6,10 @@
     "dev:web": "pnpm --filter @press-watch/web dev",
     "build:web": "pnpm --filter @press-watch/web build",
     "typecheck:web": "pnpm --filter @press-watch/web typecheck"
+  },
+  "pnpm": {
+    "overrides": {
+      "postcss": "^8.5.10"
+    }
   }
 }
