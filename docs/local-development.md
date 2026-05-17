@@ -159,6 +159,15 @@ PostgreSQL はローカル環境へ直接インストールせず、Docker Compo
 
 初回起動時に Docker が PostgreSQL イメージを取得し、`postgres_data` ボリュームに DB データを保存します。通常のセットアップでは、`.env` を用意して Docker Compose を起動すれば DB も一緒に作られます。
 
+Phase 3 では、API 側から PostgreSQL に接続するために SQLAlchemy + Alembic + psycopg の導入を予定しています。
+接続文字列の環境変数名は `DATABASE_URL` のままとし、SQLAlchemy から psycopg を使う場合は次のような形式を想定します。
+
+```text
+postgresql+psycopg://presswatch:${POSTGRES_PASSWORD}@db:5432/presswatch
+```
+
+`.env` は秘密情報を含みうるため、接続に必要な環境変数は `.env.example` やこのドキュメントに記載された名前だけを参照します。
+
 ## Docker Compose で全体を起動する
 
 Web、API、DB をまとめて起動します。
