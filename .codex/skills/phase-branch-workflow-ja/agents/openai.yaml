@@ -1,0 +1,4 @@
+interface:
+  display_name: "Phase Branch Workflow JA"
+  short_description: "PressWatch の Phase ブランチ運用を案内します。"
+  default_prompt: "PressWatch の Phase ブランチからタスク作業ブランチを切り、PR の base を Phase ブランチにして進めてください。"
