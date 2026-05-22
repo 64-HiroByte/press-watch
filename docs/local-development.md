@@ -36,7 +36,7 @@ POSTGRES_PASSWORD=your-local-postgres-password
 - `package.json`: ルートの pnpm scripts を定義します。
 - `pnpm-workspace.yaml`: pnpm workspace の対象として `apps/web` を指定します。
 - `apps/web/package.json`: Next.js / React / TypeScript の依存関係と scripts を定義します。
-- `apps/api/pyproject.toml`: API 用の Python 依存関係として `fastapi[standard]` を定義します。
+- `apps/api/pyproject.toml`: API 用の Python 依存関係として `fastapi[standard]` / `sqlalchemy` / `psycopg` を定義します。
 - `packages/scraper/pyproject.toml`: scraper 用の Python パッケージ設定を定義します。
 - `infra/compose.yml`: `web` / `api` / `db` の Docker Compose 構成を定義します。
 - `infra/docker/web.Dockerfile`: Web コンテナのビルド手順を定義します。
@@ -47,7 +47,7 @@ POSTGRES_PASSWORD=your-local-postgres-password
 
 `pnpm-lock.yaml` は Node.js 依存関係の lockfile です。`pnpm install` で生成・更新されます。
 
-`uv.lock` は Python 依存関係の lockfile です。`pyproject.toml` をもとに `uv sync` すると、解決されたパッケージの具体的なバージョンが記録され、その内容に沿って仮想環境が作られます。
+`uv.lock` は Python 依存関係の lockfile です。API と scraper はそれぞれ `apps/api/uv.lock`、`packages/scraper/uv.lock` を持ちます。各 `pyproject.toml` をもとに `uv sync` すると、解決されたパッケージの具体的なバージョンが記録され、その内容に沿って仮想環境が作られます。
 
 Dockerfile では `uv sync --frozen` を使うため、lockfile を更新せず、記録済みの依存関係で再現性のある環境を作ります。
 
@@ -75,10 +75,11 @@ API だけを確認したい場合は、API 側のディレクトリで依存関
 ```bash
 cd apps/api
 uv sync
-uv run fastapi dev src/press_watch_api/main.py
+DATABASE_URL=postgresql+psycopg://presswatch:your-local-postgres-password@127.0.0.1:5432/presswatch uv run fastapi dev src/press_watch_api/main.py
 ```
 
 `fastapi` コマンドをグローバルにインストールするのではなく、`uv run` で API 用の仮想環境内のコマンドとして実行します。
+API 単体起動で PostgreSQL に接続する処理を確認する場合は、Docker Compose の公開ポートに合わせて host を `127.0.0.1` にした `DATABASE_URL` を指定します。
 
 別ターミナルから API のルートエンドポイントを確認します。
 
@@ -159,7 +160,7 @@ PostgreSQL はローカル環境へ直接インストールせず、Docker Compo
 
 初回起動時に Docker が PostgreSQL イメージを取得し、`postgres_data` ボリュームに DB データを保存します。通常のセットアップでは、`.env` を用意して Docker Compose を起動すれば DB も一緒に作られます。
 
-Phase 3 では、API 側から PostgreSQL に接続するために SQLAlchemy + Alembic + psycopg の導入を予定しています。
+Phase 3 では、API 側から PostgreSQL に接続するために SQLAlchemy + psycopg の最小土台を導入しています。Alembic の初期化とマイグレーション作成は後続タスクで扱います。
 接続文字列の環境変数名は `DATABASE_URL` のままとし、SQLAlchemy から psycopg を使う場合は次のような形式を想定します。
 
 ```text
@@ -202,10 +203,16 @@ API が応答するか確認します。
 curl http://127.0.0.1:8000/
 ```
 
-PostgreSQL に接続できるか、バージョン確認で疎通を見ます。
+PostgreSQL コンテナに接続できるか、バージョン確認で疎通を見ます。
 
 ```bash
 docker compose --env-file .env -f infra/compose.yml exec db psql -U presswatch -d presswatch -c "select version();"
+```
+
+API コンテナから SQLAlchemy 経由で PostgreSQL に接続できるか確認します。
+
+```bash
+docker compose --env-file .env -f infra/compose.yml exec api uv run python -c "from sqlalchemy import text; from press_watch_api.db import engine; conn = engine.connect(); print(conn.execute(text('select 1')).scalar_one()); conn.close()"
 ```
 
 API コンテナのログを確認したい場合は次を使います。
