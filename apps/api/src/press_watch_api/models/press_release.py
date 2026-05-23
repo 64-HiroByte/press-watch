@@ -10,6 +10,8 @@ from press_watch_api.models.base import Base
 
 
 class PressRelease(Base):
+    """環境省の報道発表を原本に近い形で保存するDBモデル"""
+
     __tablename__ = "press_releases"
     __table_args__ = (
         UniqueConstraint("source_url", name="uq_press_releases_source_url"),
