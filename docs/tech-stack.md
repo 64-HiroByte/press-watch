@@ -142,6 +142,7 @@
 - `source_categories` は初期実装では PostgreSQL の `text[]` として保存する
 - `source_categories` にカテゴリ名以外の属性を持たせる必要が出た場合は、別テーブル化または `jsonb` 化を後続フェーズで検討する
 - `fetched_at` / `created_at` / `updated_at` などの時刻は UTC 基準で保存する
+- SQLAlchemy model では `DateTime(timezone=True)` を使い、UTC への統一は保存処理で timezone aware な UTC datetime を渡すことで担保する
 - 時刻をユーザーに表示する必要が出た場合は、表示層で日本時間などのローカルタイムへ変換する
 - MVP の主な表示対象は公開日 `published_at` であり、取得時刻は主に定時実行、差分取得、保存状況確認、調査用のメタデータとして扱う
 
