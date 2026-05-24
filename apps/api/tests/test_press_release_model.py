@@ -46,14 +46,26 @@ class PressReleaseModelTest(unittest.TestCase):
         self.assertIsInstance(table.c.created_at.type, DateTime)
         self.assertIsInstance(table.c.updated_at.type, DateTime)
 
-    def test_required_columns_are_not_nullable(self) -> None:
+    def test_required_columns_except_source_categories_are_not_nullable(
+        self,
+    ) -> None:
         """初期保存で必須扱いのカラムがNULLを許可しないこと"""
 
         table = PressRelease.__table__
 
-        for column_name in table.columns.keys():
+        required_column_names = set(table.columns.keys()) - {
+            "source_categories",
+        }
+        for column_name in required_column_names:
             with self.subTest(column_name=column_name):
                 self.assertFalse(table.c[column_name].nullable)
+
+    def test_source_categories_allows_null(self) -> None:
+        """取得元カテゴリがない過去データを保存できること"""
+
+        table = PressRelease.__table__
+
+        self.assertTrue(table.c.source_categories.nullable)
 
     def test_source_url_has_named_unique_constraint(self) -> None:
         """詳細ページURLに名前付き一意制約を持つこと"""
@@ -72,15 +84,6 @@ class PressReleaseModelTest(unittest.TestCase):
                 for constraint in unique_constraints
             )
         )
-
-    def test_source_categories_defaults_to_empty_list(self) -> None:
-        """取得元カテゴリの未指定時に空リストを使うこと"""
-
-        default = PressRelease.__table__.c.source_categories.default
-
-        self.assertIsNotNone(default)
-        self.assertTrue(default.is_callable)
-        self.assertEqual(default.arg(None), [])
 
     def test_timestamp_columns_use_timezone_aware_type(self) -> None:
         """時刻カラムがタイムゾーン付き日時型を使うこと"""
