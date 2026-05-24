@@ -21,10 +21,9 @@ class PressRelease(Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     published_at: Mapped[date] = mapped_column(Date, nullable=False)
-    source_categories: Mapped[list[str]] = mapped_column(
+    source_categories: Mapped[list[str] | None] = mapped_column(
         ARRAY(Text),
-        nullable=False,
-        default=list,
+        nullable=True,
     )
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

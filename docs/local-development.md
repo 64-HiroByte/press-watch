@@ -160,7 +160,7 @@ PostgreSQL はローカル環境へ直接インストールせず、Docker Compo
 
 初回起動時に Docker が PostgreSQL イメージを取得し、`postgres_data` ボリュームに DB データを保存します。通常のセットアップでは、`.env` を用意して Docker Compose を起動すれば DB も一緒に作られます。
 
-Phase 3 では、API 側から PostgreSQL に接続するために SQLAlchemy + psycopg の最小土台を導入しています。Alembic の初期化とマイグレーション作成は後続タスクで扱います。
+Phase 3 では、API 側から PostgreSQL に接続するために SQLAlchemy + psycopg の最小土台を導入しています。Alembic の初期化と初版 migration 作成は後続タスクで扱います。
 接続文字列の環境変数名は `DATABASE_URL` のままとし、SQLAlchemy から psycopg を使う場合は次のような形式を想定します。
 
 ```text
@@ -168,6 +168,18 @@ postgresql+psycopg://presswatch:${POSTGRES_PASSWORD}@db:5432/presswatch
 ```
 
 `.env` は秘密情報を含みうるため、接続に必要な環境変数は `.env.example` やこのドキュメントに記載された名前だけを参照します。
+
+## DB migration の考え方
+
+DB スキーマ変更は Alembic で管理し、API アプリケーション側の責務として `apps/api` 配下に設定と migration ファイルを置きます。
+アプリケーション起動時の `metadata.create_all()` には頼りません。
+
+詳細な配置、`target_metadata`、初版 migration、`updated_at` トリガー要否は `docs/db-migrations.md` に整理しています。
+Alembic の依存追加と初期化が済んだ後は、Docker Compose の API コンテナから次の形で適用する想定です。
+
+```bash
+docker compose --env-file .env -f infra/compose.yml exec api uv run alembic upgrade head
+```
 
 ## Docker Compose で全体を起動する
 

@@ -37,6 +37,7 @@
 - 詳細ページリンクは `a.c-news-link__link` で、href は `/press/press_04490.html` や `/press/111118_00047.html` のような相対URL。
 - 今回の最小実装では、`p-press-release-list__heading` から公開日を取得し、その日付見出し配下の `a.c-news-link__link` からタイトルと詳細ページURLを取得する。
 - 取得元ページに表示されているカテゴリは、PressWatch独自カテゴリ分類とは分けて `source_categories` として保持する。
+- 過去ページではカテゴリ表示がない報道発表が存在するため、DB保存時は `source_categories` の欠損を許容する。
 
 ## ページネーション構造
 
