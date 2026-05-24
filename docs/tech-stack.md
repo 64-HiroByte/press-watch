@@ -140,11 +140,28 @@
 - 週次フルスキャンや再照合モード、`last_seen_at`、`content_hash`、変更履歴の保存は、必要性を確認してから後続フェーズで検討する
 - 初期実装では、既存データを自動上書きするよりも重複登録を避けることを優先する
 - `source_categories` は初期実装では PostgreSQL の `text[]` として保存する
+- 過去ページではカテゴリ表示がない報道発表が存在するため、`source_categories` は NULL を許容する
+- scraper の `source_categories` が空の場合は、保存用 DTO への変換時に `None` へ正規化し、DB には NULL として保存する
 - `source_categories` にカテゴリ名以外の属性を持たせる必要が出た場合は、別テーブル化または `jsonb` 化を後続フェーズで検討する
 - `fetched_at` / `created_at` / `updated_at` などの時刻は UTC 基準で保存する
+- `fetched_at` は環境省ページからデータを取得した日時として扱い、DB行の作成・更新日時とは分ける
+- 初回保存時は `created_at` と `updated_at` に同じ時刻が入る想定とする
+- `updated_at` はユーザー操作による編集日時ではなく、環境省サイト上の修正などを検知して保存済み行を更新した日時として扱う
 - SQLAlchemy model では `DateTime(timezone=True)` を使い、UTC への統一は保存処理で timezone aware な UTC datetime を渡すことで担保する
 - 時刻をユーザーに表示する必要が出た場合は、表示層で日本時間などのローカルタイムへ変換する
 - MVP の主な表示対象は公開日 `published_at` であり、取得時刻は主に定時実行、差分取得、保存状況確認、調査用のメタデータとして扱う
+
+### マイグレーション方針
+
+- Alembic の設定と migration ファイルは `apps/api` 配下に置く
+- `target_metadata` は `press_watch_api.models.base.Base.metadata` を使う
+- Autogenerate で SQLAlchemy model を認識できるように、Alembic の `env.py` では model モジュールを import する
+- 初版 migration は `press_releases` テーブルと `source_url` の名前付き一意制約に限定する
+- 初版 migration では `source_categories` を NULL 許容にする
+- 初版 migration では `updated_at` 自動更新用の PostgreSQL トリガーは作らない
+- DB 直接更新でも `updated_at` を必ず更新する要件が出た場合は、後続 migration でトリガー追加を検討する
+
+詳細は `docs/db-migrations.md` に整理する。
 
 ### API 側の配置方針
 

@@ -137,6 +137,7 @@ cd ../..
 - `docs/tech-stack.md`: 技術選定とバージョン方針
 - `docs/local-development.md`: ローカル開発・確認手順
 - `docs/scraping-env-go-jp.md`: 環境省報道発表ページの構造とスクレイピング方針
+- `docs/db-migrations.md`: DB マイグレーション方針
 
 ## 今後の予定
 
