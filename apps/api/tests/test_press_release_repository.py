@@ -32,6 +32,7 @@ class PressReleaseRepositoryTest(unittest.TestCase):
             press_release.source_categories,
             ["総合政策", "自然環境"],
         )
+        self.assertIsNot(press_release.source_categories, dto.source_categories)
         self.assertEqual(press_release.fetched_at, dto.fetched_at)
 
     def test_create_press_release_allows_null_source_categories(self) -> None:
@@ -60,6 +61,19 @@ class PressReleaseRepositoryTest(unittest.TestCase):
                 call.flush(),
             ]
         )
+
+    def test_create_press_release_leaves_transaction_control_to_caller(
+        self,
+    ) -> None:
+        """トランザクションの確定や取消を呼び出し元へ任せること"""
+
+        session = Mock(spec=Session)
+        dto = _press_release_create()
+
+        create_press_release(session, dto)
+
+        session.commit.assert_not_called()
+        session.rollback.assert_not_called()
 
 
 def _press_release_create(

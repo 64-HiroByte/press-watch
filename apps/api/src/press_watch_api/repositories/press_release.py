@@ -24,7 +24,11 @@ def create_press_release(
         title=data.title,
         source_url=data.source_url,
         published_at=data.published_at,
-        source_categories=data.source_categories,
+        source_categories=(
+            list(data.source_categories)
+            if data.source_categories is not None
+            else None
+        ),
         fetched_at=data.fetched_at,
     )
 
