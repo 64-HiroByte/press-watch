@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, call
+
+from sqlalchemy.orm import Session
 
 from press_watch_api.models.press_release import PressRelease
 from press_watch_api.repositories.press_release import create_press_release
@@ -15,7 +17,7 @@ class PressReleaseRepositoryTest(unittest.TestCase):
     def test_create_press_release_builds_model_from_create_dto(self) -> None:
         """保存DTOの値からPressReleaseモデルを組み立てること"""
 
-        session = Mock()
+        session = Mock(spec=Session)
         dto = _press_release_create(
             source_categories=["総合政策", "自然環境"],
         )
@@ -35,7 +37,7 @@ class PressReleaseRepositoryTest(unittest.TestCase):
     def test_create_press_release_allows_null_source_categories(self) -> None:
         """取得元カテゴリがないDTOをNoneのままモデルへ写すこと"""
 
-        session = Mock()
+        session = Mock(spec=Session)
         dto = _press_release_create(source_categories=None)
 
         press_release = create_press_release(session, dto)
@@ -45,13 +47,19 @@ class PressReleaseRepositoryTest(unittest.TestCase):
     def test_create_press_release_adds_and_flushes_model(self) -> None:
         """作成したモデルをセッションへ追加してflushすること"""
 
-        session = Mock()
+        session = Mock(spec=Session)
         dto = _press_release_create()
 
         press_release = create_press_release(session, dto)
 
         session.add.assert_called_once_with(press_release)
         session.flush.assert_called_once_with()
+        session.assert_has_calls(
+            [
+                call.add(press_release),
+                call.flush(),
+            ]
+        )
 
 
 def _press_release_create(
