@@ -125,7 +125,7 @@
 - API schema / 入出力DTOは Pydantic で定義し、DB model と分ける
 - scraper の `PressRelease` は取得結果を表す型として扱い、DB model と直接同一視しない
 - スクレイピング結果を保存する処理では、変換関数または service 層を挟む
-- `source_url` の一意制約と repository 層の保存処理で、DB保存時の重複登録を防ぐ
+- `source_url` の一意制約をDB側に置き、既存URLの skip や `IntegrityError` の扱いは repository / service の責務境界を確認しながら後続タスクで追加する
 
 ### Phase 3 初期の実装方針
 
@@ -135,7 +135,7 @@
 - SQLAlchemy の engine / sessionmaker は `apps/api/src/press_watch_api/db.py` に置く
 - Docker Compose 内の接続URLは `postgresql+psycopg://presswatch:${POSTGRES_PASSWORD}@db:5432/presswatch` を基本形とする
 - ローカルPCから直接接続する場合は、Compose の公開ポートに合わせて host を `127.0.0.1` に置き換える
-- 通常の保存処理では、`source_url` が既存なら重複登録せずスキップする
+- 通常の保存処理では、`source_url` が既存なら重複登録せずスキップする方針とする。既存URLの取得、skip、`IntegrityError` の詳細ハンドリングは後続タスクで扱う
 - 既存データの修正検知は、初期保存処理とは分けて Phase 4 の差分取得・実行単位整理で扱う
 - 週次フルスキャンや再照合モード、`last_seen_at`、`content_hash`、変更履歴の保存は、必要性を確認してから後続フェーズで検討する
 - 初期実装では、既存データを自動上書きするよりも重複登録を避けることを優先する
