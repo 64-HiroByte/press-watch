@@ -3,11 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
 import unittest
+from unittest.mock import Mock, call
 
 from pydantic import ValidationError
+from sqlalchemy.orm import Session
 
 from press_watch_api.schemas.press_release import PressReleaseCreate
 from press_watch_api.services.press_release_import import (
+    import_press_releases,
     to_press_release_create,
     to_press_release_creates,
 )
@@ -144,6 +147,64 @@ class PressReleaseImportServiceTest(unittest.TestCase):
             [release.url for release in releases],
         )
         self.assertEqual([dto.fetched_at for dto in dtos], [fetched_at, fetched_at])
+
+    def test_import_press_releases_saves_each_scraped_release(
+        self,
+    ) -> None:
+        """複数のscraper取得結果をDTO経由でrepositoryへ渡すこと"""
+
+        session = Mock(spec=Session)
+        releases = [
+            _scraped_release(
+                title="報道発表1",
+                url="https://www.env.go.jp/press/press_00001.html",
+                source_categories=("総合政策",),
+            ),
+            _scraped_release(
+                title="報道発表2",
+                url="https://www.env.go.jp/press/press_00002.html",
+                source_categories=(),
+            ),
+        ]
+        fetched_at = datetime(2026, 5, 26, 10, 0, tzinfo=UTC)
+
+        press_releases = import_press_releases(
+            session,
+            releases,
+            fetched_at=fetched_at,
+        )
+
+        self.assertEqual(
+            [press_release.source_url for press_release in press_releases],
+            [release.url for release in releases],
+        )
+        self.assertEqual(
+            [press_release.fetched_at for press_release in press_releases],
+            [fetched_at, fetched_at],
+        )
+        self.assertEqual(press_releases[0].source_categories, ["総合政策"])
+        self.assertIsNone(press_releases[1].source_categories)
+        session.assert_has_calls(
+            [
+                call.add(press_releases[0]),
+                call.flush(),
+                call.add(press_releases[1]),
+                call.flush(),
+            ],
+        )
+
+    def test_import_press_releases_leaves_transaction_control_to_caller(
+        self,
+    ) -> None:
+        """serviceでもトランザクションの確定や取消を呼び出し元へ任せること"""
+
+        session = Mock(spec=Session)
+        release = _scraped_release()
+
+        import_press_releases(session, [release])
+
+        session.commit.assert_not_called()
+        session.rollback.assert_not_called()
 
 
 def _scraped_release(
