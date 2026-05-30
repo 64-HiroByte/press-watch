@@ -4,6 +4,10 @@ from collections.abc import Collection, Iterable
 from datetime import UTC, date, datetime
 from typing import Protocol
 
+from sqlalchemy.orm import Session
+
+from press_watch_api.models.press_release import PressRelease as PressReleaseModel
+from press_watch_api.repositories.press_release import create_press_release
 from press_watch_api.schemas.press_release import PressReleaseCreate
 
 
@@ -62,6 +66,39 @@ def to_press_release_creates(
             fetched_at=resolved_fetched_at,
         )
         for release in releases
+    ]
+
+
+def import_press_releases(
+    session: Session,
+    releases: Iterable[ScrapedPressRelease],
+    fetched_at: datetime | None = None,
+) -> list[PressReleaseModel]:
+    """scraper 取得結果をDTO経由でrepositoryへ保存依頼
+
+    repository と同じく commit / rollback は呼び出さず、
+    呼び出し元のトランザクションに参加する。
+
+    Args:
+        session: 保存に使うSQLAlchemyセッション
+        releases: scraper が取得した報道発表の反復可能オブジェクト
+        fetched_at: 環境省ページからデータを取得した日時
+
+    Returns:
+        セッションへ追加してflush済みの報道発表DBモデルリスト
+    """
+
+    create_dtos = to_press_release_creates(
+        releases,
+        fetched_at=fetched_at,
+    )
+
+    return [
+        create_press_release(
+            session,
+            create_dto,
+        )
+        for create_dto in create_dtos
     ]
 
 
