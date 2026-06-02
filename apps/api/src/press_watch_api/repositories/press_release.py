@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from press_watch_api.models.press_release import PressRelease
@@ -36,3 +37,26 @@ def create_press_release(
     session.flush()
 
     return press_release
+
+
+def has_press_release_with_source_url(
+    session: Session,
+    source_url: str,
+) -> bool:
+    """指定した取得元URLの報道発表が既に保存されているか確認する
+
+    Args:
+        session: 取得に使うSQLAlchemyセッション
+        source_url: 報道発表詳細ページURL
+
+    Returns:
+        既存行がある場合はTrue、ない場合はFalse
+    """
+
+    statement = (
+        select(PressRelease.id)
+        .where(PressRelease.source_url == source_url)
+        .limit(1)
+    )
+
+    return session.scalar(statement) is not None
