@@ -134,10 +134,10 @@ Phase 3 初期では扱わないもの:
 
 ## 横断タスク: CI / 品質基盤
 
-- [ ] GitHub Actions で API テスト CI を追加する
+- [x] GitHub Actions で API テスト CI を追加する
   - [x] 最小 CI の範囲を整理し、workflow を追加する
   - [x] ローカルで API unittest と `git diff --check` が通ることを確認する
-  - [ ] GitHub 上の PR Checks で `API tests` が通ることを確認する
+  - [x] GitHub 上の PR Checks で `API tests` が通ることを確認する
 
 今回の最小 CI では、自動デプロイ、Docker Compose 全体起動、フロントエンド CI、secret を使う処理、CD 全般は扱わない。
 
