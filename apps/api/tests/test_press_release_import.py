@@ -15,6 +15,10 @@ from press_watch_api.services.press_release_import import (
     to_press_release_creates,
 )
 
+SOURCE_URL_1 = "https://www.env.go.jp/press/press_00001.html"
+SOURCE_URL_2 = "https://www.env.go.jp/press/press_00002.html"
+SOURCE_URL_3 = "https://www.env.go.jp/press/press_00003.html"
+
 
 @dataclass(frozen=True)
 class ScraperPressReleaseStub:
@@ -37,7 +41,7 @@ class PressReleaseCreateSchemaTest(unittest.TestCase):
         with self.assertRaises(ValidationError):
             PressReleaseCreate(
                 title="報道発表",
-                source_url="https://www.env.go.jp/press/press_00001.html",
+                source_url=SOURCE_URL_1,
                 published_at=date(2026, 5, 26),
                 source_categories=["総合政策"],
                 fetched_at=datetime(2026, 5, 26, 10, 0),
@@ -57,7 +61,7 @@ class PressReleaseCreateSchemaTest(unittest.TestCase):
 
         dto = PressReleaseCreate(
             title="報道発表",
-            source_url="https://www.env.go.jp/press/press_00001.html",
+            source_url=SOURCE_URL_1,
             published_at=date(2026, 5, 26),
             source_categories=["総合政策"],
             fetched_at=fetched_at,
@@ -71,7 +75,7 @@ class PressReleaseCreateSchemaTest(unittest.TestCase):
         with self.assertRaises(ValidationError):
             PressReleaseCreate(
                 title="  ",
-                source_url="https://www.env.go.jp/press/press_00001.html",
+                source_url=SOURCE_URL_1,
                 published_at=date(2026, 5, 26),
                 source_categories=["総合政策"],
                 fetched_at=datetime(2026, 5, 26, 10, 0, tzinfo=UTC),
@@ -131,11 +135,11 @@ class PressReleaseImportServiceTest(unittest.TestCase):
         releases = [
             _scraped_release(
                 title="報道発表1",
-                url="https://www.env.go.jp/press/press_00001.html",
+                url=SOURCE_URL_1,
             ),
             _scraped_release(
                 title="報道発表2",
-                url="https://www.env.go.jp/press/press_00002.html",
+                url=SOURCE_URL_2,
             ),
         ]
         fetched_at = datetime(2026, 5, 26, 10, 0, tzinfo=UTC)
@@ -154,25 +158,27 @@ class PressReleaseImportServiceTest(unittest.TestCase):
         """複数のscraper取得結果をDTO経由でrepositoryへ渡すこと"""
 
         session = Mock(spec=Session)
+        session.scalar.return_value = None
         releases = [
             _scraped_release(
                 title="報道発表1",
-                url="https://www.env.go.jp/press/press_00001.html",
+                url=SOURCE_URL_1,
                 source_categories=("総合政策",),
             ),
             _scraped_release(
                 title="報道発表2",
-                url="https://www.env.go.jp/press/press_00002.html",
+                url=SOURCE_URL_2,
                 source_categories=(),
             ),
         ]
         fetched_at = datetime(2026, 5, 26, 10, 0, tzinfo=UTC)
 
-        press_releases = import_press_releases(
+        result = import_press_releases(
             session,
             releases,
             fetched_at=fetched_at,
         )
+        press_releases = result.saved_press_releases
 
         self.assertEqual(
             [press_release.source_url for press_release in press_releases],
@@ -184,14 +190,67 @@ class PressReleaseImportServiceTest(unittest.TestCase):
         )
         self.assertEqual(press_releases[0].source_categories, ["総合政策"])
         self.assertIsNone(press_releases[1].source_categories)
-        session.assert_has_calls(
+        self.assertEqual(result.saved_count, 2)
+        self.assertEqual(result.skipped_count, 0)
+        self.assertEqual(
+            session.add.call_args_list,
             [
-                call.add(press_releases[0]),
-                call.flush(),
-                call.add(press_releases[1]),
-                call.flush(),
+                call(press_releases[0]),
+                call(press_releases[1]),
             ],
         )
+        self.assertEqual(session.flush.call_count, 2)
+
+    def test_import_press_releases_skips_existing_source_url(
+        self,
+    ) -> None:
+        """既存source_urlの報道発表を保存せずskip件数へ数えること"""
+
+        session = Mock(spec=Session)
+        session.scalar.side_effect = [None, 1, None]
+        releases = [
+            _scraped_release(
+                title="報道発表1",
+                url=SOURCE_URL_1,
+            ),
+            _scraped_release(
+                title="報道発表2",
+                url=SOURCE_URL_2,
+            ),
+            _scraped_release(
+                title="報道発表3",
+                url=SOURCE_URL_3,
+            ),
+        ]
+        fetched_at = datetime(2026, 5, 26, 10, 0, tzinfo=UTC)
+
+        result = import_press_releases(
+            session,
+            releases,
+            fetched_at=fetched_at,
+        )
+
+        self.assertEqual(
+            [
+                press_release.source_url
+                for press_release in result.saved_press_releases
+            ],
+            [
+                SOURCE_URL_1,
+                SOURCE_URL_3,
+            ],
+        )
+        self.assertEqual(result.saved_count, 2)
+        self.assertEqual(result.skipped_count, 1)
+        self.assertEqual(session.scalar.call_count, 3)
+        self.assertEqual(
+            session.add.call_args_list,
+            [
+                call(result.saved_press_releases[0]),
+                call(result.saved_press_releases[1]),
+            ],
+        )
+        self.assertEqual(session.flush.call_count, 2)
 
     def test_import_press_releases_leaves_transaction_control_to_caller(
         self,
@@ -199,6 +258,7 @@ class PressReleaseImportServiceTest(unittest.TestCase):
         """serviceでもトランザクションの確定や取消を呼び出し元へ任せること"""
 
         session = Mock(spec=Session)
+        session.scalar.return_value = None
         release = _scraped_release()
 
         import_press_releases(session, [release])
@@ -210,7 +270,7 @@ class PressReleaseImportServiceTest(unittest.TestCase):
 def _scraped_release(
     title: str = "報道発表",
     published_at: date = date(2026, 5, 26),
-    url: str = "https://www.env.go.jp/press/press_00001.html",
+    url: str = SOURCE_URL_1,
     source_categories: tuple[str, ...] = ("総合政策",),
 ) -> ScraperPressReleaseStub:
     """scraper 取得結果のテスト用データを生成

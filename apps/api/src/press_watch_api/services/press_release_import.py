@@ -1,14 +1,32 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Iterable
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Protocol
 
 from sqlalchemy.orm import Session
 
 from press_watch_api.models.press_release import PressRelease as PressReleaseModel
-from press_watch_api.repositories.press_release import create_press_release
+from press_watch_api.repositories.press_release import (
+    create_press_release,
+    has_press_release_with_source_url,
+)
 from press_watch_api.schemas.press_release import PressReleaseCreate
+
+
+@dataclass(frozen=True)
+class PressReleaseImportResult:
+    """報道発表import処理の保存結果"""
+
+    saved_press_releases: tuple[PressReleaseModel, ...]
+    skipped_count: int
+
+    @property
+    def saved_count(self) -> int:
+        """保存件数"""
+
+        return len(self.saved_press_releases)
 
 
 class ScrapedPressRelease(Protocol):
@@ -73,7 +91,7 @@ def import_press_releases(
     session: Session,
     releases: Iterable[ScrapedPressRelease],
     fetched_at: datetime | None = None,
-) -> list[PressReleaseModel]:
+) -> PressReleaseImportResult:
     """scraper 取得結果をDTO経由でrepositoryへ保存依頼
 
     repository と同じく commit / rollback は呼び出さず、
@@ -85,21 +103,35 @@ def import_press_releases(
         fetched_at: 環境省ページからデータを取得した日時
 
     Returns:
-        セッションへ追加してflush済みの報道発表DBモデルリスト
+        保存済みモデルと保存件数、重複skip件数を含むimport結果
     """
 
     create_dtos = to_press_release_creates(
         releases,
         fetched_at=fetched_at,
     )
+    saved_press_releases: list[PressReleaseModel] = []
+    skipped_count = 0
 
-    return [
-        create_press_release(
+    for create_dto in create_dtos:
+        if has_press_release_with_source_url(
             session,
-            create_dto,
+            create_dto.source_url,
+        ):
+            skipped_count += 1
+            continue
+
+        saved_press_releases.append(
+            create_press_release(
+                session,
+                create_dto,
+            )
         )
-        for create_dto in create_dtos
-    ]
+
+    return PressReleaseImportResult(
+        saved_press_releases=tuple(saved_press_releases),
+        skipped_count=skipped_count,
+    )
 
 
 def _source_categories_or_none(

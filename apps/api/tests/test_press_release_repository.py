@@ -7,8 +7,13 @@ from unittest.mock import Mock, call
 from sqlalchemy.orm import Session
 
 from press_watch_api.models.press_release import PressRelease
-from press_watch_api.repositories.press_release import create_press_release
+from press_watch_api.repositories.press_release import (
+    create_press_release,
+    has_press_release_with_source_url,
+)
 from press_watch_api.schemas.press_release import PressReleaseCreate
+
+SOURCE_URL_1 = "https://www.env.go.jp/press/press_00001.html"
 
 
 class PressReleaseRepositoryTest(unittest.TestCase):
@@ -75,10 +80,58 @@ class PressReleaseRepositoryTest(unittest.TestCase):
         session.commit.assert_not_called()
         session.rollback.assert_not_called()
 
+    def test_has_press_release_with_source_url_returns_true_when_found(
+        self,
+    ) -> None:
+        """指定URLの既存行がある場合はTrueを返すこと"""
+
+        session = Mock(spec=Session)
+        session.scalar.return_value = 1
+
+        exists = has_press_release_with_source_url(
+            session,
+            SOURCE_URL_1,
+        )
+
+        self.assertTrue(exists)
+        session.scalar.assert_called_once()
+
+    def test_has_press_release_with_source_url_returns_false_when_missing(
+        self,
+    ) -> None:
+        """指定URLの既存行がない場合はFalseを返すこと"""
+
+        session = Mock(spec=Session)
+        session.scalar.return_value = None
+
+        exists = has_press_release_with_source_url(
+            session,
+            SOURCE_URL_1,
+        )
+
+        self.assertFalse(exists)
+        session.scalar.assert_called_once()
+
+    def test_has_press_release_with_source_url_leaves_transaction_control_to_caller(
+        self,
+    ) -> None:
+        """既存確認でもトランザクションの確定や取消を呼び出し元へ任せること"""
+
+        session = Mock(spec=Session)
+        session.scalar.return_value = None
+
+        has_press_release_with_source_url(
+            session,
+            SOURCE_URL_1,
+        )
+
+        session.commit.assert_not_called()
+        session.rollback.assert_not_called()
+
 
 def _press_release_create(
     title: str = "報道発表",
-    source_url: str = "https://www.env.go.jp/press/press_00001.html",
+    source_url: str = SOURCE_URL_1,
     published_at: date = date(2026, 5, 26),
     source_categories: list[str] | None = None,
     fetched_at: datetime = datetime(2026, 5, 26, 10, 0, tzinfo=UTC),
