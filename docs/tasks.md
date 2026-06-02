@@ -132,6 +132,17 @@ Phase 3 初期では扱わないもの:
 
 ---
 
+## 横断タスク: CI / 品質基盤
+
+- [ ] GitHub Actions で API テスト CI を追加する
+  - [x] 最小 CI の範囲を整理し、workflow を追加する
+  - [x] ローカルで API unittest と `git diff --check` が通ることを確認する
+  - [ ] GitHub 上の PR Checks で `API tests` が通ることを確認する
+
+今回の最小 CI では、自動デプロイ、Docker Compose 全体起動、フロントエンド CI、secret を使う処理、CD 全般は扱わない。
+
+---
+
 ## Phase 4: 取得処理の実行単位整理
 
 - [ ] データ取得処理をコマンドまたはジョブとして実行できる形に整理する
