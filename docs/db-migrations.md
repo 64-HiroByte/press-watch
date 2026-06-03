@@ -22,7 +22,6 @@ apps/api/
 `alembic.ini` の `script_location` は `migrations` とし、通常の操作は `apps/api` ディレクトリで実行する。
 API プロジェクトは `package = false` のため、`alembic.ini` では `prepend_sys_path = src` を設定し、`press_watch_api` を import できるようにする。
 API 側の `pyproject.toml` / `uv.lock` で Alembic を管理し、root や scraper 側には migration 用の依存を持たせない。
-Alembic 依存関係の追加は、初版 migration を作成するタスクで `apps/api` 側に行う。
 
 ## target_metadata
 
@@ -63,7 +62,8 @@ target_metadata = Base.metadata
 - `updated_at`: timezone 付き datetime, `nullable=False`, DB 側 default `now()`
 - `source_url` の名前付き一意制約 `uq_press_releases_source_url`
 
-初版 migration では autogenerate を下書きとして使い、生成結果を必ず手で確認する。
+初版 migration は `31765401e166_create_press_releases.py` として作成済み。
+作成時は autogenerate を下書きとして使い、生成結果を手で確認する。
 特に PostgreSQL の `text[]`、`source_categories` の NULL 許容、timezone 付き timestamp、制約名、server default が SQLAlchemy model と一致しているかを見る。
 
 `source_categories` は環境省ページに表示された取得元カテゴリであり、過去ページではカテゴリ表示がない発表が存在する。
@@ -111,5 +111,5 @@ DATABASE_URL=postgresql+psycopg://presswatch:your-local-postgres-password@127.0.
 cd ../..
 ```
 
-Alembic の依存追加前は `uv run alembic ...` は実行できない。
-次タスクで `apps/api` に Alembic を追加し、`alembic.ini` の `prepend_sys_path` 設定まで含めて初期化する。
+現時点では `apps/api` に Alembic 依存、`alembic.ini`、`migrations/env.py`、初版 migration が追加済み。
+今後のスキーマ変更では、同じ `apps/api` 配下で revision を追加し、生成内容を確認してから適用する。
