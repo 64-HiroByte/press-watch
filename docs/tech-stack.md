@@ -127,7 +127,7 @@
 - スクレイピング結果を保存する処理では、変換関数または service 層を挟む
 - `source_url` の一意制約をDB側に置き、既存URLの確認は repository、skip と保存件数 / skip 件数の集計は service で扱う
 
-### Phase 3 初期の実装方針
+### Phase 3 初期のDB実装状態と未対応範囲
 
 - SQLAlchemy は同期版から始める
 - Phase 3 初期では保存処理、重複防止、マイグレーションの見通しを優先し、async SQLAlchemy は高並行アクセスや非同期I/Oの必要性が明確になった段階で再検討する
@@ -151,6 +151,8 @@
 - SQLAlchemy model では `DateTime(timezone=True)` を使い、UTC への統一は保存処理で timezone aware な UTC datetime を渡すことで担保する
 - 時刻をユーザーに表示する必要が出た場合は、表示層で日本時間などのローカルタイムへ変換する
 - MVP の主な表示対象は公開日 `published_at` であり、取得時刻は主に定時実行、差分取得、保存状況確認、調査用のメタデータとして扱う
+- scraper 取得結果から API 側 DTO へ変換し、repository / service 経由で保存する処理は Phase 3 で用意済み
+- scraper CLI から DB 保存までをつなぐ手動実行コマンド、初回全件取得、差分取得、ログ方針は Phase 4 で扱う
 
 ### マイグレーション方針
 

@@ -36,7 +36,7 @@ POSTGRES_PASSWORD=your-local-postgres-password
 - `package.json`: ルートの pnpm scripts を定義します。
 - `pnpm-workspace.yaml`: pnpm workspace の対象として `apps/web` を指定します。
 - `apps/web/package.json`: Next.js / React / TypeScript の依存関係と scripts を定義します。
-- `apps/api/pyproject.toml`: API 用の Python 依存関係として `fastapi[standard]` / `sqlalchemy` / `psycopg` を定義します。
+- `apps/api/pyproject.toml`: API 用の Python 依存関係として `fastapi[standard]` / `sqlalchemy` / `psycopg` / `alembic` を定義します。
 - `packages/scraper/pyproject.toml`: scraper 用の Python パッケージ設定を定義します。
 - `infra/compose.yml`: `web` / `api` / `db` の Docker Compose 構成を定義します。
 - `infra/docker/web.Dockerfile`: Web コンテナのビルド手順を定義します。
@@ -106,7 +106,7 @@ PYTHONPATH=src uv run python -m press_watch_scraper --from-file tests/fixtures/e
 cd ../..
 ```
 
-取得結果をローカルで確認したい場合は、CLI の stdout JSON を一時ファイルへリダイレクトします。現段階の最終保存先は PostgreSQL の予定なので、JSON ファイル保存は本格機能ではなく、DB 保存実装前の確認手段として扱います。
+取得結果をローカルで確認したい場合は、CLI の stdout JSON を一時ファイルへリダイレクトします。JSON ファイル保存は本格機能ではなく、取得件数やカテゴリ、停止理由を確認するための開発・検証用スナップショットとして扱います。
 
 ```bash
 cd packages/scraper
@@ -115,7 +115,7 @@ python -m json.tool /tmp/env_press_sample.json
 cd ../..
 ```
 
-全件取得は再取得コストが高いため、DB 保存が整うまでは検証用 JSON スナップショットを残せるようにします。`--output PATH` を指定すると、成功時の stdout JSON と同じ内容を指定ファイルにも保存します。
+全件取得は再取得コストが高いため、DB 保存処理とつなぐ前の確認や再確認に使える JSON スナップショットを残せるようにします。`--output PATH` を指定すると、成功時の stdout JSON と同じ内容を指定ファイルにも保存します。
 
 ```bash
 cd packages/scraper
@@ -161,6 +161,7 @@ PostgreSQL はローカル環境へ直接インストールせず、Docker Compo
 初回起動時に Docker が PostgreSQL イメージを取得し、`postgres_data` ボリュームに DB データを保存します。通常のセットアップでは、`.env` を用意して Docker Compose を起動すれば DB も一緒に作られます。
 
 Phase 3 では、API 側から PostgreSQL に接続するために SQLAlchemy + psycopg の最小土台を導入し、Alembic で `press_releases` の初版 migration を管理しています。
+スクレイピング結果を DTO 経由で repository / service へ渡して保存する処理も API 側にありますが、scraper CLI から DB 保存までを接続する実行単位や初回全件取得の手順は Phase 4 で整理します。
 接続文字列の環境変数名は `DATABASE_URL` のままとし、SQLAlchemy から psycopg を使う場合は次のような形式を想定します。
 
 ```text

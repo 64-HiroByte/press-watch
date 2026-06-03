@@ -176,6 +176,12 @@ PressWatch は、環境省サイト内の報道発表を定期取得し、
 - 高度な全文検索
 - 権限管理
 
+## 4.3 現在の実装段階
+
+Phase 3 では、MVP のうち DB 保存の土台として、PostgreSQL 接続、`press_releases` テーブル、Alembic migration、DTO / repository / service 経由の保存処理、通常の重複 skip までを扱う。
+scraper CLI から DB 保存までを接続する手動実行コマンド、初回全件取得、差分取得、ログ方針は Phase 4 で整理する。
+一覧表示、検索、カテゴリ絞り込み、ブックマーク API、フロントエンド画面は後続フェーズで扱う。
+
 ---
 
 ## 5. 想定画面
