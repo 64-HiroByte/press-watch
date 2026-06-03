@@ -150,10 +150,10 @@ Python lint / format、フロントエンド CI、Docker Compose 全体起動を
 
 ## Phase 4: 取得処理の実行単位整理
 
-- [ ] Phase 4 の実装前に scraper unittest を CI に追加する
+- [x] Phase 4 の実装前に scraper unittest を CI に追加する
   - [x] `packages/scraper` の unittest を GitHub Actions で実行する
   - [x] API unittest と scraper unittest の job 分割または workflow 分割を決める
-  - [ ] GitHub 上の PR Checks で scraper unittest が通ることを確認する
+  - [x] GitHub 上の PR Checks で scraper unittest が通ることを確認する
 - [ ] データ取得処理をコマンドまたはジョブとして実行できる形に整理する
 - [ ] 手動実行コマンドを用意する
 - [ ] 初回全件取得用の実行方法を整理する
