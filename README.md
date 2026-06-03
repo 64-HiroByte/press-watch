@@ -15,10 +15,11 @@ PressWatch は、こうした情報収集の負担や見逃しリスクを減ら
 ## 技術スタック
 
 - フロントエンド: Next.js / React / TypeScript
-- バックエンド: FastAPI / Python
-- スクレイパー: Python / Beautiful Soup
-- データベース: PostgreSQL
+- バックエンド: FastAPI / Python / SQLAlchemy / Alembic
+- スクレイパー: Python / Beautiful Soup / lxml
+- データベース: PostgreSQL / psycopg
 - 開発環境: Docker / docker compose
+- CI: GitHub Actions
 - パッケージ管理:
   - フロントエンド: pnpm
   - Python: uv
