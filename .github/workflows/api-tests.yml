@@ -36,15 +36,50 @@ jobs:
             git diff --check "$empty_tree" "${{ github.sha }}"
           fi
 
+      - name: Detect Markdown-only changes
+        id: changed-files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          changed_files="$(mktemp)"
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" > "$changed_files"
+          elif [[ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+            git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" > "$changed_files"
+          else
+            empty_tree="$(git hash-object -t tree /dev/null)"
+            git diff --name-only "$empty_tree" "${{ github.sha }}" > "$changed_files"
+          fi
+
+          echo "Changed files:"
+          sed 's/^/- /' "$changed_files"
+
+          if [[ ! -s "$changed_files" ]]; then
+            echo "api_tests_required=false" >> "$GITHUB_OUTPUT"
+          elif grep -Ev '\.md$' "$changed_files" > /dev/null; then
+            echo "api_tests_required=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "api_tests_required=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip API unit tests
+        if: steps.changed-files.outputs.api_tests_required == 'false'
+        run: echo "Only Markdown files changed. Skipping API unit tests."
+
       - name: Set up Python
+        if: steps.changed-files.outputs.api_tests_required == 'true'
         uses: actions/setup-python@v6
         with:
           python-version: "3.14"
 
       - name: Set up uv
+        if: steps.changed-files.outputs.api_tests_required == 'true'
         uses: astral-sh/setup-uv@v8.1.0
 
       - name: Run API unit tests
+        if: steps.changed-files.outputs.api_tests_required == 'true'
         working-directory: apps/api
         env:
           PYTHONPATH: src
