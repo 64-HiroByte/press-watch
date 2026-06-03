@@ -150,18 +150,41 @@ Python lint / format、フロントエンド CI、Docker Compose 全体起動を
 
 ## Phase 4: 取得処理の実行単位整理
 
+Phase 4 では、scraper で取得した報道発表を DB 保存 service へ渡し、開発者またはシステムが実行できる import 処理として整理する。
+既存 scraper CLI は、DB 保存前の取得確認と JSON スナップショット出力の入口として維持する。
+DB 保存は API 側の DTO / repository / service を経由し、commit / rollback は実行コマンドまたはジョブの呼び出し元で扱う。
+手動 import、初回全件取得、差分取得、ログ方針、定期実行は一度に実装せず、まず手動で DB 保存まで確認できる最小 import コマンドから進める。
+
 - [x] Phase 4 の実装前に scraper unittest を CI に追加する
   - [x] `packages/scraper` の unittest を GitHub Actions で実行する
   - [x] API unittest と scraper unittest の job 分割または workflow 分割を決める
   - [x] GitHub 上の PR Checks で scraper unittest が通ることを確認する
-- [ ] データ取得処理をコマンドまたはジョブとして実行できる形に整理する
-- [ ] 手動実行コマンドを用意する
+- [x] データ取得処理をコマンドまたはジョブとして実行できる形にする前に、実行単位方針を整理する
+  - [x] 既存 scraper CLI と DB 保存 service の責務境界を確認する
+  - [x] 手動 import、初回全件取得、差分取得、ログ方針を別タスクとして扱う方針を決める
+- [ ] 手動 import コマンドを用意する
+  - [ ] 実行入口の配置と起動方法を決める
+  - [ ] scraper の取得結果を API 側の import service へ渡して保存する
+  - [ ] commit / rollback の責務を実行入口側に置く
+  - [ ] 保存件数 / skip 件数 / 取得件数を実行結果として確認できるようにする
+  - [ ] コマンド失敗時の終了コードと stderr 出力をテストで固定する
 - [ ] 初回全件取得用の実行方法を整理する
+  - [ ] `--all-archive-months` 相当の取得を DB 保存とつないだ場合の実行手順を決める
+  - [ ] 実行前後の確認項目、再実行時の重複 skip 確認方法を整理する
 - [ ] 差分取得を想定した実行方法を整理する
+  - [ ] DB の既存 `source_url` を取得済み URL として扱う方法を決める
+  - [ ] `crawl_press_releases` の `known_release_urls` を使った停止条件を import 実行に接続する
 - [ ] scraper CLI の入口処理を実行単位・ログ方針に合わせて整理する
+  - [ ] 既存の JSON スナップショット CLI と DB import コマンドの役割を分ける
+  - [ ] stdout は機械可読な結果、stderr は進捗・エラーという既存方針を維持する
 - [ ] HTML取得関数の命名を実態に合わせて見直す
 - [ ] 実行ログの出力方針を決める
 - [ ] エラー時の終了コードやログ出力を確認する
+- [ ] Phase 4 の完了前に外部公開用ドキュメントを現状に合わせて点検・更新する
+  - [ ] `README.md` の現在の開発状況と今後の予定が Phase 4 の実装済み状態と一致しているか確認する
+  - [ ] `docs/local-development.md` の手動 import、初回全件取得、差分取得の手順が実装済み状態と一致しているか確認する
+  - [ ] `docs/requirements.md` の手動実行・DB保存・後続フェーズの記述が現状と矛盾していないか確認する
+  - [ ] その他、外部公開用ドキュメントに Phase 4 実装と整合しない記述が残っていないか確認する
 
 ---
 
