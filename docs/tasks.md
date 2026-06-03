@@ -144,11 +144,16 @@ Phase 3 初期では扱わないもの:
 
 今回の最小 CI では、自動デプロイ、Docker Compose 全体起動、フロントエンド CI、secret を使う処理、CD 全般は扱わない。
 Markdown のみの変更では `git diff --check` による空白確認だけを実行し、API unittest はスキップする。
+Python lint / format、フロントエンド CI、Docker Compose 全体起動を含む統合テストは、対象フェーズで必要性と依存追加方針を確認してから導入する。
 
 ---
 
 ## Phase 4: 取得処理の実行単位整理
 
+- [ ] Phase 4 の実装前に scraper unittest を CI に追加する
+  - [ ] `packages/scraper` の unittest を GitHub Actions で実行する
+  - [ ] API unittest と scraper unittest の job 分割または workflow 分割を決める
+  - [ ] GitHub 上の PR Checks で scraper unittest が通ることを確認する
 - [ ] データ取得処理をコマンドまたはジョブとして実行できる形に整理する
 - [ ] 手動実行コマンドを用意する
 - [ ] 初回全件取得用の実行方法を整理する
@@ -162,6 +167,9 @@ Markdown のみの変更では `git diff --check` による空白確認だけを
 
 ## Phase 5: API実装
 
+- [ ] API 実装範囲の拡大に合わせて CI の API 確認範囲を見直す
+  - [ ] API 一覧取得、検索、ページネーション、ブックマークのテストを CI で確認できる状態にする
+  - [ ] DB が必要な統合テストを CI に含めるか確認する
 - [ ] ヘルスチェックAPIを作成する
 - [ ] 報道発表一覧取得APIを作成する
 - [ ] 一覧取得APIで新着順表示に対応する
@@ -186,6 +194,9 @@ Markdown のみの変更では `git diff --check` による空白確認だけを
 
 ## Phase 6: フロントエンド実装
 
+- [ ] フロントエンド実装前に typecheck CI の追加タイミングを決める
+  - [ ] `pnpm typecheck:web` を GitHub Actions で実行するか確認する
+  - [ ] フロントエンド lint / format を導入するか確認する
 - [ ] 一覧画面を作成する
 - [ ] APIから一覧取得して表示する
 - [ ] 新着順表示を確認する
