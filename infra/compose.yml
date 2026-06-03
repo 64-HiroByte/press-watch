@@ -22,7 +22,7 @@ services:
       dockerfile: infra/docker/api.Dockerfile
     command: uv run fastapi dev src/press_watch_api/main.py --host 0.0.0.0
     environment:
-      DATABASE_URL: postgresql://presswatch:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/presswatch
+      DATABASE_URL: postgresql+psycopg://presswatch:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/presswatch
     ports:
       - "127.0.0.1:8000:8000"
     volumes:

@@ -36,7 +36,7 @@ POSTGRES_PASSWORD=your-local-postgres-password
 - `package.json`: ルートの pnpm scripts を定義します。
 - `pnpm-workspace.yaml`: pnpm workspace の対象として `apps/web` を指定します。
 - `apps/web/package.json`: Next.js / React / TypeScript の依存関係と scripts を定義します。
-- `apps/api/pyproject.toml`: API 用の Python 依存関係として `fastapi[standard]` を定義します。
+- `apps/api/pyproject.toml`: API 用の Python 依存関係として `fastapi[standard]` / `sqlalchemy` / `psycopg` / `alembic` を定義します。
 - `packages/scraper/pyproject.toml`: scraper 用の Python パッケージ設定を定義します。
 - `infra/compose.yml`: `web` / `api` / `db` の Docker Compose 構成を定義します。
 - `infra/docker/web.Dockerfile`: Web コンテナのビルド手順を定義します。
@@ -47,7 +47,7 @@ POSTGRES_PASSWORD=your-local-postgres-password
 
 `pnpm-lock.yaml` は Node.js 依存関係の lockfile です。`pnpm install` で生成・更新されます。
 
-`uv.lock` は Python 依存関係の lockfile です。`pyproject.toml` をもとに `uv sync` すると、解決されたパッケージの具体的なバージョンが記録され、その内容に沿って仮想環境が作られます。
+`uv.lock` は Python 依存関係の lockfile です。API と scraper はそれぞれ `apps/api/uv.lock`、`packages/scraper/uv.lock` を持ちます。各 `pyproject.toml` をもとに `uv sync` すると、解決されたパッケージの具体的なバージョンが記録され、その内容に沿って仮想環境が作られます。
 
 Dockerfile では `uv sync --frozen` を使うため、lockfile を更新せず、記録済みの依存関係で再現性のある環境を作ります。
 
@@ -75,10 +75,11 @@ API だけを確認したい場合は、API 側のディレクトリで依存関
 ```bash
 cd apps/api
 uv sync
-uv run fastapi dev src/press_watch_api/main.py
+DATABASE_URL=postgresql+psycopg://presswatch:your-local-postgres-password@127.0.0.1:5432/presswatch uv run fastapi dev src/press_watch_api/main.py
 ```
 
 `fastapi` コマンドをグローバルにインストールするのではなく、`uv run` で API 用の仮想環境内のコマンドとして実行します。
+API 単体起動で PostgreSQL に接続する処理を確認する場合は、Docker Compose の公開ポートに合わせて host を `127.0.0.1` にした `DATABASE_URL` を指定します。
 
 別ターミナルから API のルートエンドポイントを確認します。
 
@@ -105,7 +106,7 @@ PYTHONPATH=src uv run python -m press_watch_scraper --from-file tests/fixtures/e
 cd ../..
 ```
 
-取得結果をローカルで確認したい場合は、CLI の stdout JSON を一時ファイルへリダイレクトします。現段階の最終保存先は PostgreSQL の予定なので、JSON ファイル保存は本格機能ではなく、DB 保存実装前の確認手段として扱います。
+取得結果をローカルで確認したい場合は、CLI の stdout JSON を一時ファイルへリダイレクトします。JSON ファイル保存は本格機能ではなく、取得件数やカテゴリ、停止理由を確認するための開発・検証用スナップショットとして扱います。
 
 ```bash
 cd packages/scraper
@@ -114,7 +115,7 @@ python -m json.tool /tmp/env_press_sample.json
 cd ../..
 ```
 
-全件取得は再取得コストが高いため、DB 保存が整うまでは検証用 JSON スナップショットを残せるようにします。`--output PATH` を指定すると、成功時の stdout JSON と同じ内容を指定ファイルにも保存します。
+全件取得は再取得コストが高いため、DB 保存処理とつなぐ前の確認や再確認に使える JSON スナップショットを残せるようにします。`--output PATH` を指定すると、成功時の stdout JSON と同じ内容を指定ファイルにも保存します。
 
 ```bash
 cd packages/scraper
@@ -159,6 +160,150 @@ PostgreSQL はローカル環境へ直接インストールせず、Docker Compo
 
 初回起動時に Docker が PostgreSQL イメージを取得し、`postgres_data` ボリュームに DB データを保存します。通常のセットアップでは、`.env` を用意して Docker Compose を起動すれば DB も一緒に作られます。
 
+Phase 3 では、API 側から PostgreSQL に接続するために SQLAlchemy + psycopg の最小土台を導入し、Alembic で `press_releases` の初版 migration を管理しています。
+スクレイピング結果を DTO 経由で repository / service へ渡して保存する処理も API 側にありますが、scraper CLI から DB 保存までを接続する実行単位や初回全件取得の手順は Phase 4 で整理します。
+接続文字列の環境変数名は `DATABASE_URL` のままとし、SQLAlchemy から psycopg を使う場合は次のような形式を想定します。
+
+```text
+postgresql+psycopg://presswatch:${POSTGRES_PASSWORD}@db:5432/presswatch
+```
+
+`.env` は秘密情報を含みうるため、接続に必要な環境変数は `.env.example` やこのドキュメントに記載された名前だけを参照します。
+
+## DB migration の考え方
+
+DB スキーマ変更は Alembic で管理し、API アプリケーション側の責務として `apps/api` 配下に設定と migration ファイルを置きます。
+アプリケーション起動時の `metadata.create_all()` には頼りません。
+
+詳細な配置、`target_metadata`、初版 migration、`updated_at` トリガー要否は `docs/db-migrations.md` に整理しています。
+Docker Compose の API コンテナから次の形で適用できます。
+
+```bash
+docker compose --env-file .env -f infra/compose.yml exec api uv run alembic upgrade head
+```
+
+## 保存済みデータを確認する
+
+`press_releases` に保存された報道発表データは、Docker Compose の `db` サービスへ `psql` で接続して確認します。
+事前に Docker Compose で `db` が起動しており、Alembic migration が適用済みであることを確認します。
+この手順は保存済みデータの確認専用であり、データの追加・更新・削除は行いません。
+
+```bash
+docker compose --env-file .env -f infra/compose.yml exec db psql -U presswatch -d presswatch
+```
+
+Alembic migration が適用済みであることを確認します。`version_num` が初版 migration の revision ID である `31765401e166` であれば、`press_releases` 作成 migration は適用済みです。
+
+```sql
+select version_num
+from alembic_version;
+```
+
+psql のメタコマンドで、テーブル定義、NULL 許容、制約を確認します。
+
+```sql
+\d+ press_releases
+```
+
+確認観点:
+
+- `source_url` に `uq_press_releases_source_url` の一意制約があること
+- `source_categories` が `text[]` で、NULL 許容であること
+- `fetched_at` / `created_at` / `updated_at` が `timestamp with time zone` であること
+
+保存件数を確認します。
+
+```sql
+select count(*) as total_count
+from press_releases;
+```
+
+`total_count` が `0` の場合は、まだ保存済みデータがない状態です。
+その場合、以降の集計 SQL はすべて `0` 件を返し、直近保存データの確認 SQL は行を返しません。
+データ取得処理の実行単位や初回全件取得の手順は Phase 4 で整理します。
+
+`source_url` の重複がないことを確認します。`duplicated_source_url_count` が `0` であれば、保存済みデータ上の URL 重複はありません。
+
+```sql
+select count(*) as duplicated_source_url_count
+from (
+    select source_url
+    from press_releases
+    group by source_url
+    having count(*) > 1
+) duplicated;
+```
+
+`source_categories` の保存状況を確認します。過去ページではカテゴリが欠損する場合があるため、NULL 件数があること自体は異常ではありません。
+
+```sql
+select
+    count(*) filter (where source_categories is null) as null_source_categories_count,
+    count(*) filter (where source_categories is not null) as non_null_source_categories_count,
+    count(*) filter (where source_categories = array[]::text[]) as empty_source_categories_count
+from press_releases;
+```
+
+確認観点:
+
+- `null_source_categories_count`: カテゴリ欠損として NULL 保存された件数
+- `non_null_source_categories_count`: 取得元カテゴリが保存された件数
+- `empty_source_categories_count`: 通常は `0` を期待する件数
+
+保存時刻の入っていない行がないことと、保存・取得時刻の範囲を確認します。
+
+```sql
+select
+    count(*) filter (where fetched_at is null) as null_fetched_at_count,
+    count(*) filter (where created_at is null) as null_created_at_count,
+    count(*) filter (where updated_at is null) as null_updated_at_count,
+    min(fetched_at) as oldest_fetched_at,
+    max(fetched_at) as newest_fetched_at,
+    min(created_at) as oldest_created_at,
+    max(created_at) as newest_created_at,
+    min(updated_at) as oldest_updated_at,
+    max(updated_at) as newest_updated_at
+from press_releases;
+```
+
+確認観点:
+
+- `null_fetched_at_count` / `null_created_at_count` / `null_updated_at_count` がすべて `0` であること
+- `fetched_at` は環境省ページから取得した日時として入っていること
+- `created_at` / `updated_at` は PressWatch 側で保存した日時として入っていること
+- Phase 3 初期では既存行の自動更新を扱わないため、通常の初回保存行では `created_at` と `updated_at` が近い値になること
+
+直近で保存されたデータのタイトル、公開日、URL、カテゴリ、時刻を確認します。
+
+```sql
+select
+    id,
+    title,
+    published_at,
+    source_url,
+    source_categories,
+    fetched_at,
+    created_at,
+    updated_at
+from press_releases
+order by created_at desc, id desc
+limit 10;
+```
+
+確認観点:
+
+- `title` が空ではなく、環境省の報道発表タイトルとして読めること
+- `published_at` が報道発表の公開日として妥当であること
+- `source_url` が環境省の詳細ページ URL であること
+- `source_categories` は取得できた場合に配列、取得できなかった場合に NULL であること
+- `fetched_at` / `created_at` / `updated_at` の時刻が保存タイミングと大きく矛盾しないこと
+
+確認を終えたら `psql` を終了します。
+
+```sql
+\q
+```
+
 ## Docker Compose で全体を起動する
 
 Web、API、DB をまとめて起動します。
@@ -193,10 +338,16 @@ API が応答するか確認します。
 curl http://127.0.0.1:8000/
 ```
 
-PostgreSQL に接続できるか、バージョン確認で疎通を見ます。
+PostgreSQL コンテナに接続できるか、バージョン確認で疎通を見ます。
 
 ```bash
 docker compose --env-file .env -f infra/compose.yml exec db psql -U presswatch -d presswatch -c "select version();"
+```
+
+API コンテナから SQLAlchemy 経由で PostgreSQL に接続できるか確認します。
+
+```bash
+docker compose --env-file .env -f infra/compose.yml exec api uv run python -c "from sqlalchemy import text; from press_watch_api.db import engine; conn = engine.connect(); print(conn.execute(text('select 1')).scalar_one()); conn.close()"
 ```
 
 API コンテナのログを確認したい場合は次を使います。
