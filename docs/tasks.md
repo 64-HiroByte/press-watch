@@ -143,6 +143,7 @@ Phase 3 初期では扱わないもの:
   - PR 経由のマージ、必須 status check、force push 防止、削除防止を最小設定として検討する
 
 今回の最小 CI では、自動デプロイ、Docker Compose 全体起動、フロントエンド CI、secret を使う処理、CD 全般は扱わない。
+Markdown のみの変更では `git diff --check` による空白確認だけを実行し、API unittest はスキップする。
 
 ---
 
