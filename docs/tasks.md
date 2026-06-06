@@ -168,9 +168,9 @@ DB 保存は API 側の DTO / repository / service を経由し、commit / rollb
   - [x] commit / rollback の責務を実行入口側に置く
   - [x] 保存件数 / skip 件数 / 取得件数を実行結果として確認できるようにする
   - [x] コマンド失敗時の終了コードと stderr 出力をテストで固定する
-- [ ] 初回全件取得用の実行方法を整理する
-  - [ ] `--all-archive-months` 相当の取得を DB 保存とつないだ場合の実行手順を決める
-  - [ ] 実行前後の確認項目、再実行時の重複 skip 確認方法を整理する
+- [x] 初回全件取得用の実行方法を整理する
+  - [x] `--all-archive-months` 相当の取得を DB 保存とつないだ場合の実行手順を決める
+  - [x] 実行前後の確認項目、再実行時の重複 skip 確認方法を整理する
 - [ ] 差分取得を想定した実行方法を整理する
   - [ ] DB の既存 `source_url` を取得済み URL として扱う方法を決める
   - [ ] `crawl_press_releases` の `known_release_urls` を使った停止条件を import 実行に接続する

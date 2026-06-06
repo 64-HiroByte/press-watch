@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from contextlib import redirect_stderr
 from datetime import date
 import io
 import json
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
@@ -167,6 +170,7 @@ class ManualImportCommandTest(unittest.TestCase):
             url=INDEX_URL,
             from_file=None,
             archive_month_limit=2,
+            all_archive_months=False,
             verbose=True,
         )
 
@@ -189,6 +193,90 @@ class ManualImportCommandTest(unittest.TestCase):
             ],
         )
 
+    def test_scraper_command_forwards_all_archive_months(self) -> None:
+        """全月別ページ巡回指定をscraper CLIへ渡すこと"""
+
+        args = Mock(
+            url=INDEX_URL,
+            from_file=None,
+            archive_month_limit=None,
+            all_archive_months=True,
+            verbose=False,
+        )
+
+        command = _scraper_command(args)
+
+        self.assertEqual(
+            command,
+            [
+                "uv",
+                "run",
+                "--locked",
+                "python",
+                "-m",
+                "press_watch_scraper",
+                "--url",
+                INDEX_URL,
+                "--all-archive-months",
+            ],
+        )
+
+    def test_main_rejects_from_file_with_all_archive_months(self) -> None:
+        """保存済みHTMLと全月別ページ巡回指定の併用を拒否すること"""
+
+        stderr = io.StringIO()
+        session_factory = Mock()
+        collect_releases = Mock()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / "index.html"
+            html_path.write_text("", encoding="utf-8")
+
+            with redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as raised:
+                    main(
+                        [
+                            "--from-file",
+                            str(html_path),
+                            "--all-archive-months",
+                        ],
+                        session_factory=session_factory,
+                        collect_releases=collect_releases,
+                    )
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn(
+            "--from-file cannot be used with --all-archive-months",
+            stderr.getvalue(),
+        )
+        session_factory.assert_not_called()
+        collect_releases.assert_not_called()
+
+    def test_main_rejects_archive_month_limit_with_all_archive_months(
+        self,
+    ) -> None:
+        """月別ページ数指定と全月別ページ巡回指定の併用を拒否すること"""
+
+        stderr = io.StringIO()
+        session_factory = Mock()
+        collect_releases = Mock()
+
+        with redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as raised:
+                main(
+                    ["--archive-month-limit", "1", "--all-archive-months"],
+                    session_factory=session_factory,
+                    collect_releases=collect_releases,
+                )
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn(
+            "--archive-month-limit cannot be used with --all-archive-months",
+            stderr.getvalue(),
+        )
+        session_factory.assert_not_called()
+        collect_releases.assert_not_called()
+
     def test_collect_releases_from_scraper_cli_reports_subprocess_error(
         self,
     ) -> None:
@@ -205,6 +293,7 @@ class ManualImportCommandTest(unittest.TestCase):
             url=INDEX_URL,
             from_file=None,
             archive_month_limit=None,
+            all_archive_months=False,
             verbose=False,
         )
 
@@ -240,6 +329,7 @@ class ManualImportCommandTest(unittest.TestCase):
             url=INDEX_URL,
             from_file=None,
             archive_month_limit=None,
+            all_archive_months=False,
             verbose=True,
         )
         stderr = io.StringIO()

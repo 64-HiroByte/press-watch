@@ -214,7 +214,23 @@ uv run --locked python -m press_watch_api.commands.import_env_press \
 cd ../..
 ```
 
-初回全件取得、差分取得、定期実行、Docker Compose 全体での import 実行方法は後続タスクで整理します。
+初回全件取得として、環境省の一覧ページから見つかるすべての月別アーカイブを import する場合は `--all-archive-months` を指定します。実HTTPで多数のページを取得し、DBへ保存するため、事前にDB接続先と migration 適用状態を確認してから実行します。
+
+```bash
+cd apps/api
+DATABASE_URL=postgresql+psycopg://presswatch:your-local-postgres-password@127.0.0.1:5432/presswatch \
+PYTHONPATH=src \
+uv run --locked python -m press_watch_api.commands.import_env_press \
+  --all-archive-months \
+  --verbose
+cd ../..
+```
+
+`--all-archive-months` は月別アーカイブを巡回する実HTTP取得用の指定です。保存済みHTMLの単一ページ解析で使う `--from-file` や、取得する月別ページ数を制限する `--archive-month-limit` とは併用しません。
+
+初回全件取得後も stdout の実行結果 JSON で、取得件数は `fetched_count`、新規保存件数は `saved_count`、重複などで保存しなかった件数は `skipped_count` として確認できます。巡回した月別ページは `fetched_page_urls`、正常停止理由は `stop_reason` に出力されます。再実行時は、同じ `source_url` の報道発表が新規保存されず `skipped_count` に数えられることを確認します。
+
+差分取得、定期実行、Docker Compose 全体での import 実行方法は後続タスクで整理します。
 
 ## DB migration の考え方
 
@@ -266,7 +282,7 @@ from press_releases;
 
 `total_count` が `0` の場合は、まだ保存済みデータがない状態です。
 その場合、以降の集計 SQL はすべて `0` 件を返し、直近保存データの確認 SQL は行を返しません。
-データ取得処理の実行単位や初回全件取得の手順は Phase 4 で整理します。
+手動 import と初回全件取得の基本手順は上記のコマンド例で確認できます。差分取得、定期実行、Docker Compose 全体での import 実行方法は後続タスクで整理します。
 
 `source_url` の重複がないことを確認します。`duplicated_source_url_count` が `0` であれば、保存済みデータ上の URL 重複はありません。
 
