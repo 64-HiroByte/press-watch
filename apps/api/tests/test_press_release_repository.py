@@ -12,8 +12,7 @@ from press_watch_api.repositories.press_release import (
     has_press_release_with_source_url,
 )
 from press_watch_api.schemas.press_release import PressReleaseCreate
-
-SOURCE_URL_1 = "https://www.env.go.jp/press/press_00001.html"
+from api_test_constants import ENV_PRESS_RELEASE_URL_1 as SOURCE_URL_1
 
 
 class PressReleaseRepositoryTest(unittest.TestCase):
