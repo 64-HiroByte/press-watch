@@ -161,7 +161,7 @@ PostgreSQL はローカル環境へ直接インストールせず、Docker Compo
 初回起動時に Docker が PostgreSQL イメージを取得し、`postgres_data` ボリュームに DB データを保存します。通常のセットアップでは、`.env` を用意して Docker Compose を起動すれば DB も一緒に作られます。
 
 Phase 3 では、API 側から PostgreSQL に接続するために SQLAlchemy + psycopg の最小土台を導入し、Alembic で `press_releases` の初版 migration を管理しています。
-スクレイピング結果を DTO 経由で repository / service へ渡して保存する処理も API 側にありますが、scraper CLI から DB 保存までを接続する実行単位や初回全件取得の手順は Phase 4 で整理します。
+スクレイピング結果を DTO 経由で repository / service へ渡して保存する処理も API 側にあり、Phase 4 では既存 scraper CLI の JSON 結果を API 側の手動 import コマンドから保存 service へ渡せるようにしています。
 接続文字列の環境変数名は `DATABASE_URL` のままとし、SQLAlchemy から psycopg を使う場合は次のような形式を想定します。
 
 ```text
@@ -169,6 +169,52 @@ postgresql+psycopg://presswatch:${POSTGRES_PASSWORD}@db:5432/presswatch
 ```
 
 `.env` は秘密情報を含みうるため、接続に必要な環境変数は `.env.example` やこのドキュメントに記載された名前だけを参照します。
+
+## 手動 import を実行する
+
+手動 import は API 側のコマンドとして実行します。scraper CLI は DB 保存前の取得確認と JSON スナップショット出力の入口として維持し、手動 import コマンドはその JSON 結果を API 側の保存 service へ渡します。
+
+事前に Docker Compose の `db` が起動しており、Alembic migration が適用済みであることを確認します。ローカルホストから DB に接続するため、`DATABASE_URL` の host は `127.0.0.1` を指定します。
+
+保存済みHTMLを使って実HTTP取得なしで import 経路を確認する場合は次の形です。
+
+```bash
+cd apps/api
+DATABASE_URL=postgresql+psycopg://presswatch:your-local-postgres-password@127.0.0.1:5432/presswatch \
+PYTHONPATH=src \
+uv run --locked python -m press_watch_api.commands.import_env_press \
+  --from-file ../../packages/scraper/tests/fixtures/env_press_index_sample.html
+cd ../..
+```
+
+成功時は stdout に実行結果の JSON を出力します。
+
+```json
+{
+  "source_url": "/absolute/path/to/env_press_index_sample.html",
+  "fetched_count": 3,
+  "saved_count": 3,
+  "skipped_count": 0,
+  "fetched_page_urls": [],
+  "stop_reason": null
+}
+```
+
+同じデータを再実行した場合、既存の `source_url` は保存せず `skipped_count` に数えます。取得や保存に失敗した場合は rollback し、stderr に `error: target=... exception=... reason=...` の形式で出力して終了コード `1` を返します。
+
+実HTTPで直近の月別アーカイブを少数だけ import する場合は、意図しない大量取得を避けるため `--archive-month-limit N` を指定します。
+
+```bash
+cd apps/api
+DATABASE_URL=postgresql+psycopg://presswatch:your-local-postgres-password@127.0.0.1:5432/presswatch \
+PYTHONPATH=src \
+uv run --locked python -m press_watch_api.commands.import_env_press \
+  --archive-month-limit 2 \
+  --verbose
+cd ../..
+```
+
+初回全件取得、差分取得、定期実行、Docker Compose 全体での import 実行方法は後続タスクで整理します。
 
 ## DB migration の考え方
 
