@@ -14,10 +14,11 @@ from press_watch_api.services.press_release_import import (
     to_press_release_create,
     to_press_release_creates,
 )
-
-SOURCE_URL_1 = "https://www.env.go.jp/press/press_00001.html"
-SOURCE_URL_2 = "https://www.env.go.jp/press/press_00002.html"
-SOURCE_URL_3 = "https://www.env.go.jp/press/press_00003.html"
+from api_test_constants import (
+    ENV_PRESS_RELEASE_URL_1 as SOURCE_URL_1,
+    ENV_PRESS_RELEASE_URL_2 as SOURCE_URL_2,
+    ENV_PRESS_RELEASE_URL_3 as SOURCE_URL_3,
+)
 
 
 @dataclass(frozen=True)
