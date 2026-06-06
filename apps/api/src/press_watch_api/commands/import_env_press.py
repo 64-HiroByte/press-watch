@@ -45,12 +45,14 @@ class ParsedArgs(Protocol):
         url: scraper CLIへ渡す報道発表一覧ページURL
         from_file: scraper CLIへ渡す保存済みHTMLのパス
         archive_month_limit: scraper CLIへ渡す月別ページ取得上限
+        all_archive_months: scraper CLIへすべての月別ページ取得を指定するか
         verbose: scraper CLIの進捗stderrを表示するかどうか
     """
 
     url: str
     from_file: Path | None
     archive_month_limit: int | None
+    all_archive_months: bool
     verbose: bool
 
 
@@ -163,6 +165,7 @@ def main(
     error_output = stderr or sys.stderr
     parser = _build_parser()
     args = parser.parse_args(argv)
+    _validate_args(parser, args)
     session_factory = session_factory or _load_session_factory()
     collect_releases = collect_releases or _collect_releases_from_scraper_cli
     error_target = _error_target(args)
@@ -220,6 +223,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Number of archive month pages to fetch.",
     )
     parser.add_argument(
+        "--all-archive-months",
+        action="store_true",
+        help="Fetch all archive month pages found on the index page.",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Write scraper progress messages to stderr.",
@@ -270,9 +278,8 @@ def _collect_releases_from_scraper_cli(
         check=False,
     )
     if completed.returncode != 0:
-        reason = (
-            _one_line(completed.stderr)
-            or f"exit code {completed.returncode}"
+        reason = _one_line(completed.stderr) or (
+            f"exit code {completed.returncode}"
         )
         raise RuntimeError(
             f"{SCRAPER_COMMAND_FAILED_REASON}: "
@@ -311,9 +318,35 @@ def _scraper_command(args: ParsedArgs) -> list[str]:
         command.extend(
             ["--archive-month-limit", str(args.archive_month_limit)]
         )
+    if args.all_archive_months:
+        command.append("--all-archive-months")
     if args.verbose:
         command.append("--verbose")
     return command
+
+
+def _validate_args(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+) -> None:
+    """手動importコマンドの引数組み合わせを検証する
+
+    Args:
+        parser: エラー表示に使うCLI parser
+        args: argparseで解釈済みのCLI引数
+
+    Raises:
+        SystemExit: argparseのエラーとして不正な組み合わせを拒否する場合
+    """
+
+    if args.from_file is not None and args.all_archive_months:
+        parser.error(
+            "--from-file cannot be used with --all-archive-months."
+        )
+    if args.all_archive_months and args.archive_month_limit is not None:
+        parser.error(
+            "--archive-month-limit cannot be used with --all-archive-months."
+        )
 
 
 def _scraper_env(scraper_dir: Path) -> dict[str, str]:
