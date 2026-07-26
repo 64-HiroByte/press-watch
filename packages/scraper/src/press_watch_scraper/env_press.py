@@ -5,9 +5,10 @@ from dataclasses import dataclass
 from datetime import date
 import re
 from time import sleep
-from typing import Literal
-from urllib.parse import urljoin
-from urllib.request import Request, urlopen
+from typing import Any, Literal, NoReturn
+from urllib.error import HTTPError
+from urllib.parse import urljoin, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from bs4 import BeautifulSoup
 from bs4.element import AttributeValueList, Tag
@@ -27,6 +28,14 @@ CHARSET = 'utf-8'
 USER_AGENT_HEADER = 'User-Agent'
 PARSER = 'lxml'
 REQUEST_INTERVAL_SECONDS = 3.0
+HTTP_URL_SCHEMES = frozenset({'http', 'https'})
+UNSAFE_ASCII_URL_CHARACTERS = frozenset('<>"\\^`{|}')
+UNSAFE_REDIRECT_REASON = 'redirect target rejected'
+INVALID_PERCENT_ESCAPE_RE = re.compile(r'%(?![0-9A-Fa-f]{2})')
+CREDENTIALS_IN_URL_RE = re.compile(
+    r'(?i)(https?://)[^/@\s]+@'
+)
+MAX_DIAGNOSTIC_VALUE_LENGTH = 200
 
 CLASS_ARCHIVE_MONTH_LINK = 'c-table-month__col__link'
 CLASS_PRESS_DATE_HEADING = 'p-press-release-list__heading'
@@ -54,6 +63,131 @@ CrawlStopReason = Literal[
     'duplicate_release_detected',
     'archive_month_links_exhausted',
 ]
+UrlValidationReason = Literal[
+    'unsupported_scheme',
+    'credentials_not_allowed',
+    'non_ascii_character',
+    'unsafe_character',
+    'invalid_percent_escape',
+    'invalid_host_or_port',
+]
+
+
+class _InvalidUrlError(ValueError):
+    """URL検証の固定理由コードを保持する内部例外"""
+
+    def __init__(self, reason: UrlValidationReason) -> None:
+        """URL検証理由を保持
+
+        Args:
+            reason: URLを拒否した固定理由コード
+        """
+
+        self.reason = reason
+        super().__init__(reason)
+
+
+class InvalidFetchUrlError(ValueError):
+    """HTTP取得対象URLが不正な場合の例外"""
+
+
+class InvalidPressReleaseUrlError(ValueError):
+    """報道発表詳細ページURLが不正な場合の例外"""
+
+
+class InvalidArchiveMonthUrlError(ValueError):
+    """月別アーカイブURLが不正な場合の例外"""
+
+
+class _SameOriginRedirectHandler(HTTPRedirectHandler):
+    """同一オリジンのHTTPリダイレクトだけを許可するhandler"""
+
+    def redirect_request(
+        self,
+        req: Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> Request | None:
+        """リダイレクト先を検証して次のRequestを生成
+
+        Args:
+            req: リダイレクト元のRequest
+            fp: リダイレクト元のレスポンス
+            code: HTTPステータスコード
+            msg: HTTPステータスメッセージ
+            headers: リダイレクト元のレスポンスヘッダー
+            newurl: Locationヘッダーから解決された遷移先URL
+
+        Returns:
+            同一オリジンへのリダイレクトRequest
+
+        Raises:
+            HTTPError: 遷移先URLが不正または異なるオリジンの場合
+        """
+
+        try:
+            redirect_url = _resolve_http_url(req.full_url, newurl)
+        except _InvalidUrlError as exc:
+            self._raise_redirect_error(
+                fp,
+                code,
+                headers,
+                newurl,
+                exc.reason,
+            )
+        if not _has_same_origin(
+            req.full_url,
+            redirect_url,
+        ):
+            self._raise_redirect_error(
+                fp,
+                code,
+                headers,
+                newurl,
+                'cross_origin',
+            )
+        return super().redirect_request(
+            req,
+            fp,
+            code,
+            msg,
+            headers,
+            redirect_url,
+        )
+
+    @staticmethod
+    def _raise_redirect_error(
+        fp: Any,
+        code: int,
+        headers: Any,
+        newurl: str,
+        reason: str,
+    ) -> NoReturn:
+        """拒否するリダイレクトのレスポンスを閉じて例外を送出
+
+        Args:
+            fp: リダイレクト元のレスポンス
+            code: HTTPステータスコード
+            headers: リダイレクト元のレスポンスヘッダー
+            newurl: 拒否したリダイレクト先URL
+            reason: リダイレクトを拒否した固定理由コード
+
+        Raises:
+            HTTPError: リダイレクトを拒否する場合
+        """
+
+        if fp is not None:
+            fp.close()
+        raise HTTPError(
+            newurl,
+            code,
+            f'{UNSAFE_REDIRECT_REASON}: validation={reason}',
+            headers,
+            None,
+        )
 
 
 @dataclass(frozen=True)
@@ -117,10 +251,25 @@ def fetch_press_index_html(
 
     Returns:
         レスポンスの文字コードに従ってデコードしたHTML
+
+    Raises:
+        InvalidFetchUrlError: 取得対象URLが取得条件を満たさない場合
     """
 
-    request = Request(url, headers={USER_AGENT_HEADER: USER_AGENT})
-    with urlopen(request, timeout=timeout) as response:
+    try:
+        validated_url = _resolve_http_url(url, '')
+    except _InvalidUrlError as exc:
+        raise InvalidFetchUrlError(
+            'invalid fetch URL: '
+            f'validation={exc.reason} '
+            f'url={_diagnostic_value(url)}'
+        ) from exc
+
+    request = Request(
+        validated_url,
+        headers={USER_AGENT_HEADER: USER_AGENT},
+    )
+    with _open_same_origin_url(request, timeout) as response:
         charset = response.headers.get_content_charset() or CHARSET
         return response.read().decode(charset, errors='replace')
 
@@ -235,6 +384,9 @@ def parse_press_releases(
 
     Returns:
         抽出した報道発表のリスト
+
+    Raises:
+        InvalidPressReleaseUrlError: 発表リンクのURLが保存条件を満たさない場合
     """
 
     soup = BeautifulSoup(html, PARSER)
@@ -255,12 +407,22 @@ def parse_press_releases(
             href = _attr_value(link, ATTR_HREF)
             if not title or href is None:
                 continue
+            try:
+                release_url = _resolve_http_url(base_url, href)
+            except _InvalidUrlError as exc:
+                raise InvalidPressReleaseUrlError(
+                    'invalid press release URL: '
+                    f'validation={exc.reason} '
+                    f'page_url={_diagnostic_value(base_url)} '
+                    f'title={_diagnostic_value(title)} '
+                    f'href={_diagnostic_value(href)}'
+                ) from exc
 
             items.append(
                 PressRelease(
                     title=title,
                     published_at=published_at,
-                    url=urljoin(base_url, href),
+                    url=release_url,
                     source_categories=_source_categories_for_link(
                         link,
                         block,
@@ -283,6 +445,9 @@ def parse_archive_month_links(
 
     Returns:
         抽出した月別アーカイブリンクのリスト
+
+    Raises:
+        InvalidArchiveMonthUrlError: 月別リンクが巡回条件を満たさない場合
     """
 
     soup = BeautifulSoup(html, PARSER)
@@ -295,6 +460,27 @@ def parse_archive_month_links(
         match = _MONTH_LINK_RE.fullmatch(aria_label)
         if href is None or match is None:
             continue
+        try:
+            archive_url = _resolve_http_url(base_url, href)
+        except _InvalidUrlError as exc:
+            raise InvalidArchiveMonthUrlError(
+                'invalid archive month URL: '
+                f'validation={exc.reason} '
+                f'page_url={_diagnostic_value(base_url)} '
+                f'archive_month={_year_month_label(match)} '
+                f'href={_diagnostic_value(href)}'
+            ) from exc
+        if not _has_same_origin(
+            base_url,
+            archive_url,
+        ):
+            raise InvalidArchiveMonthUrlError(
+                'invalid archive month URL: '
+                'validation=cross_origin '
+                f'page_url={_diagnostic_value(base_url)} '
+                f'archive_month={_year_month_label(match)} '
+                f'href={_diagnostic_value(href)}'
+            )
 
         year = int(match.group('year'))
         month = int(match.group('month'))
@@ -302,7 +488,7 @@ def parse_archive_month_links(
             ArchiveMonthLink(
                 year=year,
                 month=month,
-                url=urljoin(base_url, href),
+                url=archive_url,
             )
         )
 
@@ -434,6 +620,163 @@ def _select_archive_month_links(
     if limit is None:
         return latest_first_links
     return latest_first_links[:limit]
+
+
+def _resolve_http_url(base_url: str, href: str) -> str:
+    """相対URLをHTTPまたはHTTPSの絶対URLへ変換
+
+    Args:
+        base_url: 相対URLを解決する基準URL
+        href: HTMLのhref属性値
+
+    Returns:
+        HTTPまたはHTTPSの絶対URL
+
+    Raises:
+        _InvalidUrlError: URLが保存・取得条件を満たさない場合
+    """
+
+    for value in (base_url, href):
+        reason = _unsafe_url_reason(value)
+        if reason is not None:
+            raise _InvalidUrlError(reason)
+
+    try:
+        resolved_url = urljoin(base_url, href)
+        parsed_url = urlsplit(resolved_url)
+        _ = parsed_url.port
+    except ValueError as exc:
+        raise _InvalidUrlError('invalid_host_or_port') from exc
+
+    if parsed_url.scheme.lower() not in HTTP_URL_SCHEMES:
+        raise _InvalidUrlError('unsupported_scheme')
+    if parsed_url.username is not None or parsed_url.password is not None:
+        raise _InvalidUrlError('credentials_not_allowed')
+    if parsed_url.hostname is None or '%' in parsed_url.netloc:
+        raise _InvalidUrlError('invalid_host_or_port')
+    return resolved_url
+
+
+def _unsafe_url_reason(value: str) -> UrlValidationReason | None:
+    """ASCII URIとして扱わない理由を判定
+
+    Args:
+        value: URLまたはhref属性値
+
+    Returns:
+        URLを拒否する固定理由コード、有効な文字列の場合はNone
+    """
+
+    if not value.isascii():
+        return 'non_ascii_character'
+    if any(
+        character.isspace()
+        or ord(character) < 0x20
+        or ord(character) == 0x7F
+        or character in UNSAFE_ASCII_URL_CHARACTERS
+        for character in value
+    ):
+        return 'unsafe_character'
+    if INVALID_PERCENT_ESCAPE_RE.search(value) is not None:
+        return 'invalid_percent_escape'
+    return None
+
+
+def _diagnostic_value(value: str) -> str:
+    """エラー表示用の値を伏字・1行・最大長付きで整形
+
+    Args:
+        value: エラーの調査情報として表示する値
+
+    Returns:
+        認証情報を伏せて1行へ正規化した文字列
+    """
+
+    redacted_value = CREDENTIALS_IN_URL_RE.sub(
+        r'\1[redacted]@',
+        value,
+    )
+    one_line_value = ' '.join(redacted_value.split())
+    rendered_value = repr(one_line_value)
+    if len(rendered_value) > MAX_DIAGNOSTIC_VALUE_LENGTH:
+        rendered_value = (
+            rendered_value[:MAX_DIAGNOSTIC_VALUE_LENGTH - 4]
+            + '...'
+            + rendered_value[0]
+        )
+    return rendered_value
+
+
+def _year_month_label(match: re.Match[str]) -> str:
+    """月別リンクの正規表現結果を年月表示へ変換
+
+    Args:
+        match: 月別リンクのaria-labelに一致した正規表現結果
+
+    Returns:
+        `YYYY-MM` 形式の年月
+    """
+
+    return f"{int(match.group('year')):04}-{int(match.group('month')):02}"
+
+
+def _has_same_origin(base_url: str, target_url: str) -> bool:
+    """2つのURLが同一オリジンか判定
+
+    Args:
+        base_url: 比較基準のURL
+        target_url: 比較対象のURL
+
+    Returns:
+        スキーム、ホスト、ポートが一致する場合はTrue
+    """
+
+    base_origin = _url_origin(base_url)
+    target_origin = _url_origin(target_url)
+    return base_origin is not None and base_origin == target_origin
+
+
+def _url_origin(url: str) -> tuple[str, str, int] | None:
+    """URLから同一オリジン判定用の値を取得
+
+    Args:
+        url: 判定対象のURL
+
+    Returns:
+        スキーム、ホスト、ポートの組、不正なURLの場合はNone
+    """
+
+    try:
+        parsed_url = urlsplit(url)
+        scheme = parsed_url.scheme.lower()
+        hostname = parsed_url.hostname
+        if scheme not in HTTP_URL_SCHEMES or hostname is None:
+            return None
+        port = parsed_url.port
+    except ValueError:
+        return None
+
+    if port is None:
+        port = 443 if scheme == 'https' else 80
+    return scheme, hostname, port
+
+
+def _open_same_origin_url(
+    request: Request,
+    timeout: float,
+) -> Any:
+    """同一オリジンのリダイレクトだけを許可してURLを開く
+
+    Args:
+        request: 取得対象のHTTP Request
+        timeout: HTTPリクエストのタイムアウト秒数
+
+    Returns:
+        context managerとして利用できるHTTPレスポンス
+    """
+
+    opener = build_opener(_SameOriginRedirectHandler())
+    return opener.open(request, timeout=timeout)
 
 
 def _attr_value(tag: Tag, name: str) -> str | None:

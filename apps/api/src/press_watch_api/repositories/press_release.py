@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from datetime import date
+
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from press_watch_api.models.press_release import PressRelease
@@ -60,3 +62,41 @@ def has_press_release_with_source_url(
     )
 
     return session.scalar(statement) is not None
+
+
+def get_latest_press_release_published_at(
+    session: Session,
+) -> date | None:
+    """保存済み報道発表の最新公開日を取得
+
+    Args:
+        session: 取得に使うSQLAlchemyセッション
+
+    Returns:
+        最新の公開日、保存済み報道発表がない場合はNone
+    """
+
+    statement = select(func.max(PressRelease.published_at))
+    return session.scalar(statement)
+
+
+def list_press_release_source_urls_published_from(
+    session: Session,
+    published_from: date,
+) -> tuple[str, ...]:
+    """指定公開日以降の報道発表URLを一覧取得
+
+    Args:
+        session: 取得に使うSQLAlchemyセッション
+        published_from: 取得対象に含める公開日の下限
+
+    Returns:
+        公開日が下限以降の `source_url` のタプル
+    """
+
+    statement = (
+        select(PressRelease.source_url)
+        .where(PressRelease.published_at >= published_from)
+        .order_by(PressRelease.id)
+    )
+    return tuple(session.scalars(statement))

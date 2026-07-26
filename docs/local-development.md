@@ -161,7 +161,7 @@ PostgreSQL はローカル環境へ直接インストールせず、Docker Compo
 初回起動時に Docker が PostgreSQL イメージを取得し、`postgres_data` ボリュームに DB データを保存します。通常のセットアップでは、`.env` を用意して Docker Compose を起動すれば DB も一緒に作られます。
 
 Phase 3 では、API 側から PostgreSQL に接続するために SQLAlchemy + psycopg の最小土台を導入し、Alembic で `press_releases` の初版 migration を管理しています。
-スクレイピング結果を DTO 経由で repository / service へ渡して保存する処理も API 側にあり、Phase 4 では既存 scraper CLI の JSON 結果を API 側の手動 import コマンドから保存 service へ渡せるようにしています。
+スクレイピング結果を DTO 経由で repository / service へ渡して保存する処理も API 側にあり、Phase 4 では既存 scraper CLI の JSON 結果を API 側の手動取得・保存コマンドから保存 service へ渡せるようにしています。
 接続文字列の環境変数名は `DATABASE_URL` のままとし、SQLAlchemy から psycopg を使う場合は次のような形式を想定します。
 
 ```text
@@ -170,19 +170,19 @@ postgresql+psycopg://presswatch:${POSTGRES_PASSWORD}@db:5432/presswatch
 
 `.env` は秘密情報を含みうるため、接続に必要な環境変数は `.env.example` やこのドキュメントに記載された名前だけを参照します。
 
-## 手動 import を実行する
+## 手動で取得してDBへ保存する
 
-手動 import は API 側のコマンドとして実行します。scraper CLI は DB 保存前の取得確認と JSON スナップショット出力の入口として維持し、手動 import コマンドはその JSON 結果を API 側の保存 service へ渡します。
+手動取得・保存は API 側のコマンドとして実行します。scraper CLI は DB 保存前の取得確認と JSON スナップショット出力の入口として維持し、手動取得・保存コマンドはその JSON 結果を API 側の保存 service へ渡します。
 
 事前に Docker Compose の `db` が起動しており、Alembic migration が適用済みであることを確認します。ローカルホストから DB に接続するため、`DATABASE_URL` の host は `127.0.0.1` を指定します。
 
-保存済みHTMLを使って実HTTP取得なしで import 経路を確認する場合は次の形です。
+保存済みHTMLを使って、実HTTP取得なしで取得・保存経路を確認する場合は次の形です。
 
 ```bash
 cd apps/api
 DATABASE_URL=postgresql+psycopg://presswatch:your-local-postgres-password@127.0.0.1:5432/presswatch \
 PYTHONPATH=src \
-uv run --locked python -m press_watch_api.commands.import_env_press \
+uv run --locked python -m press_watch_api.commands.fetch_and_save_env_press \
   --from-file ../../packages/scraper/tests/fixtures/env_press_index_sample.html
 cd ../..
 ```
@@ -200,37 +200,101 @@ cd ../..
 }
 ```
 
-同じデータを再実行した場合、既存の `source_url` は保存せず `skipped_count` に数えます。取得や保存に失敗した場合は rollback し、stderr に `error: target=... exception=... reason=...` の形式で出力して終了コード `1` を返します。
+同じデータを再実行した場合、既存の `source_url` は保存せず `skipped_count` に数えます。取得に失敗した場合は保存用DB Sessionを作成せず、保存処理の開始後に失敗した場合は rollback します。いずれも stderr に `error: target=... exception=... reason=...` の形式で出力し、終了コード `1` を返します。DBへのcommit後に結果JSONの出力だけが失敗した場合は rollback できないため、DB保存済みであることをstderrに明示します。
 
-実HTTPで直近の月別アーカイブを少数だけ import する場合は、意図しない大量取得を避けるため `--archive-month-limit N` を指定します。
+報道発表URLや月別アーカイブURLが安全なHTTP(S) URLとして扱えない場合は、その項目だけを黙って除外せず、実行全体を失敗させます。この場合は成功時のJSONを出力せず、DB保存も行いません。stderr の `reason` には `validation=non_ascii_character` などの固定理由コードと、報道発表では `title` / `href`、月別リンクでは `archive_month` / `href` を含めます。URLに認証情報が含まれていた場合、その部分は `[redacted]` に置き換えます。
+
+主なURL検証理由は次のとおりです。
+
+- `unsupported_scheme`: HTTPまたはHTTPS以外
+- `credentials_not_allowed`: 認証情報を含むURL
+- `non_ascii_character`: percent encodeされていない日本語などの非ASCII文字
+- `unsafe_character`: 空白、制御文字、URLへ直接置けない記号
+- `invalid_percent_escape`: `%ZZ` などの不正なpercent escape
+- `invalid_host_or_port`: hostまたはportとして解釈できない形式
+- `cross_origin`: 月別アーカイブが起点ページと異なるオリジン
+
+実HTTPで直近の月別アーカイブを少数だけ取得して保存する場合は、意図しない大量取得を避けるため `--archive-month-limit N` を指定します。
 
 ```bash
 cd apps/api
 DATABASE_URL=postgresql+psycopg://presswatch:your-local-postgres-password@127.0.0.1:5432/presswatch \
 PYTHONPATH=src \
-uv run --locked python -m press_watch_api.commands.import_env_press \
+uv run --locked python -m press_watch_api.commands.fetch_and_save_env_press \
   --archive-month-limit 2 \
   --verbose
 cd ../..
 ```
 
-初回全件取得として、環境省の一覧ページから見つかるすべての月別アーカイブを import する場合は `--all-archive-months` を指定します。実HTTPで多数のページを取得し、DBへ保存するため、事前にDB接続先と migration 適用状態を確認してから実行します。
+保存済み報道発表がないDBへの初回全件取得として、環境省の一覧ページから見つかるすべての月別アーカイブを取得して保存する場合は `--all-archive-months` を指定します。実HTTPで多数のページを取得し、DBへ保存するため、事前にDB接続先と migration 適用状態を確認してから実行します。
 
 ```bash
 cd apps/api
 DATABASE_URL=postgresql+psycopg://presswatch:your-local-postgres-password@127.0.0.1:5432/presswatch \
 PYTHONPATH=src \
-uv run --locked python -m press_watch_api.commands.import_env_press \
+uv run --locked python -m press_watch_api.commands.fetch_and_save_env_press \
   --all-archive-months \
   --verbose
 cd ../..
 ```
 
-`--all-archive-months` は月別アーカイブを巡回する実HTTP取得用の指定です。保存済みHTMLの単一ページ解析で使う `--from-file` や、取得する月別ページ数を制限する `--archive-month-limit` とは併用しません。
+`--all-archive-months` は月別アーカイブを巡回する実HTTP取得用の指定です。保存済みHTMLの単一ページ解析で使う `--from-file` や、取得する月別ページ数を制限する `--archive-month-limit` とは併用しません。保存済み報道発表がある場合は、後述する既知URLだけの月に到達すると全月を取得する前に停止します。
 
 初回全件取得後も stdout の実行結果 JSON で、取得件数は `fetched_count`、新規保存件数は `saved_count`、重複などで保存しなかった件数は `skipped_count` として確認できます。巡回した月別ページは `fetched_page_urls`、正常停止理由は `stop_reason` に出力されます。再実行時は、同じ `source_url` の報道発表が新規保存されず `skipped_count` に数えられることを確認します。
 
-差分取得、定期実行、Docker Compose 全体での import 実行方法は後続タスクで整理します。
+差分取得を想定して、保存済みデータがあるDBに対して月別アーカイブを少数だけ取得して保存する場合も、同じ手動取得・保存コマンドを使います。API 側のコマンドは、月別アーカイブ巡回時に、DB内の最新公開月を含む直近3か月の既存 `source_url` を取得済みURLとして scraper 側へ渡します。基準はコマンド実行日ではなく、DBに保存された最新の `published_at` です。
+
+```bash
+cd apps/api
+DATABASE_URL=postgresql+psycopg://presswatch:your-local-postgres-password@127.0.0.1:5432/presswatch \
+PYTHONPATH=src \
+uv run --locked python -m press_watch_api.commands.fetch_and_save_env_press \
+  --archive-month-limit 6 \
+  --verbose
+cd ../..
+```
+
+既知URLとして取得する月数を変更する場合は、`--known-release-months` に1以上の整数を指定します。例えば、DB内の最新公開月を含む直近6か月を対象にする場合は次のように実行します。
+
+```bash
+cd apps/api
+DATABASE_URL=postgresql+psycopg://presswatch:your-local-postgres-password@127.0.0.1:5432/presswatch \
+PYTHONPATH=src \
+uv run --locked python -m press_watch_api.commands.fetch_and_save_env_press \
+  --archive-month-limit 12 \
+  --known-release-months 6 \
+  --verbose
+cd ../..
+```
+
+月別ページ内の報道発表がすべて保存済み `source_url` と一致した場合、scraper 側はそれより古い月へ進まず停止します。この場合、stdout の実行結果 JSON では `stop_reason` が `duplicate_release_detected` になります。
+
+```json
+{
+  "source_url": "https://www.env.go.jp/press/index.html",
+  "fetched_count": 0,
+  "saved_count": 0,
+  "skipped_count": 0,
+  "fetched_page_urls": [
+    "https://www.env.go.jp/press/202605.html"
+  ],
+  "stop_reason": "duplicate_release_detected"
+}
+```
+
+確認観点:
+
+- `fetched_count`: scraper から API 側へ渡された新規候補の件数
+- `saved_count`: DB に新規保存した件数
+- `skipped_count`: API 側保存 service で既存 `source_url` と重複して保存しなかった件数
+- `fetched_page_urls`: 実際に巡回した月別ページURL。既知URLだけの月で止まった場合、その月のURLも含まれます
+- `stop_reason`: `duplicate_release_detected` の場合は、直近の既知URLだけで構成された月に到達して停止したことを示します
+
+通常の差分取得では `source_url` の重複だけを確認し、保存済みレコードのタイトル、公開日、取得元カテゴリは更新しません。過去データの内容変更を確認するメンテナンス用フルスキャンは、このコマンドの通常取得とは別の後続タスクとして扱います。
+
+`duplicate_release_detected` で停止した月の報道発表は scraper から保存 service へ渡されないため、その停止自体は `skipped_count` には加算されません。`skipped_count` は、scraper が返した報道発表を保存しようとした際の重複 skip 件数として確認します。
+
+定期実行、Docker Compose 全体での取得・保存方法、実HTTPでの差分件数保証は後続タスクで整理します。
 
 ## DB migration の考え方
 
@@ -254,7 +318,7 @@ docker compose --env-file .env -f infra/compose.yml exec api uv run alembic upgr
 docker compose --env-file .env -f infra/compose.yml exec db psql -U presswatch -d presswatch
 ```
 
-Alembic migration が適用済みであることを確認します。`version_num` が初版 migration の revision ID である `31765401e166` であれば、`press_releases` 作成 migration は適用済みです。
+Alembic migration が適用済みであることを確認します。現在のheadは、`published_at` のインデックスを追加する `9f2c7a4e1d63` です。`version_num` が初版 migration の `31765401e166` の場合は、`press_releases` テーブルは作成済みですが、公開日インデックスのmigrationは未適用です。
 
 ```sql
 select version_num
@@ -270,6 +334,7 @@ psql のメタコマンドで、テーブル定義、NULL 許容、制約を確�
 確認観点:
 
 - `source_url` に `uq_press_releases_source_url` の一意制約があること
+- `published_at` に `ix_press_releases_published_at` のインデックスがあること
 - `source_categories` が `text[]` で、NULL 許容であること
 - `fetched_at` / `created_at` / `updated_at` が `timestamp with time zone` であること
 
@@ -282,7 +347,7 @@ from press_releases;
 
 `total_count` が `0` の場合は、まだ保存済みデータがない状態です。
 その場合、以降の集計 SQL はすべて `0` 件を返し、直近保存データの確認 SQL は行を返しません。
-手動 import と初回全件取得の基本手順は上記のコマンド例で確認できます。差分取得、定期実行、Docker Compose 全体での import 実行方法は後続タスクで整理します。
+手動取得・保存、初回全件取得、差分取得の基本手順は上記のコマンド例で確認できます。定期実行と Docker Compose 全体での取得・保存方法は後続タスクで整理します。
 
 `source_url` の重複がないことを確認します。`duplicated_source_url_count` が `0` であれば、保存済みデータ上の URL 重複はありません。
 

@@ -64,7 +64,7 @@
 - 月別巡回では、環境省サイトへの連続アクセスを避けるため、ページ取得の間に3秒待機する。
 - 進捗確認が必要な場合は `--verbose` を明示し、取得中URLや待機を stderr に出力する。stdout はJSON出力用として維持し、ターミナルで進捗だけを確認したい場合は `--no-stdout-json` を併用する。
 - 巡回結果には停止理由を含める。月別ページ数の上限に達した場合は `archive_month_limit_reached`、候補を最後まで取得した場合は `archive_month_links_exhausted`、既知の報道発表URLだけで構成される月別ページに到達した場合は `duplicate_release_detected` とする。
-- ここでの既知URL集合は、呼び出し元が `known_release_urls` として渡す「すでに保存済み・取得済みとみなす報道発表詳細ページURL」の集合を指す。将来DB保存済みデータをもとにした差分取得へ接続するための入口として扱い、現段階ではDBからの読み込みは行わない。
+- ここでの既知URL集合は、呼び出し元が `known_release_urls` として渡す「すでに保存済み・取得済みとみなす報道発表詳細ページURL」の集合を指す。scraper 自身はDBを読み込まず、API側の取得・保存コマンドがDB内の最新公開月を含む直近3か月の `source_url` を取得し、`--known-release-urls-file` を通じて scraper CLI へ渡す。対象月数はAPI側の `--known-release-months` で変更できる。
 - 異常終了時に失敗ページをスキップして継続する高度なエラーハンドリングは後続タスクで扱う。
 
 ## 異常終了時の基本方針
