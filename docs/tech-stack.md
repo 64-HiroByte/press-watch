@@ -179,7 +179,7 @@ apps/api/src/press_watch_api/
 ├── repositories/
 │   └── press_release.py
 └── services/
-    └── press_release_import.py
+    └── press_release_save.py
 ```
 
 - `models/`: SQLAlchemy model を置く
