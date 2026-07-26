@@ -200,7 +200,7 @@ cd ../..
 }
 ```
 
-同じデータを再実行した場合、既存の `source_url` は保存せず `skipped_count` に数えます。取得や保存に失敗した場合は rollback し、stderr に `error: target=... exception=... reason=...` の形式で出力して終了コード `1` を返します。
+同じデータを再実行した場合、既存の `source_url` は保存せず `skipped_count` に数えます。取得に失敗した場合は保存用DB Sessionを作成せず、保存処理の開始後に失敗した場合は rollback します。いずれも stderr に `error: target=... exception=... reason=...` の形式で出力し、終了コード `1` を返します。DBへのcommit後に結果JSONの出力だけが失敗した場合は rollback できないため、DB保存済みであることをstderrに明示します。
 
 報道発表URLや月別アーカイブURLが安全なHTTP(S) URLとして扱えない場合は、その項目だけを黙って除外せず、実行全体を失敗させます。この場合は成功時のJSONを出力せず、DB保存も行いません。stderr の `reason` には `validation=non_ascii_character` などの固定理由コードと、報道発表では `title` / `href`、月別リンクでは `archive_month` / `href` を含めます。URLに認証情報が含まれていた場合、その部分は `[redacted]` に置き換えます。
 
@@ -318,7 +318,7 @@ docker compose --env-file .env -f infra/compose.yml exec api uv run alembic upgr
 docker compose --env-file .env -f infra/compose.yml exec db psql -U presswatch -d presswatch
 ```
 
-Alembic migration が適用済みであることを確認します。`version_num` が初版 migration の revision ID である `31765401e166` であれば、`press_releases` 作成 migration は適用済みです。
+Alembic migration が適用済みであることを確認します。現在のheadは、`published_at` のインデックスを追加する `9f2c7a4e1d63` です。`version_num` が初版 migration の `31765401e166` の場合は、`press_releases` テーブルは作成済みですが、公開日インデックスのmigrationは未適用です。
 
 ```sql
 select version_num
@@ -334,6 +334,7 @@ psql のメタコマンドで、テーブル定義、NULL 許容、制約を確�
 確認観点:
 
 - `source_url` に `uq_press_releases_source_url` の一意制約があること
+- `published_at` に `ix_press_releases_published_at` のインデックスがあること
 - `source_categories` が `text[]` で、NULL 許容であること
 - `fetched_at` / `created_at` / `updated_at` が `timestamp with time zone` であること
 
