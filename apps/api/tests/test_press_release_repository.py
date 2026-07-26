@@ -9,7 +9,9 @@ from sqlalchemy.orm import Session
 from press_watch_api.models.press_release import PressRelease
 from press_watch_api.repositories.press_release import (
     create_press_release,
+    get_latest_press_release_published_at,
     has_press_release_with_source_url,
+    list_press_release_source_urls_published_from,
 )
 from press_watch_api.schemas.press_release import PressReleaseCreate
 from api_test_constants import ENV_PRESS_RELEASE_URL_1 as SOURCE_URL_1
@@ -126,6 +128,47 @@ class PressReleaseRepositoryTest(unittest.TestCase):
 
         session.commit.assert_not_called()
         session.rollback.assert_not_called()
+
+    def test_get_latest_press_release_published_at_returns_latest_date(
+        self,
+    ) -> None:
+        """保存済み報道発表の最新公開日を返すこと"""
+
+        session = Mock(spec=Session)
+        session.scalar.return_value = date(2026, 7, 25)
+
+        latest_published_at = get_latest_press_release_published_at(session)
+
+        self.assertEqual(latest_published_at, date(2026, 7, 25))
+        session.scalar.assert_called_once()
+        statement = session.scalar.call_args.args[0]
+        self.assertIn(
+            "max(press_releases.published_at)",
+            str(statement),
+        )
+
+    def test_list_press_release_source_urls_published_from_filters_by_date(
+        self,
+    ) -> None:
+        """指定公開日以降のsource_urlを返すこと"""
+
+        session = Mock(spec=Session)
+        session.scalars.return_value = [SOURCE_URL_1]
+        published_from = date(2026, 5, 1)
+
+        source_urls = list_press_release_source_urls_published_from(
+            session,
+            published_from,
+        )
+
+        self.assertEqual(source_urls, (SOURCE_URL_1,))
+        session.scalars.assert_called_once()
+        statement = session.scalars.call_args.args[0]
+        self.assertIn(
+            "press_releases.published_at >=",
+            str(statement),
+        )
+        self.assertIn(published_from, statement.compile().params.values())
 
 
 def _press_release_create(
