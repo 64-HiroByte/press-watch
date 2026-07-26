@@ -9,8 +9,9 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from press_watch_api.schemas.press_release import PressReleaseCreate
-from press_watch_api.services.press_release_import import (
-    import_press_releases,
+from press_watch_api.services.press_release_save import (
+    list_known_release_urls_for_crawl,
+    save_press_releases,
     to_press_release_create,
     to_press_release_creates,
 )
@@ -82,8 +83,87 @@ class PressReleaseCreateSchemaTest(unittest.TestCase):
                 fetched_at=datetime(2026, 5, 26, 10, 0, tzinfo=UTC),
             )
 
+    def test_press_release_create_rejects_invalid_source_url(self) -> None:
+        """保存対象のASCII HTTP(S) URI以外を許可しないこと"""
 
-class PressReleaseImportServiceTest(unittest.TestCase):
+        cases = (
+            ("", "must not be empty"),
+            ("ftp://example.com/press/1", "unsupported_scheme"),
+            (
+                "https://user:password@example.com/press/1",
+                "credentials_not_allowed",
+            ),
+            (
+                "https://example.com/press/invalid path.html",
+                "unsafe_character",
+            ),
+            (
+                "https://example.com/press/invalid<path.html",
+                "unsafe_character",
+            ),
+            (
+                "https://example.com/press/invalid\\path.html",
+                "unsafe_character",
+            ),
+            (
+                "https://example.com/press/invalid%ZZpath.html",
+                "invalid_percent_escape",
+            ),
+            (
+                "https://example.com/press/日本語.html",
+                "non_ascii_character",
+            ),
+            (
+                "https://exa%20mple.com/press/1",
+                "invalid_host_or_port",
+            ),
+            (
+                "https://example.com:invalid/press/1",
+                "invalid_host_or_port",
+            ),
+        )
+
+        for source_url, reason in cases:
+            with self.subTest(source_url=source_url):
+                with self.assertRaises(ValidationError) as raised:
+                    PressReleaseCreate(
+                        title="報道発表",
+                        source_url=source_url,
+                        published_at=date(2026, 5, 26),
+                        source_categories=["総合政策"],
+                        fetched_at=datetime(
+                            2026,
+                            5,
+                            26,
+                            10,
+                            0,
+                            tzinfo=UTC,
+                        ),
+                    )
+                self.assertIn(reason, str(raised.exception))
+
+    def test_press_release_create_accepts_percent_encoded_unicode_url(
+        self,
+    ) -> None:
+        """percent encode済みの日本語パスをURIとして許可すること"""
+
+        source_url = (
+            "https://example.com/press/"
+            "%E6%97%A5%E6%9C%AC%E8%AA%9E.html"
+        )
+
+        dto = PressReleaseCreate(
+            title="報道発表",
+            source_url=source_url,
+            published_at=date(2026, 5, 26),
+            source_categories=["総合政策"],
+            fetched_at=datetime(2026, 5, 26, 10, 0, tzinfo=UTC),
+        )
+
+        self.assertEqual(dto.source_url, source_url)
+
+
+class PressReleaseSaveServiceTest(unittest.TestCase):
     """scraper 取得結果からDB保存DTOへの変換テスト"""
 
     def test_to_press_release_create_maps_scraper_fields_to_save_dto(
@@ -153,7 +233,7 @@ class PressReleaseImportServiceTest(unittest.TestCase):
         )
         self.assertEqual([dto.fetched_at for dto in dtos], [fetched_at, fetched_at])
 
-    def test_import_press_releases_saves_each_scraped_release(
+    def test_save_press_releases_saves_each_scraped_release(
         self,
     ) -> None:
         """複数のscraper取得結果をDTO経由でrepositoryへ渡すこと"""
@@ -174,7 +254,7 @@ class PressReleaseImportServiceTest(unittest.TestCase):
         ]
         fetched_at = datetime(2026, 5, 26, 10, 0, tzinfo=UTC)
 
-        result = import_press_releases(
+        result = save_press_releases(
             session,
             releases,
             fetched_at=fetched_at,
@@ -202,7 +282,7 @@ class PressReleaseImportServiceTest(unittest.TestCase):
         )
         self.assertEqual(session.flush.call_count, 2)
 
-    def test_import_press_releases_skips_existing_source_url(
+    def test_save_press_releases_skips_existing_source_url(
         self,
     ) -> None:
         """既存source_urlの報道発表を保存せずskip件数へ数えること"""
@@ -225,7 +305,7 @@ class PressReleaseImportServiceTest(unittest.TestCase):
         ]
         fetched_at = datetime(2026, 5, 26, 10, 0, tzinfo=UTC)
 
-        result = import_press_releases(
+        result = save_press_releases(
             session,
             releases,
             fetched_at=fetched_at,
@@ -253,7 +333,7 @@ class PressReleaseImportServiceTest(unittest.TestCase):
         )
         self.assertEqual(session.flush.call_count, 2)
 
-    def test_import_press_releases_leaves_transaction_control_to_caller(
+    def test_save_press_releases_leaves_transaction_control_to_caller(
         self,
     ) -> None:
         """serviceでもトランザクションの確定や取消を呼び出し元へ任せること"""
@@ -262,10 +342,88 @@ class PressReleaseImportServiceTest(unittest.TestCase):
         session.scalar.return_value = None
         release = _scraped_release()
 
-        import_press_releases(session, [release])
+        save_press_releases(session, [release])
 
         session.commit.assert_not_called()
         session.rollback.assert_not_called()
+
+    def test_list_known_release_urls_for_crawl_uses_latest_three_months(
+        self,
+    ) -> None:
+        """最新公開月を含む直近3か月のsource_urlを返すこと"""
+
+        session = Mock(spec=Session)
+        session.scalar.return_value = date(2026, 7, 25)
+        session.scalars.return_value = [SOURCE_URL_1, SOURCE_URL_2]
+
+        source_urls = list_known_release_urls_for_crawl(
+            session,
+            month_count=3,
+        )
+
+        self.assertEqual(source_urls, (SOURCE_URL_1, SOURCE_URL_2))
+        session.scalar.assert_called_once()
+        session.scalars.assert_called_once()
+        statement = session.scalars.call_args.args[0]
+        self.assertIn(date(2026, 5, 1), statement.compile().params.values())
+
+    def test_list_known_release_urls_for_crawl_handles_year_boundary(
+        self,
+    ) -> None:
+        """最新公開月から3か月分を年またぎで計算すること"""
+
+        session = Mock(spec=Session)
+        session.scalar.return_value = date(2026, 1, 15)
+        session.scalars.return_value = [SOURCE_URL_1]
+
+        list_known_release_urls_for_crawl(session, month_count=3)
+
+        statement = session.scalars.call_args.args[0]
+        self.assertIn(date(2025, 11, 1), statement.compile().params.values())
+
+    def test_list_known_release_urls_for_crawl_returns_empty_for_empty_db(
+        self,
+    ) -> None:
+        """保存済み報道発表がない場合は空のタプルを返すこと"""
+
+        session = Mock(spec=Session)
+        session.scalar.return_value = None
+
+        source_urls = list_known_release_urls_for_crawl(
+            session,
+            month_count=3,
+        )
+
+        self.assertEqual(source_urls, ())
+        session.scalars.assert_not_called()
+
+    def test_list_known_release_urls_for_crawl_rejects_non_positive_month_count(
+        self,
+    ) -> None:
+        """既知URLの取得月数に0以下を許可しないこと"""
+
+        session = Mock(spec=Session)
+
+        with self.assertRaisesRegex(ValueError, "month_count must be positive"):
+            list_known_release_urls_for_crawl(session, month_count=0)
+
+        session.scalar.assert_not_called()
+
+    def test_list_known_release_urls_for_crawl_rejects_date_range_overflow(
+        self,
+    ) -> None:
+        """Pythonの日付範囲を超える月数を拒否すること"""
+
+        session = Mock(spec=Session)
+        session.scalar.return_value = date(1, 1, 1)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "month_count exceeds the supported date range",
+        ):
+            list_known_release_urls_for_crawl(session, month_count=2)
+
+        session.scalars.assert_not_called()
 
 
 def _scraped_release(

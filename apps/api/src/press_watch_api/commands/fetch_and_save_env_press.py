@@ -3,24 +3,50 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from datetime import date
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
+import tempfile
 from typing import Protocol
 
 from sqlalchemy.orm import Session
 
-from press_watch_api.services.press_release_import import (
-    import_press_releases,
+from press_watch_api.services.press_release_save import (
+    list_known_release_urls_for_crawl,
+    save_press_releases,
 )
 
 
 SCRAPER_COMMAND_FAILED_REASON = "scraper command failed"
+POST_COMMIT_OUTPUT_FAILED_REASON = (
+    "database commit succeeded but result output failed"
+)
+DEFAULT_KNOWN_RELEASE_MONTHS = 3
+CREDENTIALS_IN_URL_RE = re.compile(r"(?i)(https?://)[^/@\s]+@")
+MAX_DIAGNOSTIC_VALUE_LENGTH = 1000
+SCRAPER_ENV_KEYS = (
+    "HOME",
+    "PATH",
+    "TMPDIR",
+    "LANG",
+    "LC_ALL",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "XDG_CACHE_HOME",
+    "UV_CACHE_DIR",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+)
 
 
 class SessionFactory(Protocol):
@@ -34,18 +60,19 @@ class SessionFactory(Protocol):
         """SQLAlchemyセッションを生成
 
         Returns:
-            import処理で使うDBセッション
+            取得・保存処理で使うDBセッション
         """
 
 
 class ParsedArgs(Protocol):
-    """手動importコマンドで使う引数
+    """手動取得・保存コマンドで使う引数
 
     Attributes:
         url: scraper CLIへ渡す報道発表一覧ページURL
         from_file: scraper CLIへ渡す保存済みHTMLのパス
         archive_month_limit: scraper CLIへ渡す月別ページ取得上限
         all_archive_months: scraper CLIへすべての月別ページ取得を指定するか
+        known_release_months: 既知URLとしてDBから取得する直近月数
         verbose: scraper CLIの進捗stderrを表示するかどうか
     """
 
@@ -53,6 +80,7 @@ class ParsedArgs(Protocol):
     from_file: Path | None
     archive_month_limit: int | None
     all_archive_months: bool
+    known_release_months: int
     verbose: bool
 
 
@@ -75,7 +103,7 @@ class ScraperCliRelease:
 
 @dataclass(frozen=True)
 class CollectedPressReleases:
-    """手動importでDB保存へ渡す取得結果
+    """手動取得・保存でDBへ渡す取得結果
 
     Attributes:
         source_url: scraper CLIで指定された取得元URLまたはファイルパス
@@ -101,11 +129,11 @@ class CollectedPressReleases:
 
 
 @dataclass(frozen=True)
-class ManualImportResult:
-    """手動importコマンドの実行結果
+class FetchAndSaveResult:
+    """手動取得・保存コマンドの実行結果
 
     Attributes:
-        source_url: import対象の取得元URLまたはファイルパス
+        source_url: 取得対象のURLまたはファイルパス
         fetched_count: scraper CLIから受け取った件数
         saved_count: DBへ新規保存した件数
         skipped_count: 既存source_urlと重複して保存しなかった件数
@@ -124,7 +152,7 @@ class ManualImportResult:
         """stdoutへ出すJSON用の辞書へ変換
 
         Returns:
-            手動importコマンドの実行結果として出力するJSON互換の辞書
+            手動取得・保存コマンドの結果として出力するJSON互換の辞書
         """
 
         return {
@@ -137,7 +165,10 @@ class ManualImportResult:
         }
 
 
-CollectReleases = Callable[[ParsedArgs, object], CollectedPressReleases]
+CollectReleases = Callable[
+    [ParsedArgs, object, Collection[str]],
+    CollectedPressReleases,
+]
 
 
 def main(
@@ -148,7 +179,7 @@ def main(
     stdout: object | None = None,
     stderr: object | None = None,
 ) -> int:
-    """手動importコマンドを実行する
+    """手動取得・保存コマンドを実行
 
     Args:
         argv: プログラム名を除くCLI引数
@@ -170,47 +201,69 @@ def main(
     collect_releases = collect_releases or _collect_releases_from_scraper_cli
     error_target = _error_target(args)
 
-    session = session_factory()
+    session: Session | None = None
+    committed = False
     try:
-        collected = collect_releases(args, error_output)
-        import_result = import_press_releases(
+        known_release_urls = _load_known_release_urls(
+            session_factory,
+            args,
+        )
+        collected = collect_releases(
+            args,
+            error_output,
+            known_release_urls,
+        )
+        session = session_factory()
+        save_result = save_press_releases(
             session,
             collected.releases,
         )
-        session.commit()
-
-        result = ManualImportResult(
+        result = FetchAndSaveResult(
             source_url=collected.source_url,
             fetched_count=collected.fetched_count,
-            saved_count=import_result.saved_count,
-            skipped_count=import_result.skipped_count,
+            saved_count=save_result.saved_count,
+            skipped_count=save_result.skipped_count,
             fetched_page_urls=collected.fetched_page_urls,
             stop_reason=collected.stop_reason,
         )
+        session.commit()
+        committed = True
         _write_json(output, result.to_json_dict())
         return 0
     except Exception as exc:
-        session.rollback()
-        _print_runtime_error(error_output, error_target, exc)
+        if session is not None and not committed:
+            session.rollback()
+        if committed:
+            _print_post_commit_output_error(
+                error_output,
+                error_target,
+                exc,
+            )
+        else:
+            _print_runtime_error(error_output, error_target, exc)
         return 1
     finally:
-        session.close()
+        if session is not None:
+            session.close()
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    """手動importコマンドの引数定義を生成
+    """手動取得・保存コマンドの引数定義を生成
 
     Returns:
-        `import_env_press` のCLI引数を解釈するparser
+        `fetch_and_save_env_press` のCLI引数を解釈するparser
     """
 
     parser = argparse.ArgumentParser(
-        description="Import Ministry of the Environment press releases.",
+        description=(
+            "Fetch Ministry of the Environment press releases "
+            "and save them to the database."
+        ),
     )
     parser.add_argument(
         "--url",
         default="https://www.env.go.jp/press/index.html",
-        help="Press list page URL to fetch.",
+        help="HTTP(S) press list page URL to fetch.",
     )
     parser.add_argument(
         "--from-file",
@@ -226,6 +279,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "--all-archive-months",
         action="store_true",
         help="Fetch all archive month pages found on the index page.",
+    )
+    parser.add_argument(
+        "--known-release-months",
+        type=int,
+        default=DEFAULT_KNOWN_RELEASE_MONTHS,
+        help=(
+            "Number of recent published months whose saved URLs are treated "
+            "as known during archive crawling. Defaults to 3."
+        ),
     )
     parser.add_argument(
         "--verbose",
@@ -247,15 +309,45 @@ def _load_session_factory() -> SessionFactory:
     return SessionLocal
 
 
+def _load_known_release_urls(
+    session_factory: SessionFactory,
+    args: ParsedArgs,
+) -> tuple[str, ...]:
+    """月別巡回の既知URLを短時間のDB Sessionで取得
+
+    Args:
+        session_factory: DBセッションを生成する関数
+        args: 手動取得・保存コマンドで受け取ったCLI引数
+
+    Returns:
+        scraper 側へ取得済みとして渡す報道発表URL
+    """
+
+    if not _uses_archive_crawl(args):
+        return ()
+
+    session = session_factory()
+    try:
+        return list_known_release_urls_for_crawl(
+            session,
+            month_count=args.known_release_months,
+        )
+    finally:
+        # scraper のHTTP巡回中にDBトランザクションを保持しない。
+        session.close()
+
+
 def _collect_releases_from_scraper_cli(
     args: ParsedArgs,
     stderr: object,
+    known_release_urls: Collection[str],
 ) -> CollectedPressReleases:
     """既存scraper CLIを実行してJSONスナップショットを取得
 
     Args:
-        args: 手動importコマンドで受け取ったCLI引数
+        args: 手動取得・保存コマンドで受け取ったCLI引数
         stderr: verbose時にscraper CLIの進捗を転送する出力先
+        known_release_urls: scraper 側で取得済みとして扱う報道発表URL
 
     Returns:
         scraper CLIのstdout JSONから復元した取得結果
@@ -267,16 +359,29 @@ def _collect_releases_from_scraper_cli(
     """
 
     scraper_dir = _scraper_package_dir()
-    command = _scraper_command(args)
     env = _scraper_env(scraper_dir)
-    completed = subprocess.run(
-        command,
-        cwd=scraper_dir,
-        env=env,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    known_release_urls_file: Path | None = None
+    try:
+        if known_release_urls and _uses_archive_crawl(args):
+            known_release_urls_file = _write_known_release_urls_file(
+                known_release_urls,
+            )
+        command = _scraper_command(
+            args,
+            known_release_urls_file=known_release_urls_file,
+        )
+        completed = subprocess.run(
+            command,
+            cwd=scraper_dir,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    finally:
+        if known_release_urls_file is not None:
+            known_release_urls_file.unlink(missing_ok=True)
+
     if completed.returncode != 0:
         reason = _one_line(completed.stderr) or (
             f"exit code {completed.returncode}"
@@ -292,11 +397,16 @@ def _collect_releases_from_scraper_cli(
     return _parse_scraper_snapshot(completed.stdout)
 
 
-def _scraper_command(args: ParsedArgs) -> list[str]:
+def _scraper_command(
+    args: ParsedArgs,
+    *,
+    known_release_urls_file: Path | None = None,
+) -> list[str]:
     """scraper CLIを呼び出すコマンド列を組み立てる
 
     Args:
         args: scraper CLIへ渡す取得条件
+        known_release_urls_file: scraper CLIへ渡す既知URLファイル
 
     Returns:
         `subprocess.run()` に渡すコマンド引数列
@@ -320,16 +430,52 @@ def _scraper_command(args: ParsedArgs) -> list[str]:
         )
     if args.all_archive_months:
         command.append("--all-archive-months")
+    if known_release_urls_file is not None:
+        command.extend(
+            ["--known-release-urls-file", str(known_release_urls_file)]
+        )
     if args.verbose:
         command.append("--verbose")
     return command
+
+
+def _write_known_release_urls_file(
+    known_release_urls: Collection[str],
+) -> Path:
+    """scraper CLIへ渡す既知URLファイルを作成
+
+    Args:
+        known_release_urls: DB保存済みとして扱う報道発表詳細ページURL
+
+    Returns:
+        改行区切りで既知URLを書き出した一時ファイルのパス
+    """
+
+    path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            delete=False,
+        ) as file:
+            path = Path(file.name)
+            for source_url in sorted(set(known_release_urls)):
+                file.write(f"{source_url}\n")
+    except Exception:
+        if path is not None:
+            path.unlink(missing_ok=True)
+        raise
+
+    if path is None:
+        raise RuntimeError("known release URL temporary file was not created")
+    return path
 
 
 def _validate_args(
     parser: argparse.ArgumentParser,
     args: argparse.Namespace,
 ) -> None:
-    """手動importコマンドの引数組み合わせを検証する
+    """手動取得・保存コマンドの引数組み合わせを検証
 
     Args:
         parser: エラー表示に使うCLI parser
@@ -347,26 +493,44 @@ def _validate_args(
         parser.error(
             "--archive-month-limit cannot be used with --all-archive-months."
         )
+    if args.known_release_months <= 0:
+        parser.error("--known-release-months must be greater than 0.")
+
+
+def _uses_archive_crawl(args: ParsedArgs) -> bool:
+    """月別アーカイブ巡回を行う引数か判定
+
+    Args:
+        args: 手動取得・保存コマンドで受け取ったCLI引数
+
+    Returns:
+        scraper CLIで月別アーカイブへ進む場合はTrue
+    """
+
+    return args.all_archive_months or (
+        args.archive_month_limit is not None
+        and args.archive_month_limit > 0
+    )
 
 
 def _scraper_env(scraper_dir: Path) -> dict[str, str]:
-    """scraper CLIがsrc配下をimportできる環境変数を作る
+    """scraper CLIに必要な環境変数を作成
 
     Args:
         scraper_dir: scraperパッケージのディレクトリ
 
     Returns:
-        scraper CLI用にPYTHONPATHを補った環境変数
+        実行環境とHTTP取得に必要な値へ限定した環境変数
     """
 
-    env = os.environ.copy()
+    env = {
+        key: value
+        for key in SCRAPER_ENV_KEYS
+        if (value := os.environ.get(key)) is not None
+    }
     scraper_src = str(scraper_dir / "src")
-    current_pythonpath = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = (
-        f"{scraper_src}{os.pathsep}{current_pythonpath}"
-        if current_pythonpath
-        else scraper_src
-    )
+    env["PYTHONPATH"] = scraper_src
+    env["PYTHONUTF8"] = "1"
     return env
 
 
@@ -382,7 +546,7 @@ def _scraper_package_dir() -> Path:
 
 
 def _parse_scraper_snapshot(json_text: str) -> CollectedPressReleases:
-    """scraper CLIのJSONを手動import用データへ変換
+    """scraper CLIのJSONを手動取得・保存用データへ変換
 
     Args:
         json_text: scraper CLIがstdoutへ出したJSONスナップショット
@@ -435,7 +599,7 @@ def _error_target(args: ParsedArgs) -> str:
     """失敗時stderrに表示する対象を決める
 
     Args:
-        args: 手動importコマンドで受け取ったCLI引数
+        args: 手動取得・保存コマンドで受け取ったCLI引数
 
     Returns:
         保存済みHTMLパスまたは取得対象URL
@@ -462,9 +626,34 @@ def _print_runtime_error(
     print(
         (
             "error: "
-            f"target={target} "
+            f"target={_one_line(target)} "
             f"exception={type(exc).__name__} "
             f"reason={_one_line(str(exc)) or 'no detail'}"
+        ),
+        file=output,
+    )
+
+
+def _print_post_commit_output_error(
+    output: object,
+    target: str,
+    exc: Exception,
+) -> None:
+    """DB確定後の実行結果出力失敗をstderrへ出力
+
+    Args:
+        output: エラー文字列を書き込む出力先
+        target: エラー対象として表示するURLまたはファイルパス
+        exc: stdoutへの出力で発生した例外
+    """
+
+    reason = _one_line(str(exc)) or "no detail"
+    print(
+        (
+            "error: "
+            f"target={_one_line(target)} "
+            f"exception={type(exc).__name__} "
+            f"reason={POST_COMMIT_OUTPUT_FAILED_REASON}: {reason}"
         ),
         file=output,
     )
@@ -480,7 +669,20 @@ def _one_line(value: str) -> str:
         連続空白を1つにまとめた1行文字列
     """
 
-    return " ".join(value.split())
+    redacted_value = CREDENTIALS_IN_URL_RE.sub(
+        r"\1[redacted]@",
+        value,
+    )
+    one_line_value = " ".join(redacted_value.split())
+    one_line_value = "".join(
+        character if character.isprintable() else repr(character)[1:-1]
+        for character in one_line_value
+    )
+    if len(one_line_value) > MAX_DIAGNOSTIC_VALUE_LENGTH:
+        return (
+            f"{one_line_value[:MAX_DIAGNOSTIC_VALUE_LENGTH - 3]}..."
+        )
+    return one_line_value
 
 
 if __name__ == "__main__":
