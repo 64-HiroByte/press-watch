@@ -6,6 +6,7 @@ import argparse
 from dataclasses import asdict
 import json
 from pathlib import Path
+import re
 import sys
 from time import sleep
 
@@ -25,6 +26,8 @@ from .env_press import (
 
 JSON_OUTPUT_ENCODING = 'utf-8'
 OUTPUT_PARENT_NOT_FOUND_REASON = 'output parent directory does not exist'
+CREDENTIALS_IN_URL_RE = re.compile(r'(?i)(https?://)[^/@\s]+@')
+MAX_DIAGNOSTIC_VALUE_LENGTH = 1000
 
 
 def main() -> int:
@@ -40,7 +43,7 @@ def main() -> int:
     parser.add_argument(
         '--url',
         default=PRESS_INDEX_URL,
-        help='Press list page URL to fetch.',
+        help='HTTP(S) press list page URL to fetch.',
     )
     parser.add_argument(
         '--from-file',
@@ -56,6 +59,11 @@ def main() -> int:
         '--all-archive-months',
         action='store_true',
         help='Fetch all archive month pages found on the index page.',
+    )
+    parser.add_argument(
+        '--known-release-urls-file',
+        type=Path,
+        help='Read known press release URLs from this newline-delimited file.',
     )
     parser.add_argument(
         '--output',
@@ -90,6 +98,13 @@ def main() -> int:
         parser.error(
             '--archive-month-limit cannot be used with --all-archive-months.'
         )
+    if args.known_release_urls_file is not None and not (
+        args.all_archive_months or has_archive_month_limit
+    ):
+        parser.error(
+            '--known-release-urls-file requires '
+            '--archive-month-limit greater than 0 or --all-archive-months.'
+        )
     if args.no_stdout_json and args.output is None:
         parser.error('--no-stdout-json requires --output.')
 
@@ -110,6 +125,18 @@ def main() -> int:
             )
 
         archive_month_limit_value = archive_month_limit or 0
+        known_release_urls: tuple[str, ...] = ()
+        if args.known_release_urls_file is not None:
+            error_target = str(args.known_release_urls_file)
+            known_release_urls = _read_known_release_urls(
+                args.known_release_urls_file,
+            )
+            error_target = (
+                str(args.from_file)
+                if args.from_file is not None
+                else args.url
+            )
+
         if args.all_archive_months or archive_month_limit_value > 0:
             source_url = args.url
 
@@ -139,6 +166,7 @@ def main() -> int:
                 archive_month_limit=archive_month_limit_value,
                 all_archive_months=args.all_archive_months,
                 fetcher=fetcher,
+                known_release_urls=known_release_urls,
                 request_interval_seconds=REQUEST_INTERVAL_SECONDS,
                 sleeper=sleeper,
             )
@@ -258,6 +286,25 @@ def _validate_output_path(path: Path) -> None:
         )
 
 
+def _read_known_release_urls(path: Path) -> tuple[str, ...]:
+    """既知URLファイルから報道発表詳細ページURLを読み込む
+
+    Args:
+        path: 改行区切りの既知URLファイル
+
+    Returns:
+        空行を除外した既知URLのタプル
+    """
+
+    return tuple(
+        line
+        for raw_line in path.read_text(
+            encoding=JSON_OUTPUT_ENCODING,
+        ).splitlines()
+        if (line := raw_line.strip())
+    )
+
+
 def _print_progress(enabled: bool, message: str) -> None:
     """CLIの進捗メッセージをstderrへ出力
 
@@ -267,23 +314,49 @@ def _print_progress(enabled: bool, message: str) -> None:
     """
 
     if enabled:
-        print(message, file=sys.stderr)
+        print(_one_line(message), file=sys.stderr)
 
 
 def _print_runtime_error(target: str, exc: Exception) -> None:
     """実行時エラーをCLI向けの簡潔な形式でstderrへ出力"""
 
     # 例外メッセージに改行が含まれても、stderrでは1行で読める形にする。
-    reason = ' '.join(str(exc).split()) or 'no detail'
+    reason = _one_line(str(exc)) or 'no detail'
     print(
         (
             'error: '
-            f'target={target} '
+            f'target={_one_line(target)} '
             f'exception={type(exc).__name__} '
             f'reason={reason}'
         ),
         file=sys.stderr,
     )
+
+
+def _one_line(value: str) -> str:
+    """CLIエラーへ埋め込む文字列を1行へ正規化
+
+    Args:
+        value: エラーへ埋め込む文字列
+
+    Returns:
+        連続空白を1つにまとめた1行文字列
+    """
+
+    redacted_value = CREDENTIALS_IN_URL_RE.sub(
+        r'\1[redacted]@',
+        value,
+    )
+    one_line_value = ' '.join(redacted_value.split())
+    one_line_value = ''.join(
+        character if character.isprintable() else repr(character)[1:-1]
+        for character in one_line_value
+    )
+    if len(one_line_value) > MAX_DIAGNOSTIC_VALUE_LENGTH:
+        return (
+            f'{one_line_value[:MAX_DIAGNOSTIC_VALUE_LENGTH - 3]}...'
+        )
+    return one_line_value
 
 
 if __name__ == '__main__':

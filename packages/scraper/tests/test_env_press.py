@@ -3,6 +3,8 @@ from pathlib import Path
 import unittest
 
 from press_watch_scraper.env_press import (
+    InvalidArchiveMonthUrlError,
+    InvalidPressReleaseUrlError,
     parse_archive_month_links,
     parse_press_releases,
 )
@@ -447,6 +449,94 @@ class EnvPressParserTest(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].url, EXPECTED_ABSOLUTE_PRESS_URL)
 
+    def test_parse_press_releases_rejects_unsafe_urls(self) -> None:
+        """不正な発表URLを理由と対象付きの例外で拒否すること"""
+
+        cases = (
+            ('javascript:alert(1)', 'unsupported_scheme'),
+            ('data:text/html,invalid', 'unsupported_scheme'),
+            ('file:///private/etc/hosts', 'unsupported_scheme'),
+            (
+                'https://user:password@example.com/press/1',
+                'credentials_not_allowed',
+            ),
+            ('/press/invalid path.html', 'unsafe_character'),
+            ('/press/invalid\npath.html', 'unsafe_character'),
+            ('/press/invalid\x00path.html', 'non_ascii_character'),
+            ('/press/invalid<path.html', 'unsafe_character'),
+            ('/press/invalid"path.html', 'unsafe_character'),
+            ('/press/invalid\\path.html', 'unsafe_character'),
+            ('/press/invalid|path.html', 'unsafe_character'),
+            ('/press/invalid%ZZpath.html', 'invalid_percent_escape'),
+            ('/press/日本語.html', 'non_ascii_character'),
+            (
+                'https://exa%20mple.com/press/1',
+                'invalid_host_or_port',
+            ),
+        )
+
+        for href, reason in cases:
+            with self.subTest(href=href):
+                with self.assertRaises(
+                    InvalidPressReleaseUrlError
+                ) as raised:
+                    parse_press_releases(
+                        _press_release_block(
+                            '2026年05月01日発表',
+                            href,
+                        )
+                    )
+
+                message = str(raised.exception)
+                self.assertIn(f'validation={reason}', message)
+                self.assertIn('page_url=', message)
+                self.assertIn(f'title={EXPECTED_TITLE!r}', message)
+                self.assertIn('href=', message)
+                self.assertNotIn('user:password', message)
+
+    def test_parse_press_releases_stops_instead_of_returning_partial_data(
+        self,
+    ) -> None:
+        """途中に不正URLがあれば先行する正常データも返さないこと"""
+
+        html = ''.join(
+            (
+                _press_release_block(
+                    '2026年05月01日発表',
+                    '/press/valid.html',
+                ),
+                _press_release_block(
+                    '2026年05月02日発表',
+                    '/press/日本語.html',
+                ),
+            )
+        )
+
+        with self.assertRaises(InvalidPressReleaseUrlError):
+            parse_press_releases(html)
+
+    def test_parse_press_releases_accepts_percent_encoded_unicode_url(
+        self,
+    ) -> None:
+        """percent encode済みの日本語パスをURIとして扱うこと"""
+
+        encoded_path = (
+            '/press/%E6%97%A5%E6%9C%AC%E8%AA%9E.html'
+        )
+
+        items = parse_press_releases(
+            _press_release_block(
+                '2026年05月01日発表',
+                encoded_path,
+            )
+        )
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(
+            items[0].url,
+            f'https://www.env.go.jp{encoded_path}',
+        )
+
     def test_parse_archive_month_links(self) -> None:
         """月別アーカイブリンクを抽出すること"""
 
@@ -501,17 +591,58 @@ class EnvPressParserTest(unittest.TestCase):
         self.assertEqual(links[0].url, 'https://example.com/press/202605.html')
 
     def test_parse_archive_month_links_keeps_absolute_url(self) -> None:
-        """月別アーカイブの絶対URLをそのまま扱うこと"""
+        """同一オリジンの月別アーカイブ絶対URLを扱うこと"""
 
         html = _archive_month_link(
             '2026年5月',
-            'https://example.com/press/202605.html',
+            EXPECTED_MONTH_URL,
         )
 
         links = parse_archive_month_links(html)
 
         self.assertEqual(len(links), 1)
-        self.assertEqual(links[0].url, 'https://example.com/press/202605.html')
+        self.assertEqual(links[0].url, EXPECTED_MONTH_URL)
+
+    def test_parse_archive_month_links_rejects_unsafe_urls(self) -> None:
+        """不正な月別URLを理由と対象付きの例外で拒否すること"""
+
+        cases = (
+            (
+                'https://example.com/press/202605.html',
+                'cross_origin',
+            ),
+            (
+                'http://www.env.go.jp/press/202605.html',
+                'cross_origin',
+            ),
+            ('javascript:alert(1)', 'unsupported_scheme'),
+            ('file:///private/etc/hosts', 'unsupported_scheme'),
+            (
+                'https://user:password@www.env.go.jp/press/202605.html',
+                'credentials_not_allowed',
+            ),
+            ('/press/invalid path.html', 'unsafe_character'),
+            ('/press/invalid\npath.html', 'unsafe_character'),
+            ('/press/invalid<path.html', 'unsafe_character'),
+            ('/press/invalid%ZZpath.html', 'invalid_percent_escape'),
+            ('/press/日本語.html', 'non_ascii_character'),
+        )
+
+        for href, reason in cases:
+            with self.subTest(href=href):
+                with self.assertRaises(
+                    InvalidArchiveMonthUrlError
+                ) as raised:
+                    parse_archive_month_links(
+                        _archive_month_link('2026年5月', href)
+                    )
+
+                message = str(raised.exception)
+                self.assertIn(f'validation={reason}', message)
+                self.assertIn('page_url=', message)
+                self.assertIn('archive_month=2026-05', message)
+                self.assertIn('href=', message)
+                self.assertNotIn('user:password', message)
 
     # 不完全なHTMLや想定外の表記はスキップする。
     def test_parse_press_releases_skips_invalid_date(self) -> None:

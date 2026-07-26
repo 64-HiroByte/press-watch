@@ -24,6 +24,7 @@ EXAMPLE_INDEX_URL = 'https://example.com/press/index.html'
 EXAMPLE_MAY_ARCHIVE_URL = 'https://example.com/press/202605.html'
 EXAMPLE_APRIL_ARCHIVE_URL = 'https://example.com/press/202604.html'
 EXAMPLE_FIRST_RELEASE_URL = 'https://example.com/press/press_00001.html'
+EXAMPLE_MAY_RELEASE_URL = 'https://example.com/press/may.html'
 ENV_MAY_ARCHIVE_URL = 'https://www.env.go.jp/press/202605.html'
 ENV_APRIL_ARCHIVE_URL = 'https://www.env.go.jp/press/202604.html'
 FIRST_RELEASE_URL = 'https://www.env.go.jp/press/press_00001.html'
@@ -36,11 +37,13 @@ MAY_RELEASE_PATH = '/press/may.html'
 APRIL_RELEASE_PATH = '/press/april.html'
 ARCHIVE_MONTH_LINKS_EXHAUSTED = 'archive_month_links_exhausted'
 ARCHIVE_MONTH_LIMIT_REACHED = 'archive_month_limit_reached'
+DUPLICATE_RELEASE_DETECTED = 'duplicate_release_detected'
 
 # CLI引数
 ALL_ARCHIVE_MONTHS_ARG = '--all-archive-months'
 ARCHIVE_MONTH_LIMIT_ARG = '--archive-month-limit'
 FROM_FILE_ARG = '--from-file'
+KNOWN_RELEASE_URLS_FILE_ARG = '--known-release-urls-file'
 NO_STDOUT_JSON_ARG = '--no-stdout-json'
 OUTPUT_ARG = '--output'
 URL_ARG = '--url'
@@ -61,6 +64,10 @@ ARCHIVE_MONTH_LIMIT_WITH_ALL_ARCHIVE_MONTHS_ERROR = (
 )
 NEGATIVE_ARCHIVE_MONTH_LIMIT_ERROR = (
     '--archive-month-limit must be greater than or equal to 0'
+)
+KNOWN_RELEASE_URLS_FILE_WITHOUT_ARCHIVE_CRAWL_ERROR = (
+    '--known-release-urls-file requires '
+    '--archive-month-limit greater than 0 or --all-archive-months'
 )
 
 
@@ -212,6 +219,19 @@ def _output_args(path: Path) -> tuple[str, str]:
     """
 
     return (OUTPUT_ARG, str(path))
+
+
+def _known_release_urls_file_args(path: Path) -> tuple[str, str]:
+    """既知URLファイル指定のCLI引数を生成
+
+    Args:
+        path: `--known-release-urls-file` に渡すファイルパス
+
+    Returns:
+        `--known-release-urls-file` とファイルパス値の引数列
+    """
+
+    return (KNOWN_RELEASE_URLS_FILE_ARG, str(path))
 
 
 def _no_stdout_json_args() -> tuple[str]:
@@ -626,6 +646,51 @@ class ScraperCliTest(unittest.TestCase):
             [MAY_RELEASE_TITLE, APRIL_RELEASE_TITLE],
         )
 
+    def test_main_uses_known_release_urls_for_archive_crawl(self) -> None:
+        """既知URLだけの月に到達した停止理由をJSONへ出すこと"""
+
+        html_by_url = _archive_html_by_url()
+        fetched_urls: list[str] = []
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            known_urls_path = Path(temp_dir) / 'known-release-urls.txt'
+            known_urls_path.write_text(
+                f'\n{EXAMPLE_MAY_RELEASE_URL}\n\n',
+                encoding=cli.JSON_OUTPUT_ENCODING,
+            )
+
+            with patch.object(
+                cli,
+                FETCH_PRESS_INDEX_HTML_ATTR,
+                side_effect=_recording_html_fetcher(
+                    html_by_url,
+                    fetched_urls,
+                ),
+            ):
+                payload = _run_cli(
+                    *_url_args(),
+                    *_archive_month_limit_args(limit=2),
+                    *_known_release_urls_file_args(known_urls_path),
+                )
+
+        self.assertEqual(payload['exit_code'], 0)
+        self.assertEqual(
+            fetched_urls,
+            [
+                EXAMPLE_INDEX_URL,
+                EXAMPLE_MAY_ARCHIVE_URL,
+            ],
+        )
+        self.assertEqual(payload['count'], 0)
+        self.assertEqual(
+            payload['fetched_page_urls'],
+            [EXAMPLE_MAY_ARCHIVE_URL],
+        )
+        self.assertEqual(
+            payload['stop_reason'],
+            DUPLICATE_RELEASE_DETECTED,
+        )
+
     def test_main_keeps_single_page_mode_when_archive_month_limit_is_zero(
         self,
     ) -> None:
@@ -768,6 +833,36 @@ class ScraperCliTest(unittest.TestCase):
             stderr.getvalue(),
         )
 
+    def test_main_rejects_known_release_urls_file_without_archive_crawl(
+        self,
+    ) -> None:
+        """既知URLファイル指定だけでは月別巡回を始めないこと"""
+
+        stderr = io.StringIO()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            known_urls_path = Path(temp_dir) / 'known-release-urls.txt'
+            known_urls_path.write_text(
+                EXAMPLE_MAY_RELEASE_URL,
+                encoding=cli.JSON_OUTPUT_ENCODING,
+            )
+
+            with patch(
+                'sys.argv',
+                _cli_argv(
+                    *_known_release_urls_file_args(known_urls_path),
+                ),
+            ):
+                with redirect_stderr(stderr):
+                    with self.assertRaises(SystemExit) as raised:
+                        cli.main()
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn(
+            KNOWN_RELEASE_URLS_FILE_WITHOUT_ARCHIVE_CRAWL_ERROR,
+            stderr.getvalue(),
+        )
+
     def test_main_rejects_no_stdout_json_without_output(self) -> None:
         """stdout JSON抑止はoutput指定なしでは拒否すること"""
 
@@ -810,6 +905,107 @@ class ScraperCliTest(unittest.TestCase):
         self.assertIn('exception=URLError', stderr)
         self.assertIn(FETCH_ERROR_REASON, stderr)
         self.assertNotIn('Traceback', stderr)
+
+    def test_main_reports_invalid_release_url_without_partial_json(
+        self,
+    ) -> None:
+        """不正な発表URLの理由と対象をstderrへ出しJSONを返さないこと"""
+
+        invalid_title = 'URL形式が不正な発表'
+        html = _archive_page_html(
+            invalid_title,
+            '/press/日本語.html',
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / 'index.html'
+            html_path.write_text(html, encoding='utf-8')
+
+            exit_code, stdout, stderr = _run_cli_raw(
+                *_from_file_args(html_path)
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout, '')
+        self.assertEqual(len(stderr.splitlines()), 1)
+        self.assertIn(
+            'exception=InvalidPressReleaseUrlError',
+            stderr,
+        )
+        self.assertIn('validation=non_ascii_character', stderr)
+        self.assertIn(invalid_title, stderr)
+        self.assertIn("href='/press/日本語.html'", stderr)
+
+    def test_print_runtime_error_normalizes_target_to_one_line(self) -> None:
+        """エラー対象の改行をstderrへ持ち込まないこと"""
+
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            cli._print_runtime_error(
+                f'{EXAMPLE_INDEX_URL}\ninjected=true',
+                RuntimeError(FETCH_ERROR_REASON),
+            )
+
+        self.assertEqual(len(stderr.getvalue().splitlines()), 1)
+        self.assertIn(
+            f'target={EXAMPLE_INDEX_URL} injected=true',
+            stderr.getvalue(),
+        )
+
+    def test_print_runtime_error_redacts_url_credentials(self) -> None:
+        """エラー対象と理由に含まれるURL認証情報を伏せること"""
+
+        credential_url = (
+            'https://user:password@example.com/press/index.html'
+        )
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            cli._print_runtime_error(
+                credential_url,
+                RuntimeError(f'invalid URL: {credential_url}'),
+            )
+
+        self.assertNotIn('user:password', stderr.getvalue())
+        self.assertEqual(
+            stderr.getvalue().count('https://[redacted]@example.com'),
+            2,
+        )
+
+    def test_print_runtime_error_escapes_terminal_control_characters(
+        self,
+    ) -> None:
+        """端末制御文字をstderrへそのまま出さないこと"""
+
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            cli._print_runtime_error(
+                f'{EXAMPLE_INDEX_URL}\x1b[31m',
+                RuntimeError(f'{FETCH_ERROR_REASON}\x1b[0m'),
+            )
+
+        self.assertNotIn('\x1b', stderr.getvalue())
+        self.assertIn(r'\x1b[31m', stderr.getvalue())
+        self.assertIn(r'\x1b[0m', stderr.getvalue())
+
+    def test_print_progress_normalizes_message_to_one_line(self) -> None:
+        """verbose進捗メッセージの改行をstderrへ持ち込まないこと"""
+
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            cli._print_progress(
+                True,
+                f'fetching index: {EXAMPLE_INDEX_URL}\ninjected=true',
+            )
+
+        self.assertEqual(len(stderr.getvalue().splitlines()), 1)
+        self.assertIn(
+            f'fetching index: {EXAMPLE_INDEX_URL} injected=true',
+            stderr.getvalue(),
+        )
 
     def test_main_does_not_create_output_file_on_fetch_error(self) -> None:
         """HTML取得失敗時にJSONスナップショットを作成しないこと"""
