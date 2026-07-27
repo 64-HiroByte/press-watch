@@ -12,7 +12,7 @@ from press_watch_scraper import __main__ as cli
 
 
 PROGRAM_NAME = 'press-watch-scraper'
-FETCH_PRESS_INDEX_HTML_ATTR = 'fetch_press_index_html'
+FETCH_PRESS_PAGE_HTML_ATTR = 'fetch_press_page_html'
 
 # エラー理由と既存ファイル内容
 FETCH_ERROR_REASON = 'network unavailable'
@@ -427,7 +427,7 @@ class ScraperCliTest(unittest.TestCase):
         """HTMLファイル未指定時にURLから取得すること"""
 
         # 実HTTP取得を避け、CLIの引数解釈とJSON出力を確認する。
-        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+        with patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch:
             mock_fetch.return_value = _press_index_html()
 
             payload = _run_cli(*_url_args())
@@ -464,7 +464,7 @@ class ScraperCliTest(unittest.TestCase):
         # URLごとに用意したHTMLを返し、実HTTP取得を避ける。
         with patch.object(
             cli,
-            FETCH_PRESS_INDEX_HTML_ATTR,
+            FETCH_PRESS_PAGE_HTML_ATTR,
             side_effect=_recording_html_fetcher(html_by_url, fetched_urls),
         ):
             payload = _run_cli(
@@ -509,7 +509,7 @@ class ScraperCliTest(unittest.TestCase):
 
         with patch.object(
             cli,
-            FETCH_PRESS_INDEX_HTML_ATTR,
+            FETCH_PRESS_PAGE_HTML_ATTR,
             side_effect=html_by_url.__getitem__,
         ):
             exit_code, stdout, stderr = _run_cli_raw(
@@ -545,7 +545,7 @@ class ScraperCliTest(unittest.TestCase):
 
             with patch.object(
                 cli,
-                FETCH_PRESS_INDEX_HTML_ATTR,
+                FETCH_PRESS_PAGE_HTML_ATTR,
                 side_effect=html_by_url.__getitem__,
             ):
                 exit_code, stdout, stderr = _run_cli_raw(
@@ -584,7 +584,7 @@ class ScraperCliTest(unittest.TestCase):
         # 月別リンクが複数ある状態で、limit=1の停止理由を確認する。
         with patch.object(
             cli,
-            FETCH_PRESS_INDEX_HTML_ATTR,
+            FETCH_PRESS_PAGE_HTML_ATTR,
             side_effect=html_by_url.__getitem__,
         ):
             payload = _run_cli(
@@ -612,7 +612,7 @@ class ScraperCliTest(unittest.TestCase):
 
         with patch.object(
             cli,
-            FETCH_PRESS_INDEX_HTML_ATTR,
+            FETCH_PRESS_PAGE_HTML_ATTR,
             side_effect=_recording_html_fetcher(html_by_url, fetched_urls),
         ):
             payload = _run_cli(
@@ -661,7 +661,7 @@ class ScraperCliTest(unittest.TestCase):
 
             with patch.object(
                 cli,
-                FETCH_PRESS_INDEX_HTML_ATTR,
+                FETCH_PRESS_PAGE_HTML_ATTR,
                 side_effect=_recording_html_fetcher(
                     html_by_url,
                     fetched_urls,
@@ -696,7 +696,7 @@ class ScraperCliTest(unittest.TestCase):
     ) -> None:
         """月別ページ数0指定時は単一ページ解析のままにすること"""
 
-        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+        with patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch:
             mock_fetch.return_value = _press_index_html()
 
             payload = _run_cli(
@@ -889,7 +889,7 @@ class ScraperCliTest(unittest.TestCase):
         """HTML取得時の例外をstderrへ出して終了コード1を返すこと"""
 
         # URL取得だけを失敗させ、CLIの失敗時出力を確認する。
-        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+        with patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch:
             mock_fetch.side_effect = URLError(FETCH_ERROR_REASON)
 
             exit_code, stdout, stderr = _run_cli_raw(
@@ -1013,7 +1013,7 @@ class ScraperCliTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = Path(temp_dir) / 'snapshot.json'
 
-            with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+            with patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch:
                 mock_fetch.side_effect = URLError(FETCH_ERROR_REASON)
 
                 exit_code, stdout, stderr = _run_cli_raw(
@@ -1038,7 +1038,7 @@ class ScraperCliTest(unittest.TestCase):
                 encoding=cli.JSON_OUTPUT_ENCODING,
             )
 
-            with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+            with patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch:
                 mock_fetch.side_effect = URLError(FETCH_ERROR_REASON)
 
                 exit_code, stdout, stderr = _run_cli_raw(
@@ -1063,7 +1063,7 @@ class ScraperCliTest(unittest.TestCase):
                 Path(temp_dir) / 'missing-parent' / 'snapshot.json'
             )
 
-            with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+            with patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch:
                 exit_code, stdout, stderr = _run_cli_raw(
                     *_url_args(),
                     *_output_args(output_path),
@@ -1100,7 +1100,7 @@ class ScraperCliTest(unittest.TestCase):
         """例外理由が空ならno detailを出力すること"""
 
         # 空メッセージの例外で、reasonの補完だけを確認する。
-        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+        with patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch:
             mock_fetch.side_effect = RuntimeError()
 
             exit_code, stdout, stderr = _run_cli_raw(
@@ -1124,7 +1124,7 @@ class ScraperCliTest(unittest.TestCase):
         # 失敗した月別ページURLがstderrのtargetになることも確認する。
         with patch.object(
             cli,
-            FETCH_PRESS_INDEX_HTML_ATTR,
+            FETCH_PRESS_PAGE_HTML_ATTR,
             side_effect=fetcher,
         ):
             exit_code, stdout, stderr = _run_cli_raw(
@@ -1145,7 +1145,7 @@ class ScraperCliTest(unittest.TestCase):
     def test_main_outputs_runtime_error_when_json_output_fails(self) -> None:
         """JSON生成時の例外もstderrへ出して終了コード1を返すこと"""
 
-        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+        with patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch:
             mock_fetch.return_value = _press_index_html()
 
             # 取得後のJSON出力で失敗しても、同じエラー形式に揃える。
@@ -1173,7 +1173,7 @@ class ScraperCliTest(unittest.TestCase):
     def test_main_does_not_catch_keyboard_interrupt(self) -> None:
         """KeyboardInterruptは捕捉しないこと"""
 
-        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+        with patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch:
             mock_fetch.side_effect = KeyboardInterrupt()
 
             with self.assertRaises(KeyboardInterrupt):
@@ -1182,7 +1182,7 @@ class ScraperCliTest(unittest.TestCase):
     def test_main_does_not_catch_system_exit(self) -> None:
         """SystemExitは捕捉しないこと"""
 
-        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+        with patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch:
             mock_fetch.side_effect = SystemExit(99)
 
             with self.assertRaises(SystemExit) as raised:
