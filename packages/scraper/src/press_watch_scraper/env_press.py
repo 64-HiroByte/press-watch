@@ -239,11 +239,11 @@ class PressReleaseCrawlResult:
     stop_reason: CrawlStopReason
 
 
-def fetch_press_index_html(
+def fetch_press_page_html(
     url: str = PRESS_INDEX_URL,
     timeout: float = 20.0,
 ) -> str:
-    """報道発表一覧ページのHTMLを取得
+    """報道発表ページのHTMLを取得
 
     Args:
         url: 取得対象のURL
@@ -278,7 +278,7 @@ def crawl_press_releases(
     start_url: str = PRESS_INDEX_URL,
     archive_month_limit: int = 0,
     all_archive_months: bool = False,
-    fetcher: Callable[[str], str] = fetch_press_index_html,
+    fetcher: Callable[[str], str] = fetch_press_page_html,
     known_release_urls: Collection[str] | None = None,
     request_interval_seconds: float = REQUEST_INTERVAL_SECONDS,
     sleeper: Callable[[float], None] = sleep,

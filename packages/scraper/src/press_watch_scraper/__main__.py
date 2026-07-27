@@ -18,7 +18,7 @@ from .env_press import (
     PressRelease,
     REQUEST_INTERVAL_SECONDS,
     crawl_press_releases,
-    fetch_press_index_html,
+    fetch_press_page_html,
     parse_archive_month_links,
     parse_press_releases,
 )
@@ -152,7 +152,7 @@ def main() -> int:
                         args.verbose,
                         f'fetching archive page: {url}',
                     )
-                return fetch_press_index_html(url)
+                return fetch_press_page_html(url)
 
             def sleeper(seconds: float) -> None:
                 _print_progress(
@@ -188,7 +188,7 @@ def main() -> int:
             stop_reason = None
         else:
             _print_progress(args.verbose, f'fetching page: {args.url}')
-            html = fetch_press_index_html(args.url)
+            html = fetch_press_page_html(args.url)
             source_url = args.url
             base_url = args.url
             releases = parse_press_releases(html, base_url=base_url)

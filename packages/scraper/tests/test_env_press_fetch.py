@@ -9,7 +9,7 @@ from press_watch_scraper.env_press import (
     UNSAFE_REDIRECT_REASON,
     USER_AGENT,
     _SameOriginRedirectHandler,
-    fetch_press_index_html,
+    fetch_press_page_html,
 )
 
 
@@ -49,10 +49,10 @@ class _Response:
 
 
 class EnvPressFetchTest(unittest.TestCase):
-    """報道発表一覧HTML取得処理のテスト"""
+    """報道発表ページHTML取得処理のテスト"""
 
     # HTTP取得時のリクエスト条件とデコード方針を確認する。
-    def test_fetch_press_index_html_sends_user_agent_and_timeout(self) -> None:
+    def test_fetch_press_page_html_sends_user_agent_and_timeout(self) -> None:
         """User-Agentとtimeoutを指定してHTTP取得すること"""
 
         # 実HTTP通信を避け、取得関数に渡したRequestとtimeoutを確認する。
@@ -64,7 +64,7 @@ class EnvPressFetchTest(unittest.TestCase):
                 charset='utf-8',
             )
 
-            html = fetch_press_index_html(
+            html = fetch_press_page_html(
                 FETCH_URL,
                 timeout=TIMEOUT_SECONDS,
             )
@@ -83,7 +83,7 @@ class EnvPressFetchTest(unittest.TestCase):
             TIMEOUT_SECONDS,
         )
 
-    def test_fetch_press_index_html_uses_response_charset(self) -> None:
+    def test_fetch_press_page_html_uses_response_charset(self) -> None:
         """レスポンスのcharsetを優先すること"""
 
         body = EXPECTED_HTML_TEXT.encode('cp932')
@@ -93,11 +93,11 @@ class EnvPressFetchTest(unittest.TestCase):
         ) as mock_open_url:
             mock_open_url.return_value = _Response(body, charset='cp932')
 
-            html = fetch_press_index_html()
+            html = fetch_press_page_html()
 
         self.assertEqual(html, EXPECTED_HTML_TEXT)
 
-    def test_fetch_press_index_html_falls_back_to_utf8_charset(self) -> None:
+    def test_fetch_press_page_html_falls_back_to_utf8_charset(self) -> None:
         """charsetがない場合にUTF-8でデコードすること"""
 
         body = EXPECTED_HTML_TEXT.encode('utf-8')
@@ -107,11 +107,11 @@ class EnvPressFetchTest(unittest.TestCase):
         ) as mock_open_url:
             mock_open_url.return_value = _Response(body)
 
-            html = fetch_press_index_html()
+            html = fetch_press_page_html()
 
         self.assertEqual(html, EXPECTED_HTML_TEXT)
 
-    def test_fetch_press_index_html_replaces_decode_errors(self) -> None:
+    def test_fetch_press_page_html_replaces_decode_errors(self) -> None:
         """デコード不能なバイト列を置換すること"""
 
         with patch(
@@ -122,11 +122,11 @@ class EnvPressFetchTest(unittest.TestCase):
                 charset='utf-8',
             )
 
-            html = fetch_press_index_html()
+            html = fetch_press_page_html()
 
         self.assertEqual(html, DECODE_REPLACEMENT_CHARACTER)
 
-    def test_fetch_press_index_html_rejects_unsafe_urls(self) -> None:
+    def test_fetch_press_page_html_rejects_unsafe_urls(self) -> None:
         """HTTPまたはHTTPS以外のURLや認証情報付きURLを取得しないこと"""
 
         cases = (
@@ -170,7 +170,7 @@ class EnvPressFetchTest(unittest.TestCase):
                     with self.assertRaises(
                         InvalidFetchUrlError
                     ) as raised:
-                        fetch_press_index_html(url)
+                        fetch_press_page_html(url)
 
                 message = str(raised.exception)
                 self.assertIn(f'validation={reason}', message)
@@ -220,7 +220,7 @@ class EnvPressFetchTest(unittest.TestCase):
         raised.exception.close()
 
     # 通信エラーは取得関数側で握りつぶさない。
-    def test_fetch_press_index_html_propagates_fetch_error(self) -> None:
+    def test_fetch_press_page_html_propagates_fetch_error(self) -> None:
         """HTTP取得時の例外を呼び出し元へ伝播すること"""
 
         with patch(
@@ -229,7 +229,7 @@ class EnvPressFetchTest(unittest.TestCase):
             mock_open_url.side_effect = URLError(FETCH_ERROR_REASON)
 
             with self.assertRaises(URLError):
-                fetch_press_index_html()
+                fetch_press_page_html()
 
 
 if __name__ == '__main__':
