@@ -434,6 +434,8 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         session = Mock(spec=Session)
         session.scalar.return_value = None
         stdout = Mock()
+        # argparseの色表示判定から実際のstdoutと同様に整数のfdを返す。
+        stdout.fileno.return_value = 1
         stdout.flush.side_effect = BrokenPipeError("flush failed")
         stderr = io.StringIO()
 
