@@ -210,6 +210,39 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         session_factory.assert_not_called()
         collect_releases.assert_not_called()
 
+    def test_main_reports_database_configuration_error_before_scraping(
+        self,
+    ) -> None:
+        """DB設定の読込失敗をstderrへ出して取得を始めないこと"""
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        collect_releases = Mock()
+
+        with patch.object(
+            fetch_and_save_env_press,
+            "_load_session_factory",
+            side_effect=RuntimeError("unsafe configuration detail"),
+        ):
+            exit_code = main(
+                [],
+                collect_releases=collect_releases,
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(len(stderr.getvalue().splitlines()), 1)
+        self.assertIn("target=DATABASE_URL", stderr.getvalue())
+        self.assertIn("exception=RuntimeError", stderr.getvalue())
+        self.assertIn(
+            "reason=database configuration could not be loaded",
+            stderr.getvalue(),
+        )
+        self.assertNotIn("unsafe configuration detail", stderr.getvalue())
+        collect_releases.assert_not_called()
+
     def test_main_does_not_open_save_session_when_scraper_fails(self) -> None:
         """scraper失敗時は保存用Sessionを作らずエラーを返すこと"""
 
