@@ -234,7 +234,10 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertEqual(stdout.getvalue(), "")
         self.assertEqual(len(stderr.getvalue().splitlines()), 1)
-        self.assertIn("target=DATABASE_URL", stderr.getvalue())
+        self.assertIn(
+            f"target={fetch_and_save_env_press.DATABASE_URL_ENV}",
+            stderr.getvalue(),
+        )
         self.assertIn("exception=RuntimeError", stderr.getvalue())
         self.assertIn(
             "reason=database configuration could not be loaded",
