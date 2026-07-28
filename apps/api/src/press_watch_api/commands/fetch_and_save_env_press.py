@@ -17,6 +17,7 @@ from typing import Protocol
 
 from sqlalchemy.orm import Session
 
+from press_watch_api.config import DATABASE_URL_ENV
 from press_watch_api.services.press_release_save import (
     list_known_release_urls_for_crawl,
     save_press_releases,
@@ -28,6 +29,9 @@ POST_COMMIT_OUTPUT_FAILED_REASON = (
     "database commit succeeded but result output failed"
 )
 DEFAULT_KNOWN_RELEASE_MONTHS = 3
+DATABASE_CONFIGURATION_FAILED_REASON = (
+    "database configuration could not be loaded"
+)
 CREDENTIALS_IN_URL_RE = re.compile(r"(?i)(https?://)[^/@\s]+@")
 MAX_DIAGNOSTIC_VALUE_LENGTH = 1000
 SCRAPER_ENV_KEYS = (
@@ -197,13 +201,20 @@ def main(
     parser = _build_parser()
     args = parser.parse_args(argv)
     _validate_args(parser, args)
-    session_factory = session_factory or _load_session_factory()
     collect_releases = collect_releases or _collect_releases_from_scraper_cli
-    error_target = _error_target(args)
+    error_target = DATABASE_URL_ENV
 
     session: Session | None = None
     committed = False
     try:
+        if session_factory is None:
+            try:
+                session_factory = _load_session_factory()
+            except Exception as exc:
+                raise RuntimeError(
+                    DATABASE_CONFIGURATION_FAILED_REASON
+                ) from exc
+        error_target = _error_target(args)
         known_release_urls = _load_known_release_urls(
             session_factory,
             args,
