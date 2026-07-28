@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from sqlalchemy.orm import Session
 
+from press_watch_api.commands import fetch_and_save_env_press
 from press_watch_api.commands.fetch_and_save_env_press import (
     CollectedPressReleases,
     ScraperCliRelease,
@@ -424,6 +425,114 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         session.commit.assert_called_once_with()
         session.rollback.assert_not_called()
         session.close.assert_called_once_with()
+
+    def test_main_reports_flush_failure_after_commit_without_rollback(
+        self,
+    ) -> None:
+        """commit後のstdout flush失敗を保存失敗と混同しないこと"""
+
+        session = Mock(spec=Session)
+        session.scalar.return_value = None
+        stdout = Mock()
+        # argparseの色表示判定から実際のstdoutと同様に整数のfdを返す。
+        stdout.fileno.return_value = 1
+        stdout.flush.side_effect = BrokenPipeError("flush failed")
+        stderr = io.StringIO()
+
+        with (
+            patch.object(fetch_and_save_env_press.sys, "stdout", stdout),
+            patch.object(
+                fetch_and_save_env_press,
+                "_redirect_stdout_after_broken_pipe",
+            ) as mock_redirect,
+        ):
+            exit_code = main(
+                ["--url", INDEX_URL],
+                session_factory=lambda: session,
+                collect_releases=(
+                    lambda _args, _stderr, _known_urls: _collected_releases()
+                ),
+                stderr=stderr,
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn(
+            (
+                "reason=database commit succeeded but result output failed: "
+                "flush failed"
+            ),
+            stderr.getvalue(),
+        )
+        stdout.write.assert_called_once()
+        stdout.flush.assert_called_once_with()
+        mock_redirect.assert_called_once_with(stdout)
+        session.commit.assert_called_once_with()
+        session.rollback.assert_not_called()
+        session.close.assert_called_once_with()
+
+    def test_redirect_stdout_after_broken_pipe_replaces_stdout_fd(
+        self,
+    ) -> None:
+        """BrokenPipeError後のstdoutを破棄先へ切り替えること"""
+
+        stdout = Mock()
+        stdout.fileno.return_value = 42
+
+        with (
+            patch.object(fetch_and_save_env_press.sys, "stdout", stdout),
+            patch.object(
+                fetch_and_save_env_press.os,
+                "open",
+                return_value=99,
+            ) as mock_open,
+            patch.object(
+                fetch_and_save_env_press.os,
+                "dup2",
+            ) as mock_dup2,
+            patch.object(
+                fetch_and_save_env_press.os,
+                "close",
+            ) as mock_close,
+        ):
+            fetch_and_save_env_press._redirect_stdout_after_broken_pipe(stdout)
+
+        stdout.fileno.assert_called_once_with()
+        mock_open.assert_called_once_with(
+            fetch_and_save_env_press.os.devnull,
+            fetch_and_save_env_press.os.O_WRONLY,
+        )
+        mock_dup2.assert_called_once_with(99, 42)
+        mock_close.assert_called_once_with(99)
+
+    def test_redirect_stdout_after_broken_pipe_closes_fd_when_dup2_fails(
+        self,
+    ) -> None:
+        """stdoutの切り替え失敗時も破棄先のfdを閉じること"""
+
+        stdout = Mock()
+        stdout.fileno.return_value = 42
+
+        with (
+            patch.object(fetch_and_save_env_press.sys, "stdout", stdout),
+            patch.object(
+                fetch_and_save_env_press.os,
+                "open",
+                return_value=99,
+            ),
+            patch.object(
+                fetch_and_save_env_press.os,
+                "dup2",
+                side_effect=OSError("redirect failed"),
+            ) as mock_dup2,
+            patch.object(
+                fetch_and_save_env_press.os,
+                "close",
+            ) as mock_close,
+        ):
+            fetch_and_save_env_press._redirect_stdout_after_broken_pipe(stdout)
+
+        mock_dup2.assert_called_once_with(99, 42)
+        mock_close.assert_called_once_with(99)
 
     def test_parse_scraper_snapshot_restores_releases(self) -> None:
         """scraper CLI JSONを保存serviceへ渡せる取得結果へ復元すること"""

@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.error import URLError
 
 from press_watch_scraper import __main__ as cli
@@ -1168,6 +1168,96 @@ class ScraperCliTest(unittest.TestCase):
         self.assertIn('reason=json output failed', stderr)
         self.assertEqual(stderr.count('\n'), 1)
         self.assertNotIn('Traceback', stderr)
+
+    def test_main_keeps_output_file_when_stdout_flush_fails(self) -> None:
+        """stdout flush失敗時も書き込み済みスナップショットを残すこと"""
+
+        stdout = Mock()
+        # argparseの色表示判定から実際のstdoutと同様に整数のfdを返す。
+        stdout.fileno.return_value = 1
+        stdout.flush.side_effect = BrokenPipeError('flush failed')
+        stderr = io.StringIO()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / 'snapshot.json'
+
+            with (
+                patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch,
+                patch(
+                    'sys.argv',
+                    _cli_argv(
+                        *_url_args(),
+                        *_output_args(output_path),
+                    ),
+                ),
+                patch.object(cli.sys, 'stdout', stdout),
+                patch.object(
+                    cli,
+                    '_redirect_stdout_after_broken_pipe',
+                ) as mock_redirect,
+                redirect_stderr(stderr),
+            ):
+                mock_fetch.return_value = _press_index_html()
+                exit_code = cli.main()
+
+            saved_payload = json.loads(
+                output_path.read_text(encoding=cli.JSON_OUTPUT_ENCODING)
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(saved_payload['count'], 2)
+        self.assertIn('target=stdout', stderr.getvalue())
+        self.assertIn('exception=BrokenPipeError', stderr.getvalue())
+        self.assertIn('reason=flush failed', stderr.getvalue())
+        self.assertEqual(stderr.getvalue().count('\n'), 1)
+        self.assertNotIn('Traceback', stderr.getvalue())
+        stdout.write.assert_called_once()
+        stdout.flush.assert_called_once_with()
+        mock_redirect.assert_called_once_with(stdout)
+
+    def test_redirect_stdout_after_broken_pipe_replaces_stdout_fd(
+        self,
+    ) -> None:
+        """BrokenPipeError後のstdoutを破棄先へ切り替えること"""
+
+        stdout = Mock()
+        stdout.fileno.return_value = 42
+
+        with (
+            patch.object(cli.sys, 'stdout', stdout),
+            patch.object(cli.os, 'open', return_value=99) as mock_open,
+            patch.object(cli.os, 'dup2') as mock_dup2,
+            patch.object(cli.os, 'close') as mock_close,
+        ):
+            cli._redirect_stdout_after_broken_pipe(stdout)
+
+        stdout.fileno.assert_called_once_with()
+        mock_open.assert_called_once_with(cli.os.devnull, cli.os.O_WRONLY)
+        mock_dup2.assert_called_once_with(99, 42)
+        mock_close.assert_called_once_with(99)
+
+    def test_redirect_stdout_after_broken_pipe_closes_fd_when_dup2_fails(
+        self,
+    ) -> None:
+        """stdoutの切り替え失敗時も破棄先のfdを閉じること"""
+
+        stdout = Mock()
+        stdout.fileno.return_value = 42
+
+        with (
+            patch.object(cli.sys, 'stdout', stdout),
+            patch.object(cli.os, 'open', return_value=99),
+            patch.object(
+                cli.os,
+                'dup2',
+                side_effect=OSError('redirect failed'),
+            ) as mock_dup2,
+            patch.object(cli.os, 'close') as mock_close,
+        ):
+            cli._redirect_stdout_after_broken_pipe(stdout)
+
+        mock_dup2.assert_called_once_with(99, 42)
+        mock_close.assert_called_once_with(99)
 
     # ユーザー中断や明示終了は通常の実行時エラーにしない。
     def test_main_does_not_catch_keyboard_interrupt(self) -> None:

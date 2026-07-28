@@ -592,7 +592,35 @@ def _write_json(output: object, payload: dict[str, object]) -> None:
         ensure_ascii=False,
         indent=2,
     )
-    output.write(f"{json_text}\n")
+    try:
+        output.write(f"{json_text}\n")
+        if output is sys.stdout:
+            output.flush()
+    except BrokenPipeError:
+        _redirect_stdout_after_broken_pipe(output)
+        raise
+
+
+def _redirect_stdout_after_broken_pipe(output: object) -> None:
+    """Python終了時のstdout再flushを破棄先へ切り替え
+
+    Args:
+        output: JSON出力でBrokenPipeErrorが発生した出力先
+    """
+
+    if output is not sys.stdout:
+        return
+
+    try:
+        stdout_fd = output.fileno()
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull_fd, stdout_fd)
+        finally:
+            os.close(devnull_fd)
+    except (AttributeError, OSError, TypeError, ValueError):
+        # 元の出力エラーを優先し、破棄先への切り替え失敗で置き換えない。
+        return
 
 
 def _error_target(args: ParsedArgs) -> str:
