@@ -141,6 +141,12 @@ Phase 3 初期では扱わないもの:
 - [x] `main` ブランチの保護設定を追加する
   - Phase ブランチから `main` へ CI workflow を取り込んだ後に実施済み
   - Ruleset `protect-main` で PR 経由のマージ、必須 status check `API unittest`、force push 防止、削除防止を設定済み
+- [ ] Phase 6 のフロントエンド実装へ着手する前に、API・scraper のテスト構成を見直す
+  - [ ] CLI テストを実装済みの責務に合わせて分割する
+  - [ ] API 側のコマンド実行、transaction 管理、scraper プロセス境界を整理する
+  - [ ] scraper 側の基本実行、月別巡回、出力・エラー処理を整理する
+  - [ ] 共通 helper は重複するものだけテスト支援モジュールへ移す
+  - [ ] 分割前後のテスト ID と件数を比較し、テストの欠落がないことを確認する
 
 今回の最小 CI では、自動デプロイ、Docker Compose 全体起動、フロントエンド CI、secret を使う処理、CD 全般は扱わない。
 Markdown のみの変更では `git diff --check` による空白確認だけを実行し、API unittest はスキップする。
@@ -185,8 +191,11 @@ DB 保存は API 側の DTO / repository / service を経由し、commit / rollb
   - [x] 既存の JSON スナップショット CLI と DB 取得・保存コマンドの役割を分ける
   - [x] stdout は機械可読な結果、stderr は進捗・エラーという既存方針を維持する
 - [x] HTML取得関数の命名を実態に合わせて見直す
-- [ ] 実行ログの出力方針を決める
+- [x] 実行ログの出力方針を決める
+  - [x] stdout の実行結果、stderr の進捗・エラー、永続的な実行ログを分けて扱う
+  - [x] Phase 4 では既存の標準入出力を維持し、永続的な実行ログは定期実行・運用要件を扱う後続タスクで設計する
 - [x] エラー時の終了コードやログ出力を確認する
+  - [x] stdout の書き込み・flush失敗をstderrと終了コード `1` で扱い、API側ではDBへのcommit済みであることを区別する
 - [ ] Phase 4 の完了前に外部公開用ドキュメントを現状に合わせて点検・更新する
   - [ ] `README.md` の現在の開発状況と今後の予定が Phase 4 の実装済み状態と一致しているか確認する
   - [x] `docs/local-development.md` の手動取得・保存、初回全件取得、差分取得の手順が実装済み状態と一致しているか確認する
