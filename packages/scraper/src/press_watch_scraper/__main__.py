@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -215,7 +216,8 @@ def main() -> int:
             )
 
         if not args.no_stdout_json:
-            sys.stdout.write(json_output)
+            error_target = 'stdout'
+            _write_stdout_json(json_output)
         return 0
     except Exception as exc:
         _print_runtime_error(error_target, exc)
@@ -315,6 +317,43 @@ def _print_progress(enabled: bool, message: str) -> None:
 
     if enabled:
         print(_one_line(message), file=sys.stderr)
+
+
+def _write_stdout_json(json_text: str) -> None:
+    """JSONスナップショットをstdoutへ書き出してflush
+
+    Args:
+        json_text: stdoutへ出す改行付きJSON文字列
+    """
+
+    try:
+        sys.stdout.write(json_text)
+        sys.stdout.flush()
+    except BrokenPipeError:
+        _redirect_stdout_after_broken_pipe(sys.stdout)
+        raise
+
+
+def _redirect_stdout_after_broken_pipe(output: object) -> None:
+    """Python終了時のstdout再flushを破棄先へ切り替え
+
+    Args:
+        output: JSON出力でBrokenPipeErrorが発生した出力先
+    """
+
+    if output is not sys.stdout:
+        return
+
+    try:
+        stdout_fd = output.fileno()
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull_fd, stdout_fd)
+        finally:
+            os.close(devnull_fd)
+    except (AttributeError, OSError, TypeError, ValueError):
+        # 元の出力エラーを優先し、破棄先への切り替え失敗で置き換えない。
+        return
 
 
 def _print_runtime_error(target: str, exc: Exception) -> None:
