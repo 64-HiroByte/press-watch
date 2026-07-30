@@ -1,4 +1,4 @@
-name: API tests
+name: Python tests
 
 on:
   pull_request:
@@ -12,9 +12,11 @@ permissions:
   contents: read
 
 jobs:
-  api-tests:
-    name: API unittest
+  detect-changes:
+    name: Detect changes
     runs-on: ubuntu-latest
+    outputs:
+      python_tests_required: ${{ steps.changed-files.outputs.python_tests_required }}
 
     steps:
       - name: Checkout repository
@@ -57,30 +59,85 @@ jobs:
           sed 's/^/- /' "$changed_files"
 
           if [[ ! -s "$changed_files" ]]; then
-            echo "api_tests_required=false" >> "$GITHUB_OUTPUT"
+            echo "python_tests_required=false" >> "$GITHUB_OUTPUT"
           elif grep -Ev '\.md$' "$changed_files" > /dev/null; then
-            echo "api_tests_required=true" >> "$GITHUB_OUTPUT"
+            echo "python_tests_required=true" >> "$GITHUB_OUTPUT"
           else
-            echo "api_tests_required=false" >> "$GITHUB_OUTPUT"
+            echo "python_tests_required=false" >> "$GITHUB_OUTPUT"
           fi
 
+  api-tests:
+    name: API unittest
+    needs: detect-changes
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fail when change detection fails
+        if: needs.detect-changes.result != 'success'
+        run: |
+          echo "Change detection or whitespace check failed."
+          exit 1
+
       - name: Skip API unit tests
-        if: steps.changed-files.outputs.api_tests_required == 'false'
+        if: needs.detect-changes.result == 'success' && needs.detect-changes.outputs.python_tests_required == 'false'
         run: echo "Only Markdown files changed. Skipping API unit tests."
 
+      - name: Checkout repository
+        if: needs.detect-changes.result == 'success' && needs.detect-changes.outputs.python_tests_required == 'true'
+        uses: actions/checkout@v6
+
       - name: Set up Python
-        if: steps.changed-files.outputs.api_tests_required == 'true'
+        if: needs.detect-changes.result == 'success' && needs.detect-changes.outputs.python_tests_required == 'true'
         uses: actions/setup-python@v6
         with:
           python-version: "3.14"
 
       - name: Set up uv
-        if: steps.changed-files.outputs.api_tests_required == 'true'
+        if: needs.detect-changes.result == 'success' && needs.detect-changes.outputs.python_tests_required == 'true'
         uses: astral-sh/setup-uv@v8.1.0
 
       - name: Run API unit tests
-        if: steps.changed-files.outputs.api_tests_required == 'true'
+        if: needs.detect-changes.result == 'success' && needs.detect-changes.outputs.python_tests_required == 'true'
         working-directory: apps/api
+        env:
+          PYTHONPATH: src
+        run: uv run --locked python -m unittest discover -s tests
+
+  scraper-tests:
+    name: Scraper unittest
+    needs: detect-changes
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fail when change detection fails
+        if: needs.detect-changes.result != 'success'
+        run: |
+          echo "Change detection or whitespace check failed."
+          exit 1
+
+      - name: Skip scraper unit tests
+        if: needs.detect-changes.result == 'success' && needs.detect-changes.outputs.python_tests_required == 'false'
+        run: echo "Only Markdown files changed. Skipping scraper unit tests."
+
+      - name: Checkout repository
+        if: needs.detect-changes.result == 'success' && needs.detect-changes.outputs.python_tests_required == 'true'
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        if: needs.detect-changes.result == 'success' && needs.detect-changes.outputs.python_tests_required == 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Set up uv
+        if: needs.detect-changes.result == 'success' && needs.detect-changes.outputs.python_tests_required == 'true'
+        uses: astral-sh/setup-uv@v8.1.0
+
+      - name: Run scraper unit tests
+        if: needs.detect-changes.result == 'success' && needs.detect-changes.outputs.python_tests_required == 'true'
+        working-directory: packages/scraper
         env:
           PYTHONPATH: src
         run: uv run --locked python -m unittest discover -s tests

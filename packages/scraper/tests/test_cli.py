@@ -5,14 +5,14 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.error import URLError
 
 from press_watch_scraper import __main__ as cli
 
 
 PROGRAM_NAME = 'press-watch-scraper'
-FETCH_PRESS_INDEX_HTML_ATTR = 'fetch_press_index_html'
+FETCH_PRESS_PAGE_HTML_ATTR = 'fetch_press_page_html'
 
 # エラー理由と既存ファイル内容
 FETCH_ERROR_REASON = 'network unavailable'
@@ -24,6 +24,7 @@ EXAMPLE_INDEX_URL = 'https://example.com/press/index.html'
 EXAMPLE_MAY_ARCHIVE_URL = 'https://example.com/press/202605.html'
 EXAMPLE_APRIL_ARCHIVE_URL = 'https://example.com/press/202604.html'
 EXAMPLE_FIRST_RELEASE_URL = 'https://example.com/press/press_00001.html'
+EXAMPLE_MAY_RELEASE_URL = 'https://example.com/press/may.html'
 ENV_MAY_ARCHIVE_URL = 'https://www.env.go.jp/press/202605.html'
 ENV_APRIL_ARCHIVE_URL = 'https://www.env.go.jp/press/202604.html'
 FIRST_RELEASE_URL = 'https://www.env.go.jp/press/press_00001.html'
@@ -36,11 +37,13 @@ MAY_RELEASE_PATH = '/press/may.html'
 APRIL_RELEASE_PATH = '/press/april.html'
 ARCHIVE_MONTH_LINKS_EXHAUSTED = 'archive_month_links_exhausted'
 ARCHIVE_MONTH_LIMIT_REACHED = 'archive_month_limit_reached'
+DUPLICATE_RELEASE_DETECTED = 'duplicate_release_detected'
 
 # CLI引数
 ALL_ARCHIVE_MONTHS_ARG = '--all-archive-months'
 ARCHIVE_MONTH_LIMIT_ARG = '--archive-month-limit'
 FROM_FILE_ARG = '--from-file'
+KNOWN_RELEASE_URLS_FILE_ARG = '--known-release-urls-file'
 NO_STDOUT_JSON_ARG = '--no-stdout-json'
 OUTPUT_ARG = '--output'
 URL_ARG = '--url'
@@ -61,6 +64,10 @@ ARCHIVE_MONTH_LIMIT_WITH_ALL_ARCHIVE_MONTHS_ERROR = (
 )
 NEGATIVE_ARCHIVE_MONTH_LIMIT_ERROR = (
     '--archive-month-limit must be greater than or equal to 0'
+)
+KNOWN_RELEASE_URLS_FILE_WITHOUT_ARCHIVE_CRAWL_ERROR = (
+    '--known-release-urls-file requires '
+    '--archive-month-limit greater than 0 or --all-archive-months'
 )
 
 
@@ -212,6 +219,19 @@ def _output_args(path: Path) -> tuple[str, str]:
     """
 
     return (OUTPUT_ARG, str(path))
+
+
+def _known_release_urls_file_args(path: Path) -> tuple[str, str]:
+    """既知URLファイル指定のCLI引数を生成
+
+    Args:
+        path: `--known-release-urls-file` に渡すファイルパス
+
+    Returns:
+        `--known-release-urls-file` とファイルパス値の引数列
+    """
+
+    return (KNOWN_RELEASE_URLS_FILE_ARG, str(path))
 
 
 def _no_stdout_json_args() -> tuple[str]:
@@ -407,7 +427,7 @@ class ScraperCliTest(unittest.TestCase):
         """HTMLファイル未指定時にURLから取得すること"""
 
         # 実HTTP取得を避け、CLIの引数解釈とJSON出力を確認する。
-        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+        with patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch:
             mock_fetch.return_value = _press_index_html()
 
             payload = _run_cli(*_url_args())
@@ -444,7 +464,7 @@ class ScraperCliTest(unittest.TestCase):
         # URLごとに用意したHTMLを返し、実HTTP取得を避ける。
         with patch.object(
             cli,
-            FETCH_PRESS_INDEX_HTML_ATTR,
+            FETCH_PRESS_PAGE_HTML_ATTR,
             side_effect=_recording_html_fetcher(html_by_url, fetched_urls),
         ):
             payload = _run_cli(
@@ -489,7 +509,7 @@ class ScraperCliTest(unittest.TestCase):
 
         with patch.object(
             cli,
-            FETCH_PRESS_INDEX_HTML_ATTR,
+            FETCH_PRESS_PAGE_HTML_ATTR,
             side_effect=html_by_url.__getitem__,
         ):
             exit_code, stdout, stderr = _run_cli_raw(
@@ -525,7 +545,7 @@ class ScraperCliTest(unittest.TestCase):
 
             with patch.object(
                 cli,
-                FETCH_PRESS_INDEX_HTML_ATTR,
+                FETCH_PRESS_PAGE_HTML_ATTR,
                 side_effect=html_by_url.__getitem__,
             ):
                 exit_code, stdout, stderr = _run_cli_raw(
@@ -564,7 +584,7 @@ class ScraperCliTest(unittest.TestCase):
         # 月別リンクが複数ある状態で、limit=1の停止理由を確認する。
         with patch.object(
             cli,
-            FETCH_PRESS_INDEX_HTML_ATTR,
+            FETCH_PRESS_PAGE_HTML_ATTR,
             side_effect=html_by_url.__getitem__,
         ):
             payload = _run_cli(
@@ -592,7 +612,7 @@ class ScraperCliTest(unittest.TestCase):
 
         with patch.object(
             cli,
-            FETCH_PRESS_INDEX_HTML_ATTR,
+            FETCH_PRESS_PAGE_HTML_ATTR,
             side_effect=_recording_html_fetcher(html_by_url, fetched_urls),
         ):
             payload = _run_cli(
@@ -626,12 +646,57 @@ class ScraperCliTest(unittest.TestCase):
             [MAY_RELEASE_TITLE, APRIL_RELEASE_TITLE],
         )
 
+    def test_main_uses_known_release_urls_for_archive_crawl(self) -> None:
+        """既知URLだけの月に到達した停止理由をJSONへ出すこと"""
+
+        html_by_url = _archive_html_by_url()
+        fetched_urls: list[str] = []
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            known_urls_path = Path(temp_dir) / 'known-release-urls.txt'
+            known_urls_path.write_text(
+                f'\n{EXAMPLE_MAY_RELEASE_URL}\n\n',
+                encoding=cli.JSON_OUTPUT_ENCODING,
+            )
+
+            with patch.object(
+                cli,
+                FETCH_PRESS_PAGE_HTML_ATTR,
+                side_effect=_recording_html_fetcher(
+                    html_by_url,
+                    fetched_urls,
+                ),
+            ):
+                payload = _run_cli(
+                    *_url_args(),
+                    *_archive_month_limit_args(limit=2),
+                    *_known_release_urls_file_args(known_urls_path),
+                )
+
+        self.assertEqual(payload['exit_code'], 0)
+        self.assertEqual(
+            fetched_urls,
+            [
+                EXAMPLE_INDEX_URL,
+                EXAMPLE_MAY_ARCHIVE_URL,
+            ],
+        )
+        self.assertEqual(payload['count'], 0)
+        self.assertEqual(
+            payload['fetched_page_urls'],
+            [EXAMPLE_MAY_ARCHIVE_URL],
+        )
+        self.assertEqual(
+            payload['stop_reason'],
+            DUPLICATE_RELEASE_DETECTED,
+        )
+
     def test_main_keeps_single_page_mode_when_archive_month_limit_is_zero(
         self,
     ) -> None:
         """月別ページ数0指定時は単一ページ解析のままにすること"""
 
-        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+        with patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch:
             mock_fetch.return_value = _press_index_html()
 
             payload = _run_cli(
@@ -768,6 +833,36 @@ class ScraperCliTest(unittest.TestCase):
             stderr.getvalue(),
         )
 
+    def test_main_rejects_known_release_urls_file_without_archive_crawl(
+        self,
+    ) -> None:
+        """既知URLファイル指定だけでは月別巡回を始めないこと"""
+
+        stderr = io.StringIO()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            known_urls_path = Path(temp_dir) / 'known-release-urls.txt'
+            known_urls_path.write_text(
+                EXAMPLE_MAY_RELEASE_URL,
+                encoding=cli.JSON_OUTPUT_ENCODING,
+            )
+
+            with patch(
+                'sys.argv',
+                _cli_argv(
+                    *_known_release_urls_file_args(known_urls_path),
+                ),
+            ):
+                with redirect_stderr(stderr):
+                    with self.assertRaises(SystemExit) as raised:
+                        cli.main()
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn(
+            KNOWN_RELEASE_URLS_FILE_WITHOUT_ARCHIVE_CRAWL_ERROR,
+            stderr.getvalue(),
+        )
+
     def test_main_rejects_no_stdout_json_without_output(self) -> None:
         """stdout JSON抑止はoutput指定なしでは拒否すること"""
 
@@ -794,7 +889,7 @@ class ScraperCliTest(unittest.TestCase):
         """HTML取得時の例外をstderrへ出して終了コード1を返すこと"""
 
         # URL取得だけを失敗させ、CLIの失敗時出力を確認する。
-        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+        with patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch:
             mock_fetch.side_effect = URLError(FETCH_ERROR_REASON)
 
             exit_code, stdout, stderr = _run_cli_raw(
@@ -811,13 +906,114 @@ class ScraperCliTest(unittest.TestCase):
         self.assertIn(FETCH_ERROR_REASON, stderr)
         self.assertNotIn('Traceback', stderr)
 
+    def test_main_reports_invalid_release_url_without_partial_json(
+        self,
+    ) -> None:
+        """不正な発表URLの理由と対象をstderrへ出しJSONを返さないこと"""
+
+        invalid_title = 'URL形式が不正な発表'
+        html = _archive_page_html(
+            invalid_title,
+            '/press/日本語.html',
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            html_path = Path(temp_dir) / 'index.html'
+            html_path.write_text(html, encoding='utf-8')
+
+            exit_code, stdout, stderr = _run_cli_raw(
+                *_from_file_args(html_path)
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout, '')
+        self.assertEqual(len(stderr.splitlines()), 1)
+        self.assertIn(
+            'exception=InvalidPressReleaseUrlError',
+            stderr,
+        )
+        self.assertIn('validation=non_ascii_character', stderr)
+        self.assertIn(invalid_title, stderr)
+        self.assertIn("href='/press/日本語.html'", stderr)
+
+    def test_print_runtime_error_normalizes_target_to_one_line(self) -> None:
+        """エラー対象の改行をstderrへ持ち込まないこと"""
+
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            cli._print_runtime_error(
+                f'{EXAMPLE_INDEX_URL}\ninjected=true',
+                RuntimeError(FETCH_ERROR_REASON),
+            )
+
+        self.assertEqual(len(stderr.getvalue().splitlines()), 1)
+        self.assertIn(
+            f'target={EXAMPLE_INDEX_URL} injected=true',
+            stderr.getvalue(),
+        )
+
+    def test_print_runtime_error_redacts_url_credentials(self) -> None:
+        """エラー対象と理由に含まれるURL認証情報を伏せること"""
+
+        credential_url = (
+            'https://user:password@example.com/press/index.html'
+        )
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            cli._print_runtime_error(
+                credential_url,
+                RuntimeError(f'invalid URL: {credential_url}'),
+            )
+
+        self.assertNotIn('user:password', stderr.getvalue())
+        self.assertEqual(
+            stderr.getvalue().count('https://[redacted]@example.com'),
+            2,
+        )
+
+    def test_print_runtime_error_escapes_terminal_control_characters(
+        self,
+    ) -> None:
+        """端末制御文字をstderrへそのまま出さないこと"""
+
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            cli._print_runtime_error(
+                f'{EXAMPLE_INDEX_URL}\x1b[31m',
+                RuntimeError(f'{FETCH_ERROR_REASON}\x1b[0m'),
+            )
+
+        self.assertNotIn('\x1b', stderr.getvalue())
+        self.assertIn(r'\x1b[31m', stderr.getvalue())
+        self.assertIn(r'\x1b[0m', stderr.getvalue())
+
+    def test_print_progress_normalizes_message_to_one_line(self) -> None:
+        """verbose進捗メッセージの改行をstderrへ持ち込まないこと"""
+
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            cli._print_progress(
+                True,
+                f'fetching index: {EXAMPLE_INDEX_URL}\ninjected=true',
+            )
+
+        self.assertEqual(len(stderr.getvalue().splitlines()), 1)
+        self.assertIn(
+            f'fetching index: {EXAMPLE_INDEX_URL} injected=true',
+            stderr.getvalue(),
+        )
+
     def test_main_does_not_create_output_file_on_fetch_error(self) -> None:
         """HTML取得失敗時にJSONスナップショットを作成しないこと"""
 
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = Path(temp_dir) / 'snapshot.json'
 
-            with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+            with patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch:
                 mock_fetch.side_effect = URLError(FETCH_ERROR_REASON)
 
                 exit_code, stdout, stderr = _run_cli_raw(
@@ -842,7 +1038,7 @@ class ScraperCliTest(unittest.TestCase):
                 encoding=cli.JSON_OUTPUT_ENCODING,
             )
 
-            with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+            with patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch:
                 mock_fetch.side_effect = URLError(FETCH_ERROR_REASON)
 
                 exit_code, stdout, stderr = _run_cli_raw(
@@ -867,7 +1063,7 @@ class ScraperCliTest(unittest.TestCase):
                 Path(temp_dir) / 'missing-parent' / 'snapshot.json'
             )
 
-            with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+            with patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch:
                 exit_code, stdout, stderr = _run_cli_raw(
                     *_url_args(),
                     *_output_args(output_path),
@@ -904,7 +1100,7 @@ class ScraperCliTest(unittest.TestCase):
         """例外理由が空ならno detailを出力すること"""
 
         # 空メッセージの例外で、reasonの補完だけを確認する。
-        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+        with patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch:
             mock_fetch.side_effect = RuntimeError()
 
             exit_code, stdout, stderr = _run_cli_raw(
@@ -928,7 +1124,7 @@ class ScraperCliTest(unittest.TestCase):
         # 失敗した月別ページURLがstderrのtargetになることも確認する。
         with patch.object(
             cli,
-            FETCH_PRESS_INDEX_HTML_ATTR,
+            FETCH_PRESS_PAGE_HTML_ATTR,
             side_effect=fetcher,
         ):
             exit_code, stdout, stderr = _run_cli_raw(
@@ -949,7 +1145,7 @@ class ScraperCliTest(unittest.TestCase):
     def test_main_outputs_runtime_error_when_json_output_fails(self) -> None:
         """JSON生成時の例外もstderrへ出して終了コード1を返すこと"""
 
-        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+        with patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch:
             mock_fetch.return_value = _press_index_html()
 
             # 取得後のJSON出力で失敗しても、同じエラー形式に揃える。
@@ -973,11 +1169,101 @@ class ScraperCliTest(unittest.TestCase):
         self.assertEqual(stderr.count('\n'), 1)
         self.assertNotIn('Traceback', stderr)
 
+    def test_main_keeps_output_file_when_stdout_flush_fails(self) -> None:
+        """stdout flush失敗時も書き込み済みスナップショットを残すこと"""
+
+        stdout = Mock()
+        # argparseの色表示判定から実際のstdoutと同様に整数のfdを返す。
+        stdout.fileno.return_value = 1
+        stdout.flush.side_effect = BrokenPipeError('flush failed')
+        stderr = io.StringIO()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / 'snapshot.json'
+
+            with (
+                patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch,
+                patch(
+                    'sys.argv',
+                    _cli_argv(
+                        *_url_args(),
+                        *_output_args(output_path),
+                    ),
+                ),
+                patch.object(cli.sys, 'stdout', stdout),
+                patch.object(
+                    cli,
+                    '_redirect_stdout_after_broken_pipe',
+                ) as mock_redirect,
+                redirect_stderr(stderr),
+            ):
+                mock_fetch.return_value = _press_index_html()
+                exit_code = cli.main()
+
+            saved_payload = json.loads(
+                output_path.read_text(encoding=cli.JSON_OUTPUT_ENCODING)
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(saved_payload['count'], 2)
+        self.assertIn('target=stdout', stderr.getvalue())
+        self.assertIn('exception=BrokenPipeError', stderr.getvalue())
+        self.assertIn('reason=flush failed', stderr.getvalue())
+        self.assertEqual(stderr.getvalue().count('\n'), 1)
+        self.assertNotIn('Traceback', stderr.getvalue())
+        stdout.write.assert_called_once()
+        stdout.flush.assert_called_once_with()
+        mock_redirect.assert_called_once_with(stdout)
+
+    def test_redirect_stdout_after_broken_pipe_replaces_stdout_fd(
+        self,
+    ) -> None:
+        """BrokenPipeError後のstdoutを破棄先へ切り替えること"""
+
+        stdout = Mock()
+        stdout.fileno.return_value = 42
+
+        with (
+            patch.object(cli.sys, 'stdout', stdout),
+            patch.object(cli.os, 'open', return_value=99) as mock_open,
+            patch.object(cli.os, 'dup2') as mock_dup2,
+            patch.object(cli.os, 'close') as mock_close,
+        ):
+            cli._redirect_stdout_after_broken_pipe(stdout)
+
+        stdout.fileno.assert_called_once_with()
+        mock_open.assert_called_once_with(cli.os.devnull, cli.os.O_WRONLY)
+        mock_dup2.assert_called_once_with(99, 42)
+        mock_close.assert_called_once_with(99)
+
+    def test_redirect_stdout_after_broken_pipe_closes_fd_when_dup2_fails(
+        self,
+    ) -> None:
+        """stdoutの切り替え失敗時も破棄先のfdを閉じること"""
+
+        stdout = Mock()
+        stdout.fileno.return_value = 42
+
+        with (
+            patch.object(cli.sys, 'stdout', stdout),
+            patch.object(cli.os, 'open', return_value=99),
+            patch.object(
+                cli.os,
+                'dup2',
+                side_effect=OSError('redirect failed'),
+            ) as mock_dup2,
+            patch.object(cli.os, 'close') as mock_close,
+        ):
+            cli._redirect_stdout_after_broken_pipe(stdout)
+
+        mock_dup2.assert_called_once_with(99, 42)
+        mock_close.assert_called_once_with(99)
+
     # ユーザー中断や明示終了は通常の実行時エラーにしない。
     def test_main_does_not_catch_keyboard_interrupt(self) -> None:
         """KeyboardInterruptは捕捉しないこと"""
 
-        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+        with patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch:
             mock_fetch.side_effect = KeyboardInterrupt()
 
             with self.assertRaises(KeyboardInterrupt):
@@ -986,7 +1272,7 @@ class ScraperCliTest(unittest.TestCase):
     def test_main_does_not_catch_system_exit(self) -> None:
         """SystemExitは捕捉しないこと"""
 
-        with patch.object(cli, FETCH_PRESS_INDEX_HTML_ATTR) as mock_fetch:
+        with patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as mock_fetch:
             mock_fetch.side_effect = SystemExit(99)
 
             with self.assertRaises(SystemExit) as raised:

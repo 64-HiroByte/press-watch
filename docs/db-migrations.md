@@ -77,6 +77,13 @@ scraper の取得結果で `source_categories` が空の tuple / list の場合�
 `fetched_at` は環境省ページからデータを取得した日時であり、DB行の作成・更新日時とは分けて扱う。
 Phase 3 初期では既存データの自動更新は扱わず、通常の重複データはスキップする。
 
+## 公開日インデックスの追加
+
+Phase 4 の通常差分取得では、DB内の最新公開日を取得し、その公開月を含む直近の `source_url` を既知URLとして scraper へ渡す。
+`MAX(published_at)` と公開日の範囲検索に使えるよう、`9f2c7a4e1d63_add_published_at_index.py` で `published_at` に名前付きの非ユニークインデックス `ix_press_releases_published_at` を追加する。
+
+このmigrationのrevisionは `9f2c7a4e1d63`、直前のrevisionは初版migrationの `31765401e166` である。downgradeでは `ix_press_releases_published_at` だけを削除し、`press_releases` テーブルと保存済みデータは維持する。
+
 ## updated_at トリガー
 
 初版 migration では `updated_at` 自動更新用の PostgreSQL トリガーは作らない。
@@ -111,5 +118,5 @@ DATABASE_URL=postgresql+psycopg://presswatch:your-local-postgres-password@127.0.
 cd ../..
 ```
 
-現時点では `apps/api` に Alembic 依存、`alembic.ini`、`migrations/env.py`、初版 migration が追加済み。
+現時点では `apps/api` に Alembic 依存、`alembic.ini`、`migrations/env.py`、初版 migration、公開日インデックス追加migrationが追加済みであり、headは `9f2c7a4e1d63` である。
 今後のスキーマ変更では、同じ `apps/api` 配下で revision を追加し、生成内容を確認してから適用する。

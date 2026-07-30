@@ -1,6 +1,6 @@
 import unittest
 
-from sqlalchemy import BigInteger, Date, DateTime, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Date, DateTime, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY
 
 from press_watch_api.models.base import Base
@@ -82,6 +82,23 @@ class PressReleaseModelTest(unittest.TestCase):
                 constraint.name == "uq_press_releases_source_url"
                 and [column.name for column in constraint.columns] == ["source_url"]
                 for constraint in unique_constraints
+            )
+        )
+
+    def test_published_at_has_named_index(self) -> None:
+        """公開日に直近月検索用の名前付きインデックスを持つこと"""
+
+        indexes = [
+            index
+            for index in PressRelease.__table__.indexes
+            if isinstance(index, Index)
+        ]
+
+        self.assertTrue(
+            any(
+                index.name == "ix_press_releases_published_at"
+                and [column.name for column in index.columns] == ["published_at"]
+                for index in indexes
             )
         )
 

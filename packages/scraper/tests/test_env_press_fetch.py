@@ -1,8 +1,16 @@
+from email.message import Message
 import unittest
-from unittest.mock import patch
-from urllib.error import URLError
+from unittest.mock import Mock, patch
+from urllib.error import HTTPError, URLError
+from urllib.request import Request
 
-from press_watch_scraper.env_press import USER_AGENT, fetch_press_index_html
+from press_watch_scraper.env_press import (
+    InvalidFetchUrlError,
+    UNSAFE_REDIRECT_REASON,
+    USER_AGENT,
+    _SameOriginRedirectHandler,
+    fetch_press_page_html,
+)
 
 
 EXPECTED_HTML_TEXT = '環境省'
@@ -24,7 +32,7 @@ class _Headers:
 
 
 class _Response:
-    """urlopenの戻り値として使うテスト用レスポンス"""
+    """HTTP取得関数の戻り値として使うテスト用レスポンス"""
 
     def __init__(self, body: bytes, charset: str | None = None) -> None:
         self.headers = _Headers(charset)
@@ -41,25 +49,27 @@ class _Response:
 
 
 class EnvPressFetchTest(unittest.TestCase):
-    """報道発表一覧HTML取得処理のテスト"""
+    """報道発表ページHTML取得処理のテスト"""
 
     # HTTP取得時のリクエスト条件とデコード方針を確認する。
-    def test_fetch_press_index_html_sends_user_agent_and_timeout(self) -> None:
+    def test_fetch_press_page_html_sends_user_agent_and_timeout(self) -> None:
         """User-Agentとtimeoutを指定してHTTP取得すること"""
 
-        # 実HTTP通信を避け、urlopenに渡したRequestとtimeoutを確認する。
-        with patch('press_watch_scraper.env_press.urlopen') as mock_urlopen:
-            mock_urlopen.return_value = _Response(
+        # 実HTTP通信を避け、取得関数に渡したRequestとtimeoutを確認する。
+        with patch(
+            'press_watch_scraper.env_press._open_same_origin_url'
+        ) as mock_open_url:
+            mock_open_url.return_value = _Response(
                 EXPECTED_HTML_TEXT.encode('utf-8'),
                 charset='utf-8',
             )
 
-            html = fetch_press_index_html(
+            html = fetch_press_page_html(
                 FETCH_URL,
                 timeout=TIMEOUT_SECONDS,
             )
 
-        request = mock_urlopen.call_args.args[0]
+        request = mock_open_url.call_args.args[0]
         headers = {
             name.lower(): value
             for name, value in request.header_items()
@@ -69,56 +79,157 @@ class EnvPressFetchTest(unittest.TestCase):
         self.assertEqual(request.full_url, FETCH_URL)
         self.assertEqual(headers['user-agent'], USER_AGENT)
         self.assertEqual(
-            mock_urlopen.call_args.kwargs['timeout'],
+            mock_open_url.call_args.args[1],
             TIMEOUT_SECONDS,
         )
 
-    def test_fetch_press_index_html_uses_response_charset(self) -> None:
+    def test_fetch_press_page_html_uses_response_charset(self) -> None:
         """レスポンスのcharsetを優先すること"""
 
         body = EXPECTED_HTML_TEXT.encode('cp932')
 
-        with patch('press_watch_scraper.env_press.urlopen') as mock_urlopen:
-            mock_urlopen.return_value = _Response(body, charset='cp932')
+        with patch(
+            'press_watch_scraper.env_press._open_same_origin_url'
+        ) as mock_open_url:
+            mock_open_url.return_value = _Response(body, charset='cp932')
 
-            html = fetch_press_index_html()
+            html = fetch_press_page_html()
 
         self.assertEqual(html, EXPECTED_HTML_TEXT)
 
-    def test_fetch_press_index_html_falls_back_to_utf8_charset(self) -> None:
+    def test_fetch_press_page_html_falls_back_to_utf8_charset(self) -> None:
         """charsetがない場合にUTF-8でデコードすること"""
 
         body = EXPECTED_HTML_TEXT.encode('utf-8')
 
-        with patch('press_watch_scraper.env_press.urlopen') as mock_urlopen:
-            mock_urlopen.return_value = _Response(body)
+        with patch(
+            'press_watch_scraper.env_press._open_same_origin_url'
+        ) as mock_open_url:
+            mock_open_url.return_value = _Response(body)
 
-            html = fetch_press_index_html()
+            html = fetch_press_page_html()
 
         self.assertEqual(html, EXPECTED_HTML_TEXT)
 
-    def test_fetch_press_index_html_replaces_decode_errors(self) -> None:
+    def test_fetch_press_page_html_replaces_decode_errors(self) -> None:
         """デコード不能なバイト列を置換すること"""
 
-        with patch('press_watch_scraper.env_press.urlopen') as mock_urlopen:
-            mock_urlopen.return_value = _Response(
+        with patch(
+            'press_watch_scraper.env_press._open_same_origin_url'
+        ) as mock_open_url:
+            mock_open_url.return_value = _Response(
                 INVALID_UTF8_BYTES,
                 charset='utf-8',
             )
 
-            html = fetch_press_index_html()
+            html = fetch_press_page_html()
 
         self.assertEqual(html, DECODE_REPLACEMENT_CHARACTER)
 
-    # 通信エラーは取得関数側で握りつぶさない。
-    def test_fetch_press_index_html_propagates_urlopen_error(self) -> None:
-        """urlopenの例外を呼び出し元へ伝播すること"""
+    def test_fetch_press_page_html_rejects_unsafe_urls(self) -> None:
+        """HTTPまたはHTTPS以外のURLや認証情報付きURLを取得しないこと"""
 
-        with patch('press_watch_scraper.env_press.urlopen') as mock_urlopen:
-            mock_urlopen.side_effect = URLError(FETCH_ERROR_REASON)
+        cases = (
+            ('file:///private/etc/hosts', 'unsupported_scheme'),
+            ('data:text/html,invalid', 'unsupported_scheme'),
+            (
+                'https://user:password@example.com/press/index.html',
+                'credentials_not_allowed',
+            ),
+            (
+                'https://example.com/press/invalid path.html',
+                'unsafe_character',
+            ),
+            (
+                'https://example.com/press/invalid\npath.html',
+                'unsafe_character',
+            ),
+            (
+                'https://example.com/press/invalid<path.html',
+                'unsafe_character',
+            ),
+            (
+                'https://example.com/press/invalid%ZZpath.html',
+                'invalid_percent_escape',
+            ),
+            (
+                'https://example.com/press/日本語.html',
+                'non_ascii_character',
+            ),
+            (
+                'https://exa%20mple.com/press/index.html',
+                'invalid_host_or_port',
+            ),
+        )
+
+        for url, reason in cases:
+            with self.subTest(url=url):
+                with patch(
+                    'press_watch_scraper.env_press._open_same_origin_url'
+                ) as mock_open_url:
+                    with self.assertRaises(
+                        InvalidFetchUrlError
+                    ) as raised:
+                        fetch_press_page_html(url)
+
+                message = str(raised.exception)
+                self.assertIn(f'validation={reason}', message)
+                self.assertIn('url=', message)
+                self.assertNotIn('user:password', message)
+                mock_open_url.assert_not_called()
+
+    def test_redirect_handler_allows_same_origin_redirect(self) -> None:
+        """同一オリジンへのHTTPリダイレクトを許可すること"""
+
+        redirected = _SameOriginRedirectHandler().redirect_request(
+            Request(FETCH_URL),
+            None,
+            302,
+            'Found',
+            Message(),
+            'https://example.com/press/redirected.html',
+        )
+
+        self.assertIsNotNone(redirected)
+        self.assertEqual(
+            redirected.full_url,
+            'https://example.com/press/redirected.html',
+        )
+
+    def test_redirect_handler_rejects_cross_origin_redirect(self) -> None:
+        """外部オリジンへのHTTPリダイレクトを拒否すること"""
+
+        response = Mock()
+        with self.assertRaisesRegex(
+            HTTPError,
+            UNSAFE_REDIRECT_REASON,
+        ) as raised:
+            _SameOriginRedirectHandler().redirect_request(
+                Request(FETCH_URL),
+                response,
+                302,
+                'Found',
+                Message(),
+                'http://127.0.0.1/internal',
+            )
+        response.close.assert_called_once_with()
+        self.assertIn(
+            'validation=cross_origin',
+            str(raised.exception),
+        )
+        raised.exception.close()
+
+    # 通信エラーは取得関数側で握りつぶさない。
+    def test_fetch_press_page_html_propagates_fetch_error(self) -> None:
+        """HTTP取得時の例外を呼び出し元へ伝播すること"""
+
+        with patch(
+            'press_watch_scraper.env_press._open_same_origin_url'
+        ) as mock_open_url:
+            mock_open_url.side_effect = URLError(FETCH_ERROR_REASON)
 
             with self.assertRaises(URLError):
-                fetch_press_index_html()
+                fetch_press_page_html()
 
 
 if __name__ == '__main__':

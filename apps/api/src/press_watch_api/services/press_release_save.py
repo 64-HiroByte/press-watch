@@ -10,14 +10,16 @@ from sqlalchemy.orm import Session
 from press_watch_api.models.press_release import PressRelease as PressReleaseModel
 from press_watch_api.repositories.press_release import (
     create_press_release,
+    get_latest_press_release_published_at,
     has_press_release_with_source_url,
+    list_press_release_source_urls_published_from,
 )
 from press_watch_api.schemas.press_release import PressReleaseCreate
 
 
 @dataclass(frozen=True)
-class PressReleaseImportResult:
-    """報道発表import処理の保存結果"""
+class PressReleaseSaveResult:
+    """報道発表の保存結果"""
 
     saved_press_releases: tuple[PressReleaseModel, ...]
     skipped_count: int
@@ -87,11 +89,11 @@ def to_press_release_creates(
     ]
 
 
-def import_press_releases(
+def save_press_releases(
     session: Session,
     releases: Iterable[ScrapedPressRelease],
     fetched_at: datetime | None = None,
-) -> PressReleaseImportResult:
+) -> PressReleaseSaveResult:
     """scraper 取得結果をDTO経由でrepositoryへ保存依頼
 
     repository と同じく commit / rollback は呼び出さず、
@@ -103,7 +105,7 @@ def import_press_releases(
         fetched_at: 環境省ページからデータを取得した日時
 
     Returns:
-        保存済みモデルと保存件数、重複skip件数を含むimport結果
+        保存済みモデルと保存件数、重複skip件数を含む保存結果
     """
 
     create_dtos = to_press_release_creates(
@@ -128,10 +130,73 @@ def import_press_releases(
             )
         )
 
-    return PressReleaseImportResult(
+    return PressReleaseSaveResult(
         saved_press_releases=tuple(saved_press_releases),
         skipped_count=skipped_count,
     )
+
+
+def list_known_release_urls_for_crawl(
+    session: Session,
+    *,
+    month_count: int,
+) -> tuple[str, ...]:
+    """差分取得の既知URLとして直近の保存済みURLを取得
+
+    Args:
+        session: 取得に使うSQLAlchemyセッション
+        month_count: 最新公開月を含めて取得する月数
+
+    Returns:
+        scraper 側へ取得済みとして渡す `source_url` のタプル
+
+    Raises:
+        ValueError: 月数が0以下または日付範囲を超える場合
+    """
+
+    if month_count <= 0:
+        raise ValueError("month_count must be positive")
+
+    latest_published_at = get_latest_press_release_published_at(session)
+    if latest_published_at is None:
+        return ()
+
+    published_from = _month_window_start(
+        latest_published_at,
+        month_count,
+    )
+    return list_press_release_source_urls_published_from(
+        session,
+        published_from,
+    )
+
+
+def _month_window_start(
+    latest_published_at: date,
+    month_count: int,
+) -> date:
+    """最新公開月を含む月範囲の開始日を算出
+
+    Args:
+        latest_published_at: 保存済み報道発表の最新公開日
+        month_count: 最新公開月を含める月数
+
+    Returns:
+        月範囲の最初の月の1日
+
+    Raises:
+        ValueError: 算出結果がPythonの日付範囲より前になる場合
+    """
+
+    month_index = (
+        latest_published_at.year * 12
+        + latest_published_at.month
+        - month_count
+    )
+    if month_index < 12:
+        raise ValueError("month_count exceeds the supported date range")
+    year, zero_based_month = divmod(month_index, 12)
+    return date(year, zero_based_month + 1, 1)
 
 
 def _source_categories_or_none(

@@ -1,0 +1,4 @@
+interface:
+  display_name: "PressWatch Markdown Style"
+  short_description: "PressWatchのMarkdown本文を一文一行の形式で整える"
+  default_prompt: "$presswatch-markdown-style-ja を使い、PressWatchのMarkdownを一文一行で整えてください。"
