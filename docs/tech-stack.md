@@ -64,7 +64,8 @@
 
 ### PostgreSQL
 
-- PostgreSQL 18 を採用する
+- PostgreSQL 17 を採用する
+- Phase 0 では PostgreSQL 18 を初期採用したが、Phase 5 開始前に Supabase を管理 PostgreSQL として採用したため、17 へ変更する
 
 ---
 
@@ -98,11 +99,14 @@
 
 ## 7. データベース方針
 
-- PostgreSQL 18 を使用する
+- 管理 PostgreSQL には Supabase を採用する
+- Supabase とローカル開発環境では PostgreSQL 17 を使用する
 - Python アプリケーションからのDB接続には SQLAlchemy + psycopg を採用する
 - ORM には SQLAlchemy を採用する
 - マイグレーション管理には Alembic を採用する
 - PostgreSQL ドライバには psycopg を採用する
+- FastAPI から `DATABASE_URL` を使って PostgreSQL へ接続する既存の構成を維持する
+- Phase 5 の最初の読み取り API では Supabase SDK、Data API、Auth を利用しない
 - Phase 3 初期では、報道発表の原本に近いデータを `press_releases` に保存することを優先する
 - `press_releases.source_url` には、環境省の報道発表詳細ページURLを保存し、一意制約で重複登録を防ぐ
 - `source_categories` は環境省ページから取得した分類情報として保持し、PressWatch 独自カテゴリとは分けて扱う
@@ -114,6 +118,7 @@
 
 ### DB周りの採用理由
 
+- Supabase は PostgreSQL と将来の認証基盤を一つのサービスで扱え、インフラの学習範囲を抑えながら段階的に導入しやすい
 - SQLAlchemy は FastAPI と組み合わせた利用例が多く、ORM と Core の両方を使い分けやすいため、MVP 以降の検索・ページネーション・保存処理を段階的に育てやすい
 - Alembic は SQLAlchemy のメタデータと連携しやすく、テーブル定義の変更履歴をレビュー可能なマイグレーションとして残せる
 - psycopg は PostgreSQL 向けの標準的な Python ドライバであり、SQLAlchemy から利用しやすい
@@ -129,6 +134,9 @@
 
 ### DB実装状態と未対応範囲
 
+- Supabase の採用と PostgreSQL 17 への変更方針は決定済みだが、Supabase プロジェクトの作成、接続確認、Alembic migration の適用は未実施である
+- ローカルの Docker Compose は現時点では PostgreSQL 18 のままであり、Phase 5 の開始準備で 17 へ変更する
+- Data API は利用せず、Supabase の `anon`・`authenticated` ロールからアプリケーション用テーブルを参照できないことを接続確認時に確認する
 - SQLAlchemy は同期版から始める
 - Phase 3 初期では保存処理、重複防止、マイグレーションの見通しを優先し、async SQLAlchemy は高並行アクセスや非同期I/Oの必要性が明確になった段階で再検討する
 - DB接続設定は `apps/api/src/press_watch_api/config.py` で `DATABASE_URL` を環境変数から読み込む
@@ -240,6 +248,7 @@ press-watch/
 - 本番向け Docker 最適化
 - スクレイピング対象の拡張
 - AI 要約機能の追加
+- Supabase Auth と RLS を利用する範囲
 
 ---
 
