@@ -17,7 +17,8 @@ PressWatch は、こうした情報収集の負担や見逃しリスクを減ら
 - フロントエンド: Next.js / React / TypeScript
 - バックエンド: FastAPI / Python / SQLAlchemy / Alembic
 - スクレイパー: Python / Beautiful Soup / lxml
-- データベース: PostgreSQL / psycopg
+- データベース: PostgreSQL 17 / psycopg
+- 管理 PostgreSQL: Supabase（採用方針決定済み、プロジェクト作成・接続確認は未実施）
 - 開発環境: Docker / docker compose
 - CI: GitHub Actions
 - パッケージ管理:
@@ -40,6 +41,8 @@ press-watch/
 ## 現在の開発状況
 
 現在は **Phase 4: 取得処理の実行単位整理** まで完了し、scraper CLI から DB 保存までを接続した手動取得・保存コマンドを利用できる段階です。
+Phase 5 の開始準備として、ローカルの Docker Compose を PostgreSQL 17 へ変更し、空 DB への既存 Alembic migration 適用と、コンテナ再作成後も migration 適用状態が保持されることを確認済みです。
+管理 PostgreSQL には Supabase を採用しますが、Supabase プロジェクトの作成、SQLAlchemy 接続、Alembic migration の適用はまだ確認していません。
 
 Phase 2では、DB保存前に取得結果を検証できるスクレイピング基盤を実装しました。
 
@@ -82,7 +85,7 @@ Phase 4では、scraper CLI の取得結果を API 側の保存 service へ渡�
 
 ## Phase 3 DB 保存土台でできること
 
-- Docker Compose の `db` サービスとして PostgreSQL 18 を起動する
+- Docker Compose の `db` サービスとして PostgreSQL 17 を起動する
 - API コンテナから `DATABASE_URL` を使って PostgreSQL に接続する
 - Alembic で `press_releases` テーブルを作成する
 - `press_releases` にタイトル、詳細ページURL、公開日、取得元カテゴリ、取得日時、作成日時、更新日時を保存するための DB モデルと migration を持つ
@@ -176,11 +179,14 @@ cd ../..
 
 ## 今後の予定
 
-次は Phase 5 として、一覧取得、検索、カテゴリ絞り込み、ブックマーク操作 API を実装します。
+次は Phase 5 の開始準備として Supabase への接続を確認し、その後に読み取り API を実装します。
+独自カテゴリとブックマークは、利用者単位の扱いを決める設計タスク後に実装します。
 
-1. Phase 5: 一覧取得、検索、カテゴリ絞り込み、ブックマーク操作 API の実装
-2. Phase 6: 一覧、検索、カテゴリ絞り込み、ブックマーク画面の実装
-3. Phase 7: 定期実行と運用準備
+1. Phase 5 開始準備: Supabase への SQLAlchemy 接続、Alembic migration 適用、ロール権限の確認
+2. Phase 5: ヘルスチェック、一覧取得、新着順、ページネーション、タイトル検索 API の実装
+3. Phase 5: 独自カテゴリとブックマークの設計・実装
+4. Phase 6: 一覧、検索、カテゴリ絞り込み、ブックマーク画面の実装
+5. Phase 7: 定期実行と運用準備
 
 永続的な実行ログは、定期実行、監視、検索、保持期間の要件が決まった後続タスクで検討します。
 

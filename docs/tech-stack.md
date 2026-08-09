@@ -134,15 +134,15 @@
 
 ### DB実装状態と未対応範囲
 
-- Supabase の採用と PostgreSQL 17 への変更方針は決定済みだが、Supabase プロジェクトの作成、接続確認、Alembic migration の適用は未実施である
-- ローカルの Docker Compose は現時点では PostgreSQL 18 のままであり、Phase 5 の開始準備で 17 へ変更する
+- Supabase の採用方針は決定済みだが、Supabase プロジェクトの作成、接続確認、Alembic migration の適用は未実施である
+- ローカルの Docker Compose は PostgreSQL 17 へ変更済みであり、新しい空 DB への既存 Alembic migration 適用と、コンテナ再作成後も migration 適用状態が保持されることを確認済みである
 - Data API は利用せず、Supabase の `anon`・`authenticated` ロールからアプリケーション用テーブルを参照できないことを接続確認時に確認する
 - SQLAlchemy は同期版から始める
 - Phase 3 初期では保存処理、重複防止、マイグレーションの見通しを優先し、async SQLAlchemy は高並行アクセスや非同期I/Oの必要性が明確になった段階で再検討する
 - DB接続設定は `apps/api/src/press_watch_api/config.py` で `DATABASE_URL` を環境変数から読み込む
 - SQLAlchemy の engine / sessionmaker は `apps/api/src/press_watch_api/db.py` に置く
 - Docker Compose 内の接続URLは `postgresql+psycopg://presswatch:${POSTGRES_PASSWORD}@db:5432/presswatch` を基本形とする
-- ローカルPCから直接接続する場合は、Compose の公開ポートに合わせて host を `127.0.0.1` に置き換える
+- ローカルPCから直接接続する場合は `127.0.0.1:5432` を使い、Compose の `db` サービスはこのポートをローカルPCに限定して公開する
 - 通常の保存処理では、`source_url` が既存なら重複登録せずスキップする
 - MVP段階では管理者またはシステム実行のスクレイピング処理を前提に、`IntegrityError` の詳細ハンドリングと同時実行時の race condition 対策は後続タスクで扱う
 - 通常の差分取得では `source_url` の一致だけを確認し、保存済みレコードの内容は更新しない

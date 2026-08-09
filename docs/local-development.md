@@ -159,13 +159,23 @@ Docker Compose の通常起動には scraper はまだ含めていません。
 
 PostgreSQL はローカル環境へ直接インストールせず、Docker Compose の `db` サービスとして起動します。
 
-`infra/compose.yml` では PostgreSQL 18 のコンテナを使い、次の DB 設定で初期化します。
+`infra/compose.yml` では PostgreSQL 17 のコンテナを使い、次の DB 設定で初期化します。
 
 - DB 名: `presswatch`
 - ユーザー名: `presswatch`
 - パスワード: `.env` の `POSTGRES_PASSWORD`
+- ローカルPCからの接続先: `127.0.0.1:5432`
 
-初回起動時に Docker が PostgreSQL イメージを取得し、`postgres_data` ボリュームに DB データを保存します。通常のセットアップでは、`.env` を用意して Docker Compose を起動すれば DB も一緒に作られます。
+`db` サービスは、コンテナの5432番ポートをローカルPCの `127.0.0.1:5432` に公開します。
+このポートは、ローカルPCで単体起動する API、Alembic、手動取得・保存コマンドから接続するために使用します。
+接続先を `127.0.0.1` に限定しているため、同じネットワーク上の別端末には公開しません。
+Docker Compose 内の API コンテナから接続する場合は、サービス名を使って `db:5432` を指定します。
+
+初回起動時に Docker が PostgreSQL イメージを取得し、`postgres17_data` ボリュームをコンテナ内の `/var/lib/postgresql/data` へマウントして DB データを保存します。
+通常のセットアップでは、`.env` を用意して Docker Compose を起動すれば DB も一緒に作られます。
+
+PostgreSQL 18 で使用していた `postgres_data` ボリュームは、PostgreSQL 17 では再利用しません。
+既存データを保護するため、PostgreSQL 17 への切り替え作業では `postgres_data` ボリュームを削除せず、そのまま残します。
 
 Phase 3 では、API 側から PostgreSQL に接続するために SQLAlchemy + psycopg の最小土台を導入し、Alembic で `press_releases` の初版 migration を管理しています。
 スクレイピング結果を DTO 経由で repository / service へ渡して保存する処理も API 側にあり、Phase 4 では既存 scraper CLI の JSON 結果を API 側の手動取得・保存コマンドから保存 service へ渡せるようにしています。
@@ -535,12 +545,7 @@ Makefile を使わずに直接実行する場合は次の形です。
 docker compose --env-file .env -f infra/compose.yml down
 ```
 
-## 注意して使うコマンド
+## DBボリュームに関する注意
 
-PostgreSQL の永続化データを削除し、DB を初期状態から作り直したいときだけ使います。
-
-データが入った後に実行すると DB の中身が消えるため、通常の開発作業では使いません。
-
-```bash
-docker volume rm press-watch_postgres_data
-```
+通常の停止手順で使う `docker compose down` は、`postgres17_data` と PostgreSQL 18 で使用していた `postgres_data` を削除しません。
+DBボリュームの削除は保存済みデータを失う操作であるため、PostgreSQL 17 への切り替えや通常の開発手順には含めません。

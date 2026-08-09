@@ -216,8 +216,10 @@ Phase 5 では、保存済みの報道発表をフロントエンドから利用
   - [x] PostgreSQL 18 の初期採用方針を見直し、17 へ変更する
   - [x] FastAPI、SQLAlchemy、Alembic、psycopg を維持する
   - [x] 最初の読み取り API では Supabase SDK、Data API、Auth を利用しない
-  - [ ] ローカルの Docker Compose を PostgreSQL 17 へ変更する
-  - [ ] PostgreSQL 17 の空 DB へ既存の Alembic migration を適用する
+  - [x] ローカルの Docker Compose を PostgreSQL 17 へ変更する
+    - コンテナが起動し、実際のバージョンが17系であることと、再作成後も `postgres17_data` に migration 適用状態が保持されることを確認済み。
+  - [x] PostgreSQL 17 の空 DB へ既存の Alembic migration を適用する
+    - 既存 migration を head `9f2c7a4e1d63` まで適用できることを確認済み。
   - [ ] Supabase で SQLAlchemy 接続と Alembic migration を確認する
   - [ ] Data API の `anon`・`authenticated` ロールから `press_releases` を参照できないことを確認する
 
