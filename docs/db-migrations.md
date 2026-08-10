@@ -110,6 +110,21 @@ Docker Compose の API コンテナから実行する場合:
 docker compose --env-file .env -f infra/compose.yml exec api uv run alembic upgrade head
 ```
 
+Supabase へ適用する場合は、`docs/local-development.md` の安全な手順で Direct connection の `DATABASE_URL` を現在のシェルへ設定します。
+実行前に SQLAlchemy + psycopg で接続できること、SSL が使用されていること、`public.press_releases` と `public.alembic_version` が未作成であることを確認します。
+対象テーブルがすでに存在する場合は、状態を確認せず migration を実行しません。
+
+影響するテーブル、制約、インデックスを確認してから、`apps/api` で既存 migration を適用します。
+
+```bash
+uv run alembic upgrade head
+uv run alembic current
+```
+
+`alembic current` で `9f2c7a4e1d63 (head)` と表示されることを確認します。
+適用後は `public.press_releases`、一意制約 `uq_press_releases_source_url`、インデックス `ix_press_releases_published_at` が存在することを確認します。
+実際の `DATABASE_URL`、DB パスワード、プロジェクト識別子はコマンド出力や文書へ記録しません。
+
 初版 migration 作成時は次の形を基本にし、生成後に内容をレビューする。
 
 ```bash

@@ -106,6 +106,8 @@
 - マイグレーション管理には Alembic を採用する
 - PostgreSQL ドライバには psycopg を採用する
 - FastAPI から `DATABASE_URL` を使って PostgreSQL へ接続する既存の構成を維持する
+- Supabase への接続には、継続稼働する FastAPI と Alembic migration に適した Direct connection を使用する
+- Supabase の接続確認では `sslmode=require` を指定し、実際の接続が SSL を使用していることを確認する
 - Phase 5 の最初の読み取り API では Supabase SDK、Data API、Auth を利用しない
 - Phase 3 初期では、報道発表の原本に近いデータを `press_releases` に保存することを優先する
 - `press_releases.source_url` には、環境省の報道発表詳細ページURLを保存し、一意制約で重複登録を防ぐ
@@ -134,9 +136,10 @@
 
 ### DB実装状態と未対応範囲
 
-- Supabase の採用方針は決定済みだが、Supabase プロジェクトの作成、接続確認、Alembic migration の適用は未実施である
+- Supabase プロジェクトを作成し、Direct connection で同期版 SQLAlchemy + psycopg から PostgreSQL 17.6 へ接続できることを確認済みである
+- Supabase へ既存 Alembic migration を head `9f2c7a4e1d63` まで適用し、`press_releases`、`uq_press_releases_source_url`、`ix_press_releases_published_at` が存在することを確認済みである
 - ローカルの Docker Compose は PostgreSQL 17 へ変更済みであり、新しい空 DB への既存 Alembic migration 適用と、コンテナ再作成後も migration 適用状態が保持されることを確認済みである
-- Data API は利用せず、Supabase の `anon`・`authenticated` ロールからアプリケーション用テーブルを参照できないことを接続確認時に確認する
+- Data API は利用せず、Supabase の `anon`・`authenticated` ロールからアプリケーション用テーブルを参照できないことの確認は後続タスクで扱う
 - SQLAlchemy は同期版から始める
 - Phase 3 初期では保存処理、重複防止、マイグレーションの見通しを優先し、async SQLAlchemy は高並行アクセスや非同期I/Oの必要性が明確になった段階で再検討する
 - DB接続設定は `apps/api/src/press_watch_api/config.py` で `DATABASE_URL` を環境変数から読み込む

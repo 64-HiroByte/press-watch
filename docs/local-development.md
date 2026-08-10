@@ -187,6 +187,94 @@ postgresql+psycopg://presswatch:${POSTGRES_PASSWORD}@db:5432/presswatch
 
 `.env` は秘密情報を含みうるため、接続に必要な環境変数は `.env.example` やこのドキュメントに記載された名前だけを参照します。
 
+## Supabase PostgreSQL へ接続する
+
+Supabase では、継続稼働する FastAPI と Alembic migration に使用できる Direct connection を採用します。
+Direct connection は IPv6 を使用するため、接続元の環境が IPv6 で通信できることを事前に確認します。
+接続方式の詳細は、[Supabase 公式の接続方法](https://supabase.com/docs/guides/database/connecting-to-postgres)を参照してください。
+
+接続には Supabase ダッシュボードの Direct connection URI と DB パスワードを使用します。
+実際の URI、パスワード、プロジェクト識別子は、この文書、コマンド履歴、ログへ記録しません。
+URI とパスワードは非表示入力で現在のシェルだけへ読み込み、既存の `DATABASE_URL` へ変換します。
+
+```bash
+cd apps/api
+read -r -s "SUPABASE_DIRECT_URI?Direct connection URIを貼り付けてEnter: "
+echo
+read -r -s "SUPABASE_DB_PASSWORD?DBパスワードを貼り付けてEnter: "
+echo
+
+DATABASE_URL="$(
+    SUPABASE_DIRECT_URI="$SUPABASE_DIRECT_URI" \
+    SUPABASE_DB_PASSWORD="$SUPABASE_DB_PASSWORD" \
+    uv run python - <<'PY'
+import os
+from sqlalchemy.engine import make_url
+
+direct_url = make_url(os.environ["SUPABASE_DIRECT_URI"].strip())
+
+is_direct_connection = (
+    direct_url.drivername in {"postgres", "postgresql"}
+    and direct_url.username == "postgres"
+    and direct_url.host is not None
+    and direct_url.host.startswith("db.")
+    and direct_url.host.endswith(".supabase.co")
+    and direct_url.port == 5432
+    and direct_url.database == "postgres"
+)
+if not is_direct_connection:
+    raise SystemExit("DIRECT_URI_FORMAT_OK=false")
+
+database_url = direct_url.set(
+    drivername="postgresql+psycopg",
+    password=os.environ["SUPABASE_DB_PASSWORD"],
+).update_query_dict({"sslmode": "require"})
+
+print(database_url.render_as_string(hide_password=False))
+PY
+)"
+url_build_status=$?
+
+unset SUPABASE_DIRECT_URI
+unset SUPABASE_DB_PASSWORD
+
+if [ "$url_build_status" -eq 0 ] && [ -n "$DATABASE_URL" ]; then
+    export DATABASE_URL
+    echo "DATABASE_URL_READY=true"
+else
+    unset DATABASE_URL
+    echo "DATABASE_URL_READY=false"
+fi
+unset url_build_status
+```
+
+`DATABASE_URL_READY=true` を確認してから、SQLAlchemy + psycopg で読み取り専用の接続確認を行います。
+`DIRECT_URI_FORMAT_OK=false` または `DATABASE_URL_READY=false` が表示された場合は、接続を試さず、Supabase ダッシュボードで Direct connection の URI をコピーし直します。
+
+```bash
+uv run python - <<'PY'
+import os
+
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import OperationalError
+
+engine = create_engine(os.environ["DATABASE_URL"])
+
+try:
+    with engine.connect() as connection:
+        result = connection.execute(text("select 1")).scalar_one()
+    print("DATABASE_CONNECTION_OK=" + str(result == 1).lower())
+except OperationalError:
+    print("DATABASE_CONNECTION_OK=false")
+finally:
+    engine.dispose()
+PY
+```
+
+`DATABASE_CONNECTION_OK=true` を確認できれば、既存のSQLAlchemy + psycopg構成からSupabase PostgreSQLへ接続できています。
+エラー時は接続を繰り返さず、URIの形式、パスワード、IPv6到達性を秘密情報なしで一つずつ切り分けます。
+Supabase への migration 適用手順は `docs/db-migrations.md` に整理しています。
+
 ## 手動で取得してDBへ保存する
 
 手動取得・保存は API 側のコマンドとして実行します。scraper CLI は DB 保存前の取得確認と JSON スナップショット出力の入口として維持し、手動取得・保存コマンドはその JSON 結果を API 側の保存 service へ渡します。
