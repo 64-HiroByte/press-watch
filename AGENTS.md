@@ -15,7 +15,7 @@
 - Python の依存管理には **uv** を使用します。
 - フロントエンドのパッケージマネージャーには **pnpm** を使用します。
 - データベースには **PostgreSQL 17** を使用します。
-- 管理 PostgreSQL には **Supabase** を採用しますが、プロジェクト作成と接続確認は後続タスクで扱います。
+- 管理 PostgreSQL には **Supabase** を採用し、プロジェクト作成、Direct connection による接続、既存 Alembic migration の適用を確認済みです。
 - 開発環境には **Docker / docker compose** を使用します。
 - リポジトリは **モノレポ構成** です。
 - 既存コードの命名、責務分割、ディレクトリ構成との整合性を優先してください。
