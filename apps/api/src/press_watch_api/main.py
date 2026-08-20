@@ -9,3 +9,10 @@ def read_root() -> dict[str, str]:
         "service": "press-watch-api",
         "status": "ready",
     }
+
+
+@app.get("/health")
+def read_health() -> dict[str, str]:
+    """APIプロセスのlivenessステータスを返す"""
+
+    return {"status": "ok"}
