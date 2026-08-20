@@ -43,7 +43,7 @@ press-watch/
 現在は **Phase 4: 取得処理の実行単位整理** まで完了し、scraper CLI から DB 保存までを接続した手動取得・保存コマンドを利用できる段階です。
 Phase 5 の開始準備として、ローカルの Docker Compose を PostgreSQL 17 へ変更し、空 DB への既存 Alembic migration 適用と、コンテナ再作成後も migration 適用状態が保持されることを確認済みです。
 管理 PostgreSQL の Supabase では、Direct connection による SQLAlchemy + psycopg 接続、SSL 接続、PostgreSQL 17.6、既存 Alembic migration の head `9f2c7a4e1d63` までの適用を確認済みです。
-Data API の `anon`・`authenticated` ロールから `press_releases` を参照できないことの確認は、後続タスクに残しています。
+Data API は利用せず、アプリケーションは FastAPI から PostgreSQL へ直接接続します。
 
 Phase 2では、DB保存前に取得結果を検証できるスクレイピング基盤を実装しました。
 
@@ -181,15 +181,14 @@ cd ../..
 
 ## 今後の予定
 
-次は Phase 5 の開始準備として Data API のロール権限を確認し、その後に読み取り API を実装します。
+次は Phase 5 の読み取り API を実装します。
 独自カテゴリは、旧 Topics Checker で使用していたCSVを初期データとする共有の固定カテゴリとして実装します。
 ブックマーク、ユーザー登録、ユーザー定義カテゴリはMVP後に扱います。
 
-1. Phase 5 開始準備: Data API のロール権限の確認
-2. Phase 5: ヘルスチェック、一覧取得、新着順、ページネーション、タイトル検索 API の実装
-3. Phase 5: 固定カテゴリのデータ構造、取込方法、分類ルール、絞り込み API の設計・実装
-4. Phase 6: 一覧、検索、固定カテゴリによる絞り込み画面の実装
-5. Phase 7: デプロイ先の決定、定期実行、失敗確認、公開APIの利用制限を含むMVP運用準備
+1. Phase 5: ヘルスチェック、一覧取得、新着順、ページネーション、タイトル検索 API の実装
+2. Phase 5: 固定カテゴリのデータ構造、取込方法、分類ルール、絞り込み API の設計・実装
+3. Phase 6: 一覧、検索、固定カテゴリによる絞り込み画面の実装
+4. Phase 7: デプロイ先の決定、定期実行、失敗確認、公開APIの利用制限を含むMVP運用準備
 
 実行履歴の検索、長期保存、再試行管理などの本格的な運用機能はMVP後に検討します。
 

@@ -201,7 +201,8 @@ Phase 4 では、scraper CLI からDB保存までを接続する手動取得・�
 実行履歴の検索、長期保存、再試行管理などの本格的な運用機能は MVP後の改善候補とする。
 Phase 5 開始前の見直しで、管理 PostgreSQL に Supabase を採用し、PostgreSQL 18 の初期方針から 17 へ変更することを決定した。
 ローカル環境の PostgreSQL 17 への変更、Supabase への Direct connection、既存 Alembic migration の適用を確認済みである。
-Data API のロール権限確認は、引き続き Phase 5 の開始準備で扱う。
+Data API は利用せず、Supabase の `anon`・`authenticated` ロールが `public.press_releases` の `SELECT` 権限を持たないことを2026年8月20日に確認済みである。
+この結果は現時点の確認であり、Data API や Supabase Auth の採用時、権限や migration の変更時、Supabase プロジェクトや DB の再作成時、本番公開前には再確認する。
 Phase 5 では、ヘルスチェック、一覧取得、新着順、ページネーション、タイトル検索の読み取り API を先行する。
 独自カテゴリは、旧 Topics Checker で使用していたCSVを初期データとする共有の固定カテゴリとして実装する。
 ブックマーク、ユーザー登録、ユーザー定義カテゴリは MVP後に扱う。

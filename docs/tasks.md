@@ -216,7 +216,7 @@ Phase 5 では、保存済みの報道発表をフロントエンドから利用
 ブックマーク、ユーザー登録、ユーザー定義カテゴリはMVP後に扱う。
 
 - [x] MVP範囲の見直し結果を関連ドキュメントへ反映する
-- [ ] Phase 5 開始前の Supabase・PostgreSQL 17 基盤変更を完了する
+- [x] Phase 5 開始前の Supabase・PostgreSQL 17 基盤変更を完了する
   - [x] 管理 PostgreSQL に Supabase を採用する
   - [x] PostgreSQL 18 の初期採用方針を見直し、17 へ変更する
   - [x] FastAPI、SQLAlchemy、Alembic、psycopg を維持する
@@ -227,7 +227,10 @@ Phase 5 では、保存済みの報道発表をフロントエンドから利用
     - 既存 migration を head `9f2c7a4e1d63` まで適用できることを確認済み。
   - [x] Supabase で SQLAlchemy 接続と Alembic migration を確認する
     - Direct connection と SSL で PostgreSQL 17.6 へ接続し、既存 migration を head `9f2c7a4e1d63` まで適用できることを確認済み。
-  - [ ] Data API の `anon`・`authenticated` ロールから `press_releases` を参照できないことを確認する
+  - [x] Data API の `anon`・`authenticated` ロールが `public.press_releases` の `SELECT` 権限を持たないことを確認する
+    - Supabase SQL Editor で `has_table_privilege` と `has_any_column_privilege` を実行し、両ロールが `public.press_releases` に対するテーブル単位・列単位の `SELECT` 権限を持たず、いずれも `false` になることを確認済み。
+    - `postgres` のデフォルト権限と既存テーブルから両ロールの `SELECT` 権限だけを取り消し、いずれも `false` になることを再確認した。
+    - Data API や Supabase Auth を採用する場合、権限や migration を変更する場合、Supabase プロジェクトや DB を再作成する場合、本番公開前には再確認する。
 
 ### 読み取りAPI
 
