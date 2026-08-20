@@ -141,7 +141,9 @@
 - Supabase プロジェクトを作成し、Direct connection で同期版 SQLAlchemy + psycopg から PostgreSQL 17.6 へ接続できることを確認済みである
 - Supabase へ既存 Alembic migration を head `9f2c7a4e1d63` まで適用し、`press_releases`、`uq_press_releases_source_url`、`ix_press_releases_published_at` が存在することを確認済みである
 - ローカルの Docker Compose は PostgreSQL 17 へ変更済みであり、新しい空 DB への既存 Alembic migration 適用と、コンテナ再作成後も migration 適用状態が保持されることを確認済みである
-- Data API は利用せず、Supabase の `anon`・`authenticated` ロールからアプリケーション用テーブルを参照できないことの確認は後続タスクで扱う
+- Data API は利用せず、Supabase の `anon`・`authenticated` ロールが `public.press_releases` の `SELECT` 権限を持たないことを2026年8月20日に確認済みである
+- `postgres` のデフォルト権限に両ロール向けの `SELECT` が設定され、既存の `public.press_releases` に対する権限の付与元も `postgres` であることを確認したうえで、両方の `SELECT` 権限を取り消して再確認した
+- この結果は現時点の確認であり、Data API や Supabase Auth の採用時、権限や migration の変更時、Supabase プロジェクトや DB の再作成時、本番公開前には再確認する
 - SQLAlchemy は同期版から始める
 - Phase 3 初期では保存処理、重複防止、マイグレーションの見通しを優先し、async SQLAlchemy は高並行アクセスや非同期I/Oの必要性が明確になった段階で再検討する
 - DB接続設定は `apps/api/src/press_watch_api/config.py` で `DATABASE_URL` を環境変数から読み込む
