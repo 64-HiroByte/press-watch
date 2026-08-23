@@ -39,6 +39,8 @@ PressWatch の実装や質疑で出てきた用語を、後から短時間で思
 - PressWatch での意味を優先し、一般的な定義の網羅はしない
 - 秘密情報や `.env` の中身は書かない
 
+用語集を含むnotes全体の索引、読む順番、重複、関連リンクを横断的に整理する場合は、`presswatch-notes-index-ja`を使う。
+
 ## 追加・更新の手順
 
 1. `notes/topics/presswatch-glossary.md` があるか確認する。
