@@ -147,7 +147,7 @@
 - SQLAlchemy は同期版から始める
 - Phase 3 初期では保存処理、重複防止、マイグレーションの見通しを優先し、async SQLAlchemy は高並行アクセスや非同期I/Oの必要性が明確になった段階で再検討する
 - DB接続設定は `apps/api/src/press_watch_api/config.py` で `DATABASE_URL` を環境変数から読み込む
-- SQLAlchemy の engine / sessionmaker は `apps/api/src/press_watch_api/db.py` に置く
+- SQLAlchemy の Engine / sessionmaker は `apps/api/src/press_watch_api/db.py` でDB利用時に遅延初期化し、プロセス内で再利用する
 - Docker Compose 内の接続URLは `postgresql+psycopg://presswatch:${POSTGRES_PASSWORD}@db:5432/presswatch` を基本形とする
 - ローカルPCから直接接続する場合は `127.0.0.1:5432` を使い、Compose の `db` サービスはこのポートをローカルPCに限定して公開する
 - 通常の保存処理では、`source_url` が既存なら重複登録せずスキップする

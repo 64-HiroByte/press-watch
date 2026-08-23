@@ -18,6 +18,7 @@ from typing import Protocol
 from sqlalchemy.orm import Session
 
 from press_watch_api.config import DATABASE_URL_ENV
+from press_watch_api.db import get_session_factory
 from press_watch_api.services.press_release_save import (
     list_known_release_urls_for_crawl,
     save_press_releases,
@@ -57,7 +58,7 @@ class SessionFactory(Protocol):
     """DBセッションを生成する関数
 
     テストではMockセッションを返す関数に差し替え、通常実行では
-    `press_watch_api.db.SessionLocal` を使う。
+    `press_watch_api.db.get_session_factory()` の返り値を使う。
     """
 
     def __call__(self) -> Session:
@@ -315,9 +316,7 @@ def _load_session_factory() -> SessionFactory:
         DB接続設定を反映したSQLAlchemyセッション生成関数
     """
 
-    from press_watch_api.db import SessionLocal
-
-    return SessionLocal
+    return get_session_factory()
 
 
 def _load_known_release_urls(

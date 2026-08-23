@@ -246,6 +246,23 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         self.assertNotIn("unsafe configuration detail", stderr.getvalue())
         collect_releases.assert_not_called()
 
+    def test_load_session_factory_initializes_database_resources(self) -> None:
+        """CLI用Sessionファクトリ取得時にDBリソースを初期化すること"""
+
+        session_factory = Mock()
+
+        with patch.object(
+            fetch_and_save_env_press,
+            "get_session_factory",
+            return_value=session_factory,
+        ) as get_session_factory_mock:
+            loaded_factory = (
+                fetch_and_save_env_press._load_session_factory()
+            )
+
+        get_session_factory_mock.assert_called_once_with()
+        self.assertIs(loaded_factory, session_factory)
+
     def test_main_does_not_open_save_session_when_scraper_fails(self) -> None:
         """scraper失敗時は保存用Sessionを作らずエラーを返すこと"""
 

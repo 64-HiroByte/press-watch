@@ -613,7 +613,7 @@ docker compose --env-file .env -f infra/compose.yml exec db psql -U presswatch -
 API コンテナから SQLAlchemy 経由で PostgreSQL に接続できるか確認します。
 
 ```bash
-docker compose --env-file .env -f infra/compose.yml exec api uv run python -c "from sqlalchemy import text; from press_watch_api.db import engine; conn = engine.connect(); print(conn.execute(text('select 1')).scalar_one()); conn.close()"
+docker compose --env-file .env -f infra/compose.yml exec api uv run python -c "from sqlalchemy import text; from press_watch_api.db import get_engine; engine = get_engine(); conn = engine.connect(); print(conn.execute(text('select 1')).scalar_one()); conn.close(); engine.dispose()"
 ```
 
 API コンテナのログを確認したい場合は次を使います。
