@@ -31,6 +31,8 @@ PressWatch で使った API、メソッド、decorator、コマンドなどを�
 
 既存の usage メモがある場合は、新規ファイルを増やさず既存ファイルへ追記する。
 
+`notes/usage/`を含むnotes全体の索引、読む順番、重複、関連リンクを横断的に整理する場合は、`presswatch-notes-index-ja`を使う。
+
 ## `topics/` との切り分け
 
 - `notes/topics/`: 概念整理、設計判断、責務分担、迷った背景
