@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from contextlib import redirect_stderr
 from datetime import date
 import io
