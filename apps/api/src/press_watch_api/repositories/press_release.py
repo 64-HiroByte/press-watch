@@ -9,6 +9,49 @@ from press_watch_api.models.press_release import PressRelease
 from press_watch_api.schemas.press_release import PressReleaseCreate
 
 
+def count_press_releases(session: Session) -> int:
+    """保存済み報道発表の総件数を取得
+
+    Args:
+        session: 件数取得に使うSQLAlchemyセッション
+
+    Returns:
+        保存済み報道発表の総件数
+    """
+
+    statement = select(func.count()).select_from(PressRelease)
+    return session.scalar(statement) or 0
+
+
+def list_press_releases(
+    session: Session,
+    *,
+    limit: int,
+    offset: int,
+) -> tuple[PressRelease, ...]:
+    """保存済み報道発表を新着順で一覧取得
+
+    Args:
+        session: 一覧取得に使うSQLAlchemyセッション
+        limit: 取得する最大件数
+        offset: 先頭から読み飛ばす件数
+
+    Returns:
+        公開日とIDの降順で取得した報道発表
+    """
+
+    statement = (
+        select(PressRelease)
+        .order_by(
+            PressRelease.published_at.desc(),
+            PressRelease.id.desc(),
+        )
+        .limit(limit)
+        .offset(offset)
+    )
+    return tuple(session.scalars(statement))
+
+
 def create_press_release(
     session: Session,
     data: PressReleaseCreate,

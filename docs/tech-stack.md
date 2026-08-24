@@ -191,8 +191,11 @@
 apps/api/src/press_watch_api/
 ├── config.py
 ├── db.py
+├── dependencies.py
 ├── models/
 │   └── press_release.py
+├── routers/
+│   └── press_releases.py
 ├── schemas/
 │   └── press_release.py
 ├── repositories/
@@ -202,6 +205,8 @@ apps/api/src/press_watch_api/
 ```
 
 - `models/`: SQLAlchemy model を置く
+- `dependencies.py`: HTTPリクエストごとのDB Sessionの生成と終了を扱う
+- `routers/`: FastAPIのpath operationとAPIレスポンスの組み立てを置く
 - `schemas/`: Pydantic schema / DTO を置く
 - `repositories/`: DB操作を置く
 - `services/`: scraper 取得結果から保存用 schema への変換や repository 呼び出しを置く
