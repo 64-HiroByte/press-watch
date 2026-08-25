@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import UTC, date, datetime
 import unittest
 from unittest.mock import Mock, call
@@ -8,9 +6,11 @@ from sqlalchemy.orm import Session
 
 from press_watch_api.models.press_release import PressRelease
 from press_watch_api.repositories.press_release import (
+    count_press_releases,
     create_press_release,
     get_latest_press_release_published_at,
     has_press_release_with_source_url,
+    list_press_releases,
     list_press_release_source_urls_published_from,
 )
 from press_watch_api.schemas.press_release import PressReleaseCreate
@@ -169,6 +169,51 @@ class PressReleaseRepositoryTest(unittest.TestCase):
             str(statement),
         )
         self.assertIn(published_from, statement.compile().params.values())
+
+    def test_count_press_releases_returns_total_items(self) -> None:
+        """保存済み報道発表の総件数を返すこと"""
+
+        session = Mock(spec=Session)
+        session.scalar.return_value = 25
+
+        total_items = count_press_releases(session)
+
+        self.assertEqual(total_items, 25)
+        session.scalar.assert_called_once()
+        statement = session.scalar.call_args.args[0]
+        self.assertIn("count(*)", str(statement))
+        self.assertIn("FROM press_releases", str(statement))
+
+    def test_list_press_releases_applies_stable_order_limit_and_offset(
+        self,
+    ) -> None:
+        """公開日とIDの降順、取得件数、読み飛ばし件数をSQLへ反映すること"""
+
+        session = Mock(spec=Session)
+        press_release = Mock(spec=PressRelease)
+        session.scalars.return_value = [press_release]
+
+        press_releases = list_press_releases(
+            session,
+            limit=20,
+            offset=40,
+        )
+
+        self.assertEqual(press_releases, (press_release,))
+        session.scalars.assert_called_once()
+        statement = session.scalars.call_args.args[0]
+        compiled_statement = str(
+            statement.compile(compile_kwargs={"literal_binds": True})
+        )
+        self.assertIn(
+            "ORDER BY press_releases.published_at DESC, "
+            "press_releases.id DESC",
+            compiled_statement,
+        )
+        self.assertIn("LIMIT 20", compiled_statement)
+        self.assertIn("OFFSET 40", compiled_statement)
+        session.commit.assert_not_called()
+        session.rollback.assert_not_called()
 
 
 def _press_release_create(

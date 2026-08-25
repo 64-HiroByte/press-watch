@@ -84,6 +84,8 @@
 - FastAPI ベースで API を構築する
 - スクレイピング処理は Python で実装する
 - 実装時は Python 3.14 対応ライブラリを前提に選定する
+- Python 3.14 および利用ライブラリで非推奨の言語機能・APIは使用せず、サポートされる代替手段を採用する
+- 型注釈は Python 3.14 標準の遅延評価を使用し、非推奨の `from __future__ import annotations` は使用しない
 - Pydantic は v2 系を前提とする
 
 ---
@@ -191,8 +193,11 @@
 apps/api/src/press_watch_api/
 ├── config.py
 ├── db.py
+├── dependencies.py
 ├── models/
 │   └── press_release.py
+├── routers/
+│   └── press_releases.py
 ├── schemas/
 │   └── press_release.py
 ├── repositories/
@@ -202,6 +207,8 @@ apps/api/src/press_watch_api/
 ```
 
 - `models/`: SQLAlchemy model を置く
+- `dependencies.py`: HTTPリクエストごとのDB Sessionの生成と終了を扱う
+- `routers/`: FastAPIのpath operationとAPIレスポンスの組み立てを置く
 - `schemas/`: Pydantic schema / DTO を置く
 - `repositories/`: DB操作を置く
 - `services/`: scraper 取得結果から保存用 schema への変換や repository 呼び出しを置く

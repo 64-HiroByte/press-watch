@@ -1,7 +1,5 @@
 """環境省報道発表を手動で取得しDBへ保存するCLI入口"""
 
-from __future__ import annotations
-
 import argparse
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass

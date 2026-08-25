@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 
+from press_watch_api.routers.press_releases import router as press_releases_router
+
 app = FastAPI(title="PressWatch API")
+app.include_router(press_releases_router)
 
 
 @app.get("/")
