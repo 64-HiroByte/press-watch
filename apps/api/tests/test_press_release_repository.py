@@ -19,7 +19,7 @@ from api_test_constants import ENV_PRESS_RELEASE_URL_1 as SOURCE_URL_1
 
 
 class PressReleaseRepositoryTest(unittest.TestCase):
-    """報道発表repositoryの保存処理テスト"""
+    """報道発表repositoryのテスト"""
 
     def test_create_press_release_builds_model_from_create_dto(self) -> None:
         """保存DTOの値からPressReleaseモデルを組み立てること"""
@@ -187,7 +187,7 @@ class PressReleaseRepositoryTest(unittest.TestCase):
         self.assertNotIn("WHERE", str(statement))
 
     def test_count_press_releases_filters_by_title_query(self) -> None:
-        """タイトルを大文字小文字を区別しない部分一致で検索すること"""
+        """タイトル検索をILIKEの部分一致条件として組み立てること"""
 
         session = Mock(spec=Session)
         session.scalar.return_value = 1
@@ -241,7 +241,7 @@ class PressReleaseRepositoryTest(unittest.TestCase):
         session.rollback.assert_not_called()
 
     def test_list_press_releases_filters_by_title_query(self) -> None:
-        """タイトル検索を新着順とページ条件へ組み合わせること"""
+        """タイトルのILIKE条件を新着順とページ条件へ組み合わせること"""
 
         session = Mock(spec=Session)
         press_release = Mock(spec=PressRelease)
