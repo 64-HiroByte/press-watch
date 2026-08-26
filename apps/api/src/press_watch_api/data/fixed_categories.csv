@@ -1,0 +1,11 @@
+slug,name,display_order
+air,大気,1
+soil,土壌,2
+tap_water,水道,3
+environmental_water,環境水,4
+effluent,排水,5
+odor,臭気,6
+noise,騒音,7
+vibration,振動,8
+common,共通,9
+other,その他,10
