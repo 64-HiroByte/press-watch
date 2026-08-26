@@ -1,6 +1,6 @@
 ---
 name: presswatch-usage-notes-ja
-description: PressWatch で FastAPI、Pydantic、Alembic、SQLAlchemy など初見または忘れやすいライブラリ、フレームワーク、メソッド、コマンドを使ったとき、notes/usage/ 配下に使用例・主な引数・返り値・PressWatch での使いどころを記録するためのスキル。
+description: PressWatch で、ユーザーまたは task.md が明示したライブラリ、フレームワーク、メソッド、コマンドの使い方を notes/usage/ に記録するときに使う。使用例、主な引数、返り値、PressWatchでの使いどころを短く整理する。
 ---
 
 # PressWatch Usage Notes JA
@@ -11,12 +11,12 @@ PressWatch で使った API、メソッド、decorator、コマンドなどを�
 
 `usage/` は公式リファレンスの写経ではなく、PressWatch のコードを読むための実用メモとして扱う。
 
-## 使うタイミング
+## 書き込み条件
 
-- FastAPI、Pydantic、Alembic、SQLAlchemy など、初見または忘れやすい API を使ったとき
-- ユーザーが「このメソッドは何をするのか」「引数や返り値も知りたい」と質問したとき
-- 同じライブラリの API を今後も参照しそうなとき
-- `notes/topics/` よりも、具体的な使い方の早見表として残したいとき
+usageメモを作成、更新するのは、ユーザーの依頼または現在の`task.md`に明示されている場合に限る。
+
+初見のAPIを使ったこと、質問へ回答したこと、今後も参照しそうなことだけを理由に自動更新しない。
+記録条件を満たさない場合は、会話内で説明し、必要なら保存先を提案する。
 
 ## 保存先
 
@@ -31,7 +31,7 @@ PressWatch で使った API、メソッド、decorator、コマンドなどを�
 
 既存の usage メモがある場合は、新規ファイルを増やさず既存ファイルへ追記する。
 
-`notes/usage/`を含むnotes全体の索引、読む順番、重複、関連リンクを横断的に整理する場合は、`presswatch-notes-index-ja`を使う。
+`notes/usage/`を含むnotes全体の索引、読む順番、重複、関連リンクを横断的に整理する場合は、`presswatch-notes-index-ja`を調整役として使う。
 
 ## `topics/` との切り分け
 
@@ -95,6 +95,6 @@ PressWatch での意味:
 
 ## 完了前チェック
 
-- `git diff --check` を実行する
 - `notes/` が Git 管理外の場合は、その前提を尊重する
 - 外部公開すべき仕様や手順を `usage/` だけに閉じ込めていないか確認する
+- Markdownの書式と管理状態に合う検証は`presswatch-markdown-style-ja`に従う
