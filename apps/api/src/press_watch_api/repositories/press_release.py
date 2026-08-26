@@ -7,17 +7,26 @@ from press_watch_api.models.press_release import PressRelease
 from press_watch_api.schemas.press_release import PressReleaseCreate
 
 
-def count_press_releases(session: Session) -> int:
-    """保存済み報道発表の総件数を取得
+def count_press_releases(
+    session: Session,
+    *,
+    title_query: str | None = None,
+) -> int:
+    """任意のタイトル検索条件に一致する報道発表の件数を取得
 
     Args:
         session: 件数取得に使うSQLAlchemyセッション
+        title_query: タイトルの部分一致検索に使う文字列
 
     Returns:
-        保存済み報道発表の総件数
+        検索条件に一致する報道発表の総件数
     """
 
     statement = select(func.count()).select_from(PressRelease)
+    if title_query is not None:
+        statement = statement.where(
+            PressRelease.title.icontains(title_query, autoescape=True)
+        )
     return session.scalar(statement) or 0
 
 
@@ -26,21 +35,28 @@ def list_press_releases(
     *,
     limit: int,
     offset: int,
+    title_query: str | None = None,
 ) -> tuple[PressRelease, ...]:
-    """保存済み報道発表を新着順で一覧取得
+    """任意のタイトル検索条件に一致する報道発表を新着順で一覧取得
 
     Args:
         session: 一覧取得に使うSQLAlchemyセッション
         limit: 取得する最大件数
         offset: 先頭から読み飛ばす件数
+        title_query: タイトルの部分一致検索に使う文字列
 
     Returns:
         公開日とIDの降順で取得した報道発表
     """
 
+    statement = select(PressRelease)
+    if title_query is not None:
+        statement = statement.where(
+            PressRelease.title.icontains(title_query, autoescape=True)
+        )
+
     statement = (
-        select(PressRelease)
-        .order_by(
+        statement.order_by(
             PressRelease.published_at.desc(),
             PressRelease.id.desc(),
         )

@@ -21,6 +21,8 @@ MAX_PAGE = 10_000
 DEFAULT_PAGE_SIZE = 20
 MIN_PAGE_SIZE = 1
 MAX_PAGE_SIZE = 100
+MAX_TITLE_QUERY_LENGTH = 100
+TITLE_QUERY_PATTERN = r"^[^\x00]*$"
 
 
 router = APIRouter(prefix="/press-releases", tags=["press-releases"])
@@ -34,20 +36,35 @@ def read_press_releases(
         int,
         Query(ge=MIN_PAGE_SIZE, le=MAX_PAGE_SIZE),
     ] = DEFAULT_PAGE_SIZE,
+    q: Annotated[
+        str | None,
+        Query(
+            max_length=MAX_TITLE_QUERY_LENGTH,
+            pattern=TITLE_QUERY_PATTERN,
+        ),
+    ] = None,
 ) -> PressReleaseListResponse:
-    """保存済み報道発表を新着順でページ単位に取得
+    """保存済み報道発表を任意のタイトル検索条件でページ単位に取得
 
     Args:
         session: 一覧取得に使うリクエスト単位のDB Session
         page: 1から始まるページ番号
         page_size: 1ページに含める最大件数
+        q: タイトルの部分一致検索に使う文字列
 
     Returns:
         報道発表一覧とページ情報
     """
 
+    title_query = q.strip() if q is not None else None
+    if not title_query:
+        title_query = None
+
     offset = (page - 1) * page_size
-    total_items = count_press_releases(session)
+    total_items = count_press_releases(
+        session,
+        title_query=title_query,
+    )
     total_pages = (
         (total_items + page_size - 1) // page_size
         if total_items > 0
@@ -61,6 +78,7 @@ def read_press_releases(
             session,
             limit=page_size,
             offset=offset,
+            title_query=title_query,
         )
 
     return PressReleaseListResponse(

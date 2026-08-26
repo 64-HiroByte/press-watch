@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 import unittest
 from unittest.mock import Mock, call
 
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from press_watch_api.models.press_release import PressRelease
@@ -18,7 +19,7 @@ from api_test_constants import ENV_PRESS_RELEASE_URL_1 as SOURCE_URL_1
 
 
 class PressReleaseRepositoryTest(unittest.TestCase):
-    """報道発表repositoryの保存処理テスト"""
+    """報道発表repositoryのテスト"""
 
     def test_create_press_release_builds_model_from_create_dto(self) -> None:
         """保存DTOの値からPressReleaseモデルを組み立てること"""
@@ -183,6 +184,29 @@ class PressReleaseRepositoryTest(unittest.TestCase):
         statement = session.scalar.call_args.args[0]
         self.assertIn("count(*)", str(statement))
         self.assertIn("FROM press_releases", str(statement))
+        self.assertNotIn("WHERE", str(statement))
+
+    def test_count_press_releases_filters_by_title_query(self) -> None:
+        """タイトル検索をILIKEの部分一致条件として組み立てること"""
+
+        session = Mock(spec=Session)
+        session.scalar.return_value = 1
+
+        total_items = count_press_releases(
+            session,
+            title_query="水質50%_/",
+        )
+
+        self.assertEqual(total_items, 1)
+        statement = session.scalar.call_args.args[0]
+        compiled_statement = statement.compile(dialect=postgresql.dialect())
+        compiled_sql = str(compiled_statement)
+        self.assertIn("ILIKE '%%' ||", compiled_sql)
+        self.assertIn("|| '%%' ESCAPE '/'", compiled_sql)
+        self.assertNotIn("水質50%_/", compiled_sql)
+        self.assertIn("水質50/%/_//", compiled_statement.params.values())
+        session.commit.assert_not_called()
+        session.rollback.assert_not_called()
 
     def test_list_press_releases_applies_stable_order_limit_and_offset(
         self,
@@ -212,6 +236,45 @@ class PressReleaseRepositoryTest(unittest.TestCase):
         )
         self.assertIn("LIMIT 20", compiled_statement)
         self.assertIn("OFFSET 40", compiled_statement)
+        self.assertNotIn("WHERE", compiled_statement)
+        session.commit.assert_not_called()
+        session.rollback.assert_not_called()
+
+    def test_list_press_releases_filters_by_title_query(self) -> None:
+        """タイトルのILIKE条件を新着順とページ条件へ組み合わせること"""
+
+        session = Mock(spec=Session)
+        press_release = Mock(spec=PressRelease)
+        session.scalars.return_value = [press_release]
+
+        press_releases = list_press_releases(
+            session,
+            limit=20,
+            offset=40,
+            title_query="水質50%_/",
+        )
+
+        self.assertEqual(press_releases, (press_release,))
+        statement = session.scalars.call_args.args[0]
+        compiled_statement = statement.compile(dialect=postgresql.dialect())
+        compiled_sql = str(compiled_statement)
+        self.assertIn("ILIKE '%%' ||", compiled_sql)
+        self.assertIn("|| '%%' ESCAPE '/'", compiled_sql)
+        self.assertNotIn("水質50%_/", compiled_sql)
+        self.assertIn("水質50/%/_//", compiled_statement.params.values())
+        self.assertIn(
+            "ORDER BY press_releases.published_at DESC, "
+            "press_releases.id DESC",
+            compiled_sql,
+        )
+        compiled_literal_sql = str(
+            statement.compile(
+                dialect=postgresql.dialect(),
+                compile_kwargs={"literal_binds": True},
+            )
+        )
+        self.assertIn("LIMIT 20", compiled_literal_sql)
+        self.assertIn("OFFSET 40", compiled_literal_sql)
         session.commit.assert_not_called()
         session.rollback.assert_not_called()
 
