@@ -83,11 +83,15 @@ class PressReleaseListApiTest(unittest.TestCase):
                 },
             },
         )
-        count_press_releases_mock.assert_called_once_with(self.session)
+        count_press_releases_mock.assert_called_once_with(
+            self.session,
+            title_query=None,
+        )
         list_press_releases_mock.assert_called_once_with(
             self.session,
             limit=20,
             offset=0,
+            title_query=None,
         )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
@@ -121,6 +125,7 @@ class PressReleaseListApiTest(unittest.TestCase):
             self.session,
             limit=10,
             offset=10,
+            title_query=None,
         )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
@@ -205,7 +210,10 @@ class PressReleaseListApiTest(unittest.TestCase):
                 "total_pages": 0,
             },
         )
-        count_press_releases_mock.assert_called_once_with(self.session)
+        count_press_releases_mock.assert_called_once_with(
+            self.session,
+            title_query=None,
+        )
         list_press_releases_mock.assert_not_called()
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
@@ -243,12 +251,198 @@ class PressReleaseListApiTest(unittest.TestCase):
                 "total_pages": 1,
             },
         )
-        count_press_releases_mock.assert_called_once_with(self.session)
+        count_press_releases_mock.assert_called_once_with(
+            self.session,
+            title_query=None,
+        )
         list_press_releases_mock.assert_called_once_with(
             self.session,
             limit=1,
             offset=0,
+            title_query=None,
         )
+
+    @patch("press_watch_api.routers.press_releases.list_press_releases")
+    @patch("press_watch_api.routers.press_releases.count_press_releases")
+    def test_list_applies_normalized_title_query_to_count_and_list(
+        self,
+        count_press_releases_mock: Mock,
+        list_press_releases_mock: Mock,
+    ) -> None:
+        """前後空白を除いたタイトル検索条件を件数と一覧へ渡すこと"""
+
+        count_press_releases_mock.return_value = 11
+        list_press_releases_mock.return_value = ()
+
+        response = self.client.get(
+            "/press-releases",
+            params={"q": "  水質50%_/  ", "page": 2, "page_size": 10},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["pagination"],
+            {
+                "page": 2,
+                "page_size": 10,
+                "total_items": 11,
+                "total_pages": 2,
+            },
+        )
+        count_press_releases_mock.assert_called_once_with(
+            self.session,
+            title_query="水質50%_/",
+        )
+        list_press_releases_mock.assert_called_once_with(
+            self.session,
+            limit=10,
+            offset=10,
+            title_query="水質50%_/",
+        )
+
+    @patch("press_watch_api.routers.press_releases.list_press_releases")
+    @patch("press_watch_api.routers.press_releases.count_press_releases")
+    def test_list_treats_empty_title_query_as_unspecified(
+        self,
+        count_press_releases_mock: Mock,
+        list_press_releases_mock: Mock,
+    ) -> None:
+        """空文字列と空白だけの検索条件を未指定として扱うこと"""
+
+        count_press_releases_mock.return_value = 0
+
+        for title_query in ("", "   ", "　", " " * 100):
+            with self.subTest(title_query=title_query):
+                response = self.client.get(
+                    "/press-releases",
+                    params={"q": title_query},
+                )
+
+                self.assertEqual(response.status_code, 200)
+                count_press_releases_mock.assert_called_once_with(
+                    self.session,
+                    title_query=None,
+                )
+                list_press_releases_mock.assert_not_called()
+
+                count_press_releases_mock.reset_mock()
+                list_press_releases_mock.reset_mock()
+
+    @patch("press_watch_api.routers.press_releases.list_press_releases")
+    @patch("press_watch_api.routers.press_releases.count_press_releases")
+    def test_list_accepts_maximum_title_query_length(
+        self,
+        count_press_releases_mock: Mock,
+        list_press_releases_mock: Mock,
+    ) -> None:
+        """100文字のタイトル検索条件を受け付けること"""
+
+        title_query = "水" * 100
+        count_press_releases_mock.return_value = 0
+
+        response = self.client.get(
+            "/press-releases",
+            params={"q": title_query},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        count_press_releases_mock.assert_called_once_with(
+            self.session,
+            title_query=title_query,
+        )
+        list_press_releases_mock.assert_not_called()
+
+    @patch("press_watch_api.routers.press_releases.list_press_releases")
+    @patch("press_watch_api.routers.press_releases.count_press_releases")
+    def test_list_rejects_title_query_over_maximum_length(
+        self,
+        count_press_releases_mock: Mock,
+        list_press_releases_mock: Mock,
+    ) -> None:
+        """101文字のタイトル検索条件をHTTP 422で拒否すること"""
+
+        for title_query in ("水" * 101, " " * 101):
+            with self.subTest(title_query=title_query):
+                response = self.client.get(
+                    "/press-releases",
+                    params={"q": title_query},
+                )
+
+                self.assertEqual(response.status_code, 422)
+        count_press_releases_mock.assert_not_called()
+        list_press_releases_mock.assert_not_called()
+
+    @patch("press_watch_api.routers.press_releases.list_press_releases")
+    @patch("press_watch_api.routers.press_releases.count_press_releases")
+    def test_list_rejects_title_query_containing_null_character(
+        self,
+        count_press_releases_mock: Mock,
+        list_press_releases_mock: Mock,
+    ) -> None:
+        """NUL文字を含むタイトル検索条件をHTTP 422で拒否すること"""
+
+        response = self.client.get(
+            "/press-releases",
+            params={"q": "水質\x00検査"},
+        )
+
+        self.assertEqual(response.status_code, 422)
+        count_press_releases_mock.assert_not_called()
+        list_press_releases_mock.assert_not_called()
+
+    @patch("press_watch_api.routers.press_releases.list_press_releases")
+    @patch("press_watch_api.routers.press_releases.count_press_releases")
+    def test_search_returns_empty_response_when_no_title_matches(
+        self,
+        count_press_releases_mock: Mock,
+        list_press_releases_mock: Mock,
+    ) -> None:
+        """タイトル検索結果が0件の場合は一覧取得を省略すること"""
+
+        count_press_releases_mock.return_value = 0
+
+        response = self.client.get(
+            "/press-releases",
+            params={"q": "該当しない語"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["items"], [])
+        self.assertEqual(response.json()["pagination"]["total_pages"], 0)
+        count_press_releases_mock.assert_called_once_with(
+            self.session,
+            title_query="該当しない語",
+        )
+        list_press_releases_mock.assert_not_called()
+
+    @patch("press_watch_api.routers.press_releases.list_press_releases")
+    @patch("press_watch_api.routers.press_releases.count_press_releases")
+    def test_search_skips_list_query_after_last_matching_page(
+        self,
+        count_press_releases_mock: Mock,
+        list_press_releases_mock: Mock,
+    ) -> None:
+        """検索後の最終ページ超過時は一覧取得を省略すること"""
+
+        count_press_releases_mock.return_value = 21
+
+        response = self.client.get(
+            "/press-releases",
+            params={
+                "q": "水質",
+                "page": 4,
+                "page_size": 10,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["items"], [])
+        self.assertEqual(response.json()["pagination"]["total_pages"], 3)
+        count_press_releases_mock.assert_called_once_with(
+            self.session,
+            title_query="水質",
+        )
+        list_press_releases_mock.assert_not_called()
 
     def test_list_rejects_out_of_range_pagination_parameters(self) -> None:
         """ページ条件の下限未満と上限超過をHTTP 422で拒否すること"""
@@ -279,6 +473,26 @@ class PressReleaseListApiTest(unittest.TestCase):
             response_schema,
             {"$ref": "#/components/schemas/PressReleaseListResponse"},
         )
+
+    def test_list_title_query_is_registered_in_openapi(self) -> None:
+        """任意のタイトル検索条件と最大長がOpenAPIへ登録されること"""
+
+        parameters = app.openapi()["paths"]["/press-releases"]["get"][
+            "parameters"
+        ]
+        title_query_parameter = next(
+            parameter for parameter in parameters if parameter["name"] == "q"
+        )
+        string_schema = next(
+            schema
+            for schema in title_query_parameter["schema"]["anyOf"]
+            if schema.get("type") == "string"
+        )
+
+        self.assertEqual(title_query_parameter["in"], "query")
+        self.assertFalse(title_query_parameter["required"])
+        self.assertEqual(string_schema["maxLength"], 100)
+        self.assertEqual(string_schema["pattern"], r"^[^\x00]*$")
 
 
 def _press_release(
