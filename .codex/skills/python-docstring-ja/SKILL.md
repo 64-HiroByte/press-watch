@@ -7,7 +7,7 @@ description: PressWatch の Python コードに Docstring を追加・修正す�
 
 ## 概要
 
-PressWatch の Python コードで Docstring を書くときのプロジェクト固有ルール。第三者がコードを読み始めやすい状態を優先し、基本的に Docstring を書く。型情報は型ヒントに任せ、Docstring には意図、責務、異常系の扱いを簡潔に残す。
+PressWatch の Python コードで Docstring を書くときのプロジェクト固有ルール。第三者が公開責務や非自明な契約を理解しやすい状態を優先する。型情報は型ヒントに任せ、Docstring には意図、責務、異常系の扱いを簡潔に残す。
 
 ## 方針
 
@@ -16,8 +16,9 @@ PressWatch の Python コードで Docstring を書くときのプロジェク�
 - 型は関数シグネチャや dataclass フィールドに書き、`Args` / `Returns` / `Attributes` には型を書かない
 - Summary は「です。」「します。」を避け、簡潔な名詞止め・体言止め寄りにする
 - `Args` / `Returns` / `Attributes` の各項目説明末尾に句点を付けない
-- dataclass、公開関数、内部関数、テストクラス、テストメソッド、helper には基本的に Docstring を書く
-- ごく短い局所的な入れ子関数など、名前と周辺コードだけで役割が明らかな場合のみ省略してよい
+- 公開関数、公開クラス、dataclassなど、利用側が責務や契約を理解する必要がある対象を優先する
+- 内部関数、テスト、helperは、名前、型ヒント、周辺コードだけでは意図、前提、異常系が分かりにくい場合に書く
+- 名前、型ヒント、テスト内容から役割が明らかで、説明がコードの読み上げになる場合は省略してよい
 - 自明な処理に長い説明を足して、コードより Docstring が重くならないようにする
 - helper の引数や戻り値が、URL別HTML、CLI引数列、差し替え用データなど呼び出し側だけでは意味を取りづらい値を表す場合は、ホバーだけで使い方が分かるよう `Args` / `Returns` を付ける
 - `Args` では引数の役割を説明し、未指定時の分岐や具体的な戻り値などコードから読める実装詳細は繰り返さない
@@ -53,7 +54,8 @@ class PressRelease:
 
 ## テスト例
 
-テストの Docstring は、何を保証するテストなのかを短く書く。テストメソッドには `Args` / `Returns` を付けない。
+テスト名だけでは保証範囲が分かりにくくDocstringを付ける場合は、何を保証するテストなのかを短く書く。
+テスト名で十分な場合は省略し、テストメソッドには `Args` / `Returns` を付けない。
 
 ```python
 class EnvPressParserTest(unittest.TestCase):

@@ -1,54 +1,56 @@
 ---
 name: presswatch-skill-maintenance-ja
-description: PressWatch の .codex/skills 配下でスキルを新規作成・更新・検証するときに使う。skill-creator と併用し、quick_validate.py はローカル Python へ依存を入れず uv run --with pyyaml で実行する運用を固定するためのスキル。
+description: PressWatch の .codex/skills 配下でスキルを作成、更新、検証するときに使う。skill-creator と併用し、検証スクリプトの位置をスキルロケータから解決して uv run --with pyyaml で実行する。
 ---
 
 # PressWatch Skill Maintenance JA
 
 ## 目的
 
-PressWatch のローカルスキルを作成・更新するときの検証手順を揃える。
+`skill-creator` の設計方針に、PressWatch固有の配置と検証方法を補う。
 
-特に `quick_validate.py` の実行で `PyYAML` 不足に毎回引っかからないよう、ローカル Python ではなく `uv run --with pyyaml` を使う。
+このスキルでは、検証用のPyYAMLをPressWatch本体やローカルPythonへ追加せず、`uv run --with pyyaml` で一時的に用意する。
 
-## 基本方針
+## 責務
 
-- スキルの設計・記述は `skill-creator` に従う
-- スキルは小さく保ち、既存スキルを肥大化させない
-- PressWatch 固有の運用は `.codex/skills/` 配下に置く
-- 検証用依存は PressWatch 本体の依存へ追加しない
-- ローカル Python へ `PyYAML` を直接インストールしない
+- スキルの設計、frontmatter、補助リソースの判断は `skill-creator` に従う。
+- PressWatch固有のスキルは `.codex/skills/` 配下に置く。
+- 検証用依存をPressWatchの依存定義へ追加しない。
+- 変更したスキルと、影響を受ける参照元を検証する。
+
+## 検証スクリプトの解決
+
+1. 利用可能スキル一覧にある `skill-creator` のロケータを確認する。
+2. ファイルシステム上の `SKILL.md` を指す場合は、そのディレクトリを `skill_creator_dir` として解決する。
+3. `skill_creator_dir/scripts/quick_validate.py` が存在することを確認する。
+4. ファイルシステム上のロケータを取得できない場合は、パスを推測せず停止して報告する。
+
+ユーザー名を含む絶対パスや、特定マシンだけのインストール先を `SKILL.md` に固定しない。
 
 ## 検証コマンド
 
-スキル作成・更新後は、対象スキルに対して次を実行する。
+ロケータから解決した実パスを設定し、対象スキルごとに実行する。
 
 ```bash
-uv run --with pyyaml python /Users/hiro/.codex/skills/.system/skill-creator/scripts/quick_validate.py .codex/skills/<skill-name>
+skill_creator_dir="/absolute/path/resolved/from/skill-locator"
+target_skill_dir=".codex/skills/presswatch-notes-ja"
+uv run --with pyyaml python "$skill_creator_dir/scripts/quick_validate.py" "$target_skill_dir"
 ```
 
-例:
+`quick_validate.py` はfrontmatter、命名、未完了の雛形を検証する。
+責務、発火条件、対象外、参照関係の妥当性は別に読み直す。
 
-```bash
-uv run --with pyyaml python /Users/hiro/.codex/skills/.system/skill-creator/scripts/quick_validate.py .codex/skills/presswatch-notes-ja
-```
+## 失敗時
 
-`uv run --with pyyaml` は、この検証実行にだけ `PyYAML` を用意する。
-PressWatch の `pyproject.toml` やローカル Python 環境を汚さない。
+ネットワークまたはuvキャッシュの権限制約で失敗した場合は、同じコマンドを必要な権限で再実行する。
+別のPython環境へPyYAMLをインストールしたり、PressWatch本体の依存へ追加したりしない。
 
-## 検証が失敗したとき
-
-- frontmatter の `name` / `description` をまず確認する
-- `name` は小文字英数字とハイフンだけにする
-- `description` は、そのスキルを使うタイミングが分かる文にする
-- `SKILL.md` 以外の README や補助ドキュメントを安易に増やさない
-
-ネットワークやキャッシュ権限で `uv run --with pyyaml` が失敗した場合は、必要に応じて権限昇格で同じコマンドを再実行する。
-その場合も、PressWatch 本体の依存関係には追加しない。
+構造上の失敗では、frontmatterの `name` と `description`、フォルダ名、未完了の雛形を確認する。
 
 ## 完了前チェック
 
-- `quick_validate.py` を `uv run --with pyyaml` 経由で実行したか
-- `git diff --check` を実行したか
-- 新スキルの責務が既存スキルと重なりすぎていないか
-- 既存スキルには参照だけを足し、詳細手順を重複させていないか
+- 変更したスキルへ `quick_validate.py` を実行したか。
+- frontmatterのdescriptionが、使う場面と対象外を判別できるか。
+- 参照するスキルとファイルが実在するか。
+- 詳細手順を複数スキルへ重複させていないか。
+- `presswatch-markdown-style-ja` に従ってMarkdownを検証したか。
