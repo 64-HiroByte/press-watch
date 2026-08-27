@@ -124,7 +124,9 @@ cd ../..
 安全条件を満たさない場合は、Alembic migrationやデータ操作を開始せずに失敗します。
 
 安全確認後、テスト専用DBだけを`downgrade base`で初期化し、既存migrationを`upgrade head`まで適用します。
-実スキーマとPostgreSQL固有の配列型、ILIKE、一意制約を確認し、各テストのデータはtransactionのrollbackで分離します。
+実スキーマとPostgreSQL固有の配列型、ILIKE、一意制約を確認します。
+スキーマ、repository、一意制約を確認する3件では、外部transactionを終了時にrollbackしてテストデータを分離します。
+migration再適用テストでは、一度commitしたデータが`downgrade base`と`upgrade head`によるDB再構築で消えることを確認します。
 
 テストデータはtmpfsに置かれ、成功時と失敗時のどちらでもテスト専用Compose projectを停止します。
 通常の開発DBが使う`127.0.0.1:5432`、`postgres17_data`、旧`postgres_data`、Supabaseには接続しません。
