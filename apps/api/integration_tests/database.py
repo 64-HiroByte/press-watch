@@ -144,6 +144,15 @@ def get_current_migration_head() -> str:
 
 
 def _create_test_engine(url: URL) -> Engine:
+    """実接続先とschemaを固定したテスト用Engineを生成
+
+    Args:
+        url: 検証済みのテスト専用DB接続URL
+
+    Returns:
+        接続をプールしないテスト用Engine
+    """
+
     return create_engine(
         url,
         poolclass=NullPool,
@@ -152,6 +161,12 @@ def _create_test_engine(url: URL) -> Engine:
 
 
 def _test_database_connection_parameters() -> dict[str, str]:
+    """接続先IPとsearch_pathを固定する接続設定を生成
+
+    Returns:
+        SQLAlchemyとAlembicへ渡す接続パラメーター
+    """
+
     return {
         "hostaddr": TEST_DATABASE_HOST,
         "options": _TEST_DATABASE_CONNECTION_OPTIONS,
@@ -159,6 +174,15 @@ def _test_database_connection_parameters() -> dict[str, str]:
 
 
 def _verify_database_target(url: URL) -> None:
+    """migration前に実接続先と管理対象テーブルを検証
+
+    Args:
+        url: 検証済みのテスト専用DB接続URL
+
+    Raises:
+        UnsafeTestDatabaseError: 実接続先をテスト専用DBと確認できない場合
+    """
+
     engine = _create_test_engine(url)
     try:
         _read_verified_identity(engine)
@@ -171,6 +195,18 @@ def _verify_database_target(url: URL) -> None:
 
 
 def _read_verified_identity(engine: Engine) -> TestDatabaseIdentity:
+    """実接続先の識別情報とpublic schemaのテーブルを検証
+
+    Args:
+        engine: 実接続先を確認するテスト用Engine
+
+    Returns:
+        検証済みのDB識別情報
+
+    Raises:
+        UnsafeTestDatabaseError: 実接続先が許可条件と異なる場合
+    """
+
     with engine.connect() as connection:
         row = connection.execute(
             text(
@@ -202,6 +238,15 @@ def _read_verified_identity(engine: Engine) -> TestDatabaseIdentity:
 
 
 def _assert_expected_identity(identity: TestDatabaseIdentity) -> None:
+    """DB名、ユーザー名、PostgreSQLメジャーバージョンを検証
+
+    Args:
+        identity: 実接続先から取得したDB識別情報
+
+    Raises:
+        UnsafeTestDatabaseError: DB識別情報が許可条件と異なる場合
+    """
+
     checks = (
         (identity.database == TEST_DATABASE_NAME, "database"),
         (identity.user == TEST_DATABASE_USER, "user"),
@@ -218,6 +263,12 @@ def _assert_expected_identity(identity: TestDatabaseIdentity) -> None:
 
 
 def _run_migrations_from_base(url: URL) -> None:
+    """固定した接続設定でAlembic migrationをbaseからheadまで再適用
+
+    Args:
+        url: 検証済みのテスト専用DB接続URL
+    """
+
     alembic_config = _build_alembic_config()
 
     secured_url = url.update_query_dict(
@@ -230,6 +281,12 @@ def _run_migrations_from_base(url: URL) -> None:
 
 
 def _build_alembic_config() -> Config:
+    """リポジトリ内のmigrationを使うAlembic設定を生成
+
+    Returns:
+        migrationディレクトリとPythonパスを設定したAlembic Config
+    """
+
     alembic_config = Config(str(_API_ROOT / "alembic.ini"))
     alembic_config.set_main_option(
         "script_location",

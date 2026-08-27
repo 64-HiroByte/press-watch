@@ -105,6 +105,15 @@ def _run_with_local_postgresql(test_environment: dict[str, str]) -> int:
 
 
 def _local_test_environment(base_environment: dict[str, str]) -> dict[str, str]:
+    """一時パスワードを設定したローカルテスト環境を生成
+
+    Args:
+        base_environment: 製品DB設定とlibpq接続設定を除外した環境変数
+
+    Returns:
+        テスト専用DBのパスワードと接続URLを加えた環境変数
+    """
+
     test_environment = base_environment.copy()
     password = secrets.token_urlsafe(24)
     test_environment[TEST_DATABASE_PASSWORD_ENV] = password
@@ -113,6 +122,15 @@ def _local_test_environment(base_environment: dict[str, str]) -> dict[str, str]:
 
 
 def _render_test_database_url(password: str) -> str:
+    """固定したテスト専用接続先とパスワードから接続URLを生成
+
+    Args:
+        password: テスト専用PostgreSQLの一時パスワード
+
+    Returns:
+        テスト専用DBの接続URL
+    """
+
     url = URL.create(
         TEST_DATABASE_DRIVER,
         username=TEST_DATABASE_USER,
@@ -125,6 +143,15 @@ def _render_test_database_url(password: str) -> str:
 
 
 def _run_integration_tests(environment: dict[str, str]) -> int:
+    """指定した環境変数でDB統合テスト一式を実行
+
+    Args:
+        environment: DB統合テストへ渡す環境変数
+
+    Returns:
+        unittestの終了コード
+    """
+
     completed = subprocess.run(
         [
             sys.executable,
