@@ -15,14 +15,18 @@ from press_watch_api.config import DATABASE_URL_ENV
 class IntegrationTestRunnerTest(unittest.TestCase):
     """ローカルとCIで共有するDB統合テスト実行支援のテスト"""
 
-    def test_ci_password_builds_test_url_without_product_database_url(
+    def test_ci_password_builds_test_url_without_external_database_settings(
         self,
     ) -> None:
-        """CI用パスワードから専用URLを生成し製品用URLを渡さないこと"""
+        """CI用URLを生成し製品用URLとlibpq設定を渡さないこと"""
 
         environment = {
             DATABASE_URL_ENV: "product-database-value",
+            "PGHOSTADDR": "127.0.0.2",
+            "PGOPTIONS": "-c search_path=pg_catalog",
+            "PGSERVICE": "external-service",
             TEST_DATABASE_PASSWORD_ENV: "test-only-value",
+            "TEST_VALUE": "test-only-value",
         }
         with (
             patch.dict(os.environ, environment, clear=True),
@@ -37,6 +41,10 @@ class IntegrationTestRunnerTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         run_environment = run_integration_tests.call_args.args[0]
         self.assertNotIn(DATABASE_URL_ENV, run_environment)
+        self.assertFalse(
+            any(name.startswith("PG") for name in run_environment)
+        )
+        self.assertEqual(run_environment["TEST_VALUE"], "test-only-value")
         validate_test_database_url(run_environment[TEST_DATABASE_URL_ENV])
         subprocess_run.assert_not_called()
 

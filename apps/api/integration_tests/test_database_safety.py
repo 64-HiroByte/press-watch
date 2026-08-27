@@ -3,7 +3,7 @@ import unittest
 from collections.abc import Mapping
 from unittest.mock import MagicMock, Mock, patch
 
-from sqlalchemy import URL
+from sqlalchemy import URL, make_url
 
 from integration_tests import database
 from integration_tests.database import (
@@ -166,6 +166,7 @@ class TestDatabaseSafetyTest(unittest.TestCase):
             TEST_DATABASE_NAME,
             TEST_DATABASE_USER,
             str(TEST_DATABASE_MAJOR_VERSION * 10_000),
+            "public",
         )
         database_url = _VALID_TEST_DATABASE_URL.render_as_string(
             hide_password=False
@@ -189,6 +190,38 @@ class TestDatabaseSafetyTest(unittest.TestCase):
                 "press_releases",
                 "unmanaged_table",
             ]
+            prepare_test_database(database_url)
+
+        engine.dispose.assert_called_once_with()
+        run_migrations.assert_not_called()
+
+    def test_non_public_schema_is_rejected_before_migration(self) -> None:
+        """実接続のcurrent schemaがpublicでなければ変更しないこと"""
+
+        engine = MagicMock()
+        connection = Mock()
+        engine.connect.return_value.__enter__.return_value = connection
+        connection.execute.return_value.one.return_value = (
+            TEST_DATABASE_NAME,
+            TEST_DATABASE_USER,
+            str(TEST_DATABASE_MAJOR_VERSION * 10_000),
+            "unsafe_schema",
+        )
+        database_url = _VALID_TEST_DATABASE_URL.render_as_string(
+            hide_password=False
+        )
+        with (
+            patch(
+                "integration_tests.database._create_test_engine",
+                return_value=engine,
+            ),
+            patch("integration_tests.database.inspect") as inspect_database,
+            patch(
+                "integration_tests.database._run_migrations_from_base"
+            ) as run_migrations,
+            self.assertRaisesRegex(UnsafeTestDatabaseError, "schema"),
+        ):
+            inspect_database.return_value.get_table_names.return_value = []
             prepare_test_database(database_url)
 
         engine.dispose.assert_called_once_with()
@@ -221,6 +254,86 @@ class TestDatabaseSafetyTest(unittest.TestCase):
 
         engine.dispose.assert_called_once_with()
         run_migrations.assert_not_called()
+
+    def test_failed_database_identity_after_migration_disposes_engine(self) -> None:
+        """migration後の実接続確認に失敗したEngineを破棄すること"""
+
+        database_url = _VALID_TEST_DATABASE_URL.render_as_string(
+            hide_password=False
+        )
+        verification_engine = Mock()
+        migrated_engine = Mock()
+        with (
+            patch(
+                "integration_tests.database._create_test_engine",
+                side_effect=(verification_engine, migrated_engine),
+            ),
+            patch(
+                "integration_tests.database._read_verified_identity",
+                side_effect=(
+                    Mock(),
+                    UnsafeTestDatabaseError(
+                        "migration後の実接続先を確認できません。"
+                    ),
+                ),
+            ),
+            patch(
+                "integration_tests.database._run_migrations_from_base"
+            ) as run_migrations,
+            self.assertRaises(UnsafeTestDatabaseError),
+        ):
+            prepare_test_database(database_url)
+
+        verification_engine.dispose.assert_called_once_with()
+        migrated_engine.dispose.assert_called_once_with()
+        run_migrations.assert_called_once()
+
+    def test_engine_pins_host_address_and_public_schema(self) -> None:
+        """Engine接続で実アドレスとcurrent schemaを固定すること"""
+
+        with patch("integration_tests.database.create_engine") as create_engine:
+            database._create_test_engine(_VALID_TEST_DATABASE_URL)
+
+        self.assertEqual(
+            create_engine.call_args.kwargs.get("connect_args"),
+            {
+                "hostaddr": TEST_DATABASE_HOST,
+                "options": "-c search_path=public",
+            },
+        )
+
+    def test_migrations_pin_host_address_and_public_schema(self) -> None:
+        """Alembic接続で実アドレスとcurrent schemaを固定すること"""
+
+        captured_database_urls: list[str] = []
+
+        def capture_database_url(*_args: object) -> None:
+            captured_database_urls.append(os.environ[database.DATABASE_URL_ENV])
+
+        with (
+            patch("integration_tests.database._build_alembic_config"),
+            patch(
+                "integration_tests.database.command.downgrade",
+                side_effect=capture_database_url,
+            ),
+            patch(
+                "integration_tests.database.command.upgrade",
+                side_effect=capture_database_url,
+            ),
+        ):
+            database._run_migrations_from_base(_VALID_TEST_DATABASE_URL)
+
+        self.assertEqual(len(captured_database_urls), 2)
+        for captured_database_url in captured_database_urls:
+            secured_url = make_url(captured_database_url)
+            self.assertEqual(
+                secured_url.query.get("hostaddr"),
+                TEST_DATABASE_HOST,
+            )
+            self.assertEqual(
+                secured_url.query.get("options"),
+                "-c search_path=public",
+            )
 
 
 if __name__ == "__main__":

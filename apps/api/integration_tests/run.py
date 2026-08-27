@@ -32,8 +32,7 @@ def main() -> int:
         DB統合テストの終了コード
     """
 
-    test_environment = os.environ.copy()
-    test_environment.pop(DATABASE_URL_ENV, None)
+    test_environment = _sanitized_test_environment()
     if test_environment.get(TEST_DATABASE_URL_ENV):
         return _run_integration_tests(test_environment)
 
@@ -47,6 +46,20 @@ def main() -> int:
     return _run_with_local_postgresql(
         _local_test_environment(test_environment)
     )
+
+
+def _sanitized_test_environment() -> dict[str, str]:
+    """製品DB設定とlibpq接続設定を除外したテスト環境を生成
+
+    Returns:
+        DB統合テストとComposeへ渡す環境変数
+    """
+
+    return {
+        name: value
+        for name, value in os.environ.items()
+        if name != DATABASE_URL_ENV and not name.startswith("PG")
+    }
 
 
 def _run_with_local_postgresql(test_environment: dict[str, str]) -> int:

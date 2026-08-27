@@ -118,9 +118,10 @@ cd ../..
 
 このコマンドは`infra/compose.test.yml`を使い、テスト専用PostgreSQL 17を`127.0.0.1:55432`で起動します。
 実行ごとに一時的なテスト専用パスワードを生成するため、`.env`や製品用`DATABASE_URL`は使用しません。
+親shellのlibpq用`PG*`環境変数は子プロセスへ引き継がず、SQLAlchemyとAlembicの接続先IPを`127.0.0.1`、`search_path`を`public`へ固定します。
 
 テストはDBを変更する前に、接続URLのdriver、host、port、DB名、ユーザー名を検証します。
-実接続後もDB名、ユーザー名、PostgreSQLのメジャーバージョン、migration管理外テーブルがないことを確認します。
+実接続後もDB名、ユーザー名、PostgreSQLのメジャーバージョン、`current_schema()`が`public`を返すこと、migration管理外テーブルがないことを確認します。
 安全条件を満たさない場合は、Alembic migrationやデータ操作を開始せずに失敗します。
 
 安全確認後、テスト専用DBだけを`downgrade base`で初期化し、既存migrationを`upgrade head`まで適用します。

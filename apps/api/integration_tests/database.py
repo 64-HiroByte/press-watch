@@ -25,6 +25,8 @@ TEST_DATABASE_MAJOR_VERSION = 17
 
 _API_ROOT = Path(__file__).resolve().parents[1]
 _ALLOWED_PUBLIC_TABLES = frozenset({"alembic_version", "press_releases"})
+_TEST_DATABASE_SCHEMA = "public"
+_TEST_DATABASE_CONNECTION_OPTIONS = f"-c search_path={_TEST_DATABASE_SCHEMA}"
 
 
 class UnsafeTestDatabaseError(RuntimeError):
@@ -142,7 +144,18 @@ def get_current_migration_head() -> str:
 
 
 def _create_test_engine(url: URL) -> Engine:
-    return create_engine(url, poolclass=NullPool)
+    return create_engine(
+        url,
+        poolclass=NullPool,
+        connect_args=_test_database_connection_parameters(),
+    )
+
+
+def _test_database_connection_parameters() -> dict[str, str]:
+    return {
+        "hostaddr": TEST_DATABASE_HOST,
+        "options": _TEST_DATABASE_CONNECTION_OPTIONS,
+    }
 
 
 def _verify_database_target(url: URL) -> None:
@@ -162,9 +175,13 @@ def _read_verified_identity(engine: Engine) -> TestDatabaseIdentity:
         row = connection.execute(
             text(
                 "select current_database(), current_user, "
-                "current_setting('server_version_num')"
+                "current_setting('server_version_num'), current_schema()"
             )
         ).one()
+        if row[3] != _TEST_DATABASE_SCHEMA:
+            raise UnsafeTestDatabaseError(
+                "実接続先のschemaが許可条件と一致しません。"
+            )
         identity = TestDatabaseIdentity(
             database=row[0],
             user=row[1],
@@ -173,7 +190,7 @@ def _read_verified_identity(engine: Engine) -> TestDatabaseIdentity:
         _assert_expected_identity(identity)
 
         public_tables = frozenset(
-            inspect(connection).get_table_names(schema="public")
+            inspect(connection).get_table_names(schema=_TEST_DATABASE_SCHEMA)
         )
         unexpected_tables = public_tables - _ALLOWED_PUBLIC_TABLES
         if unexpected_tables:
@@ -203,7 +220,10 @@ def _assert_expected_identity(identity: TestDatabaseIdentity) -> None:
 def _run_migrations_from_base(url: URL) -> None:
     alembic_config = _build_alembic_config()
 
-    rendered_url = url.render_as_string(hide_password=False)
+    secured_url = url.update_query_dict(
+        _test_database_connection_parameters()
+    )
+    rendered_url = secured_url.render_as_string(hide_password=False)
     with patch.dict(os.environ, {DATABASE_URL_ENV: rendered_url}):
         command.downgrade(alembic_config, "base")
         command.upgrade(alembic_config, "head")
