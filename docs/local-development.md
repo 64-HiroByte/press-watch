@@ -39,6 +39,7 @@ POSTGRES_PASSWORD=your-local-postgres-password
 - `apps/api/pyproject.toml`: API 用の Python 依存関係として `fastapi[standard]` / `sqlalchemy` / `psycopg` / `alembic` を定義します。
 - `packages/scraper/pyproject.toml`: scraper 用の Python パッケージ設定を定義します。
 - `infra/compose.yml`: `web` / `api` / `db` の Docker Compose 構成を定義します。
+- `infra/compose.test.yml`: PostgreSQL 17を使うDB統合テスト専用の一時DBを定義します。
 - `infra/docker/web.Dockerfile`: Web コンテナのビルド手順を定義します。
 - `infra/docker/api.Dockerfile`: API コンテナのビルド手順を定義します。
 - `Makefile`: Docker Compose の起動・停止コマンドを短く呼べるようにします。
@@ -94,6 +95,40 @@ cd ../..
 ```
 
 Docker Compose で全体を起動する場合、この単体起動は必須ではありません。単体起動したまま Docker Compose を起動すると、ポート `8000` が重複することがあります。
+
+## API unittestを実行する
+
+API unittestは実際のPostgreSQLを起動せずに実行できます。
+
+```bash
+cd apps/api
+PYTHONPATH=src uv run --locked python -m unittest discover -s tests
+cd ../..
+```
+
+## PostgreSQL 17 DB統合テストを実行する
+
+DB統合テストは既存のAPI unittestと別ディレクトリ、別コマンドで実行します。
+
+```bash
+cd apps/api
+PYTHONPATH=src uv run --locked python -m integration_tests.run
+cd ../..
+```
+
+このコマンドは`infra/compose.test.yml`を使い、テスト専用PostgreSQL 17を`127.0.0.1:55432`で起動します。
+実行ごとに一時的なテスト専用パスワードを生成するため、`.env`や製品用`DATABASE_URL`は使用しません。
+
+テストはDBを変更する前に、接続URLのdriver、host、port、DB名、ユーザー名を検証します。
+実接続後もDB名、ユーザー名、PostgreSQLのメジャーバージョン、migration管理外テーブルがないことを確認します。
+安全条件を満たさない場合は、Alembic migrationやデータ操作を開始せずに失敗します。
+
+安全確認後、テスト専用DBだけを`downgrade base`で初期化し、既存migrationを`upgrade head`まで適用します。
+実スキーマとPostgreSQL固有の配列型、ILIKE、一意制約を確認し、各テストのデータはtransactionのrollbackで分離します。
+
+テストデータはtmpfsに置かれ、成功時と失敗時のどちらでもテスト専用Compose projectを停止します。
+通常の開発DBが使う`127.0.0.1:5432`、`postgres17_data`、旧`postgres_data`、Supabaseには接続しません。
+`55432`が別のプロセスに使われている場合は、別ポートへ自動で切り替えずに起動を失敗させます。
 
 ## scraper を単体で起動する
 
