@@ -141,3 +141,43 @@ jobs:
         env:
           PYTHONPATH: src
         run: uv run --locked python -m unittest discover -s tests
+
+  db-integration-tests:
+    name: PostgreSQL integration
+    needs: detect-changes
+    if: needs.detect-changes.result == 'success' && needs.detect-changes.outputs.python_tests_required == 'true'
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: presswatch_test
+          POSTGRES_USER: presswatch_test
+          POSTGRES_PASSWORD: test-${{ github.run_id }}-${{ github.run_attempt }}
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U presswatch_test -d presswatch_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.1.0
+
+      - name: Run PostgreSQL integration tests
+        working-directory: apps/api
+        env:
+          PYTHONPATH: src
+          PRESSWATCH_TEST_POSTGRES_PASSWORD: test-${{ github.run_id }}-${{ github.run_attempt }}
+        run: uv run --locked python -m integration_tests.run
