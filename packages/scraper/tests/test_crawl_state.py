@@ -86,9 +86,108 @@ class CrawlStateTest(unittest.TestCase):
             '2026-08-28T01:02:03Z',
         )
 
+    def test_resume_rejects_manifest_page_path_traversal(self) -> None:
+        """manifestの相対パス逸脱をHTML読込前に拒否すること"""
 
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / 'state'
+            _complete_index_only_state(root)
+            manifest_path = root / 'manifest.json'
+            manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+            manifest['pages'][0]['file'] = '../outside.html'
+            manifest_path.write_text(
+                json.dumps(manifest),
+                encoding='utf-8',
+            )
 
+            with self.assertRaisesRegex(
+                CrawlStateError,
+                'page path is invalid',
+            ):
+                CrawlState.resume(
+                    root,
+                    start_url=INDEX_URL,
+                    archive_month_limit=0,
+                    all_archive_months=True,
+                    refetch_invalid_pages=True,
+                )
 
+    def test_resume_rejects_symlinked_saved_page(self) -> None:
+        """保存HTMLがsymlinkならstateを再利用しないこと"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / 'state'
+            _complete_index_only_state(root)
+            outside_path = Path(temp_dir) / 'outside.html'
+            outside_path.write_text(INDEX_HTML, encoding='utf-8')
+            page_path = root / 'pages' / 'index.html'
+            page_path.unlink()
+            page_path.symlink_to(outside_path)
+
+            with self.assertRaisesRegex(
+                CrawlStateError,
+                'must not be a symlink',
+            ):
+                CrawlState.resume(
+                    root,
+                    start_url=INDEX_URL,
+                    archive_month_limit=0,
+                    all_archive_months=True,
+                    refetch_invalid_pages=True,
+                )
+
+    def test_resume_rejects_saved_page_hash_mismatch(self) -> None:
+        """サイズが同じでもSHA-256が異なる保存HTMLを拒否すること"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / 'state'
+            _complete_index_only_state(root)
+            page_path = root / 'pages' / 'index.html'
+            original_bytes = page_path.read_bytes()
+            page_path.write_bytes(original_bytes[:-1] + b'X')
+
+            with self.assertRaisesRegex(
+                CrawlStateError,
+                'cannot be reused',
+            ):
+                CrawlState.resume(
+                    root,
+                    start_url=INDEX_URL,
+                    archive_month_limit=0,
+                    all_archive_months=True,
+                )
+
+            manifest = json.loads(
+                (root / 'manifest.json').read_text(encoding='utf-8')
+            )
+
+        self.assertEqual(manifest['pages'][0]['status'], 'invalid')
+        self.assertIn(
+            'hash does not match',
+            manifest['pages'][0]['failure']['reason'],
+        )
+
+    def test_resume_moves_completed_state_back_to_in_progress(self) -> None:
+        """完了stateの再解析前に全体状態を実行中へ戻すこと"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / 'state'
+            _complete_index_only_state(root)
+
+            CrawlState.resume(
+                root,
+                start_url=INDEX_URL,
+                archive_month_limit=0,
+                all_archive_months=True,
+            )
+
+            manifest = json.loads(
+                (root / 'manifest.json').read_text(encoding='utf-8')
+            )
+
+        self.assertEqual(manifest['status'], 'in_progress')
+        self.assertIsNone(manifest['stop_reason'])
+        self.assertIsNone(manifest['completed_at'])
 
     def test_create_rejects_url_with_credentials(self) -> None:
         """認証情報を含む起点URLを拒否すること"""
@@ -188,7 +287,60 @@ class CrawlStateTest(unittest.TestCase):
         self.assertNotIn('\n', failure['reason'])
         self.assertIn('https://[redacted]@example.com/path', failure['reason'])
 
+    def test_resume_rejects_invalid_manifest_schema_values(self) -> None:
+        """version、列挙値、必須型が不正なmanifestを拒否すること"""
 
+        cases = (
+            ('version', 2, 'version is unsupported'),
+            ('version', True, 'version is invalid'),
+            ('status', 'unknown', 'status is invalid'),
+            ('status', [], 'status is invalid'),
+            ('pages', {}, 'pages are invalid'),
+        )
+        for field, invalid_value, expected_reason in cases:
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    root = Path(temp_dir) / 'state'
+                    _complete_index_only_state(root)
+                    manifest_path = root / 'manifest.json'
+                    manifest = json.loads(
+                        manifest_path.read_text(encoding='utf-8')
+                    )
+                    manifest[field] = invalid_value
+                    manifest_path.write_text(
+                        json.dumps(manifest),
+                        encoding='utf-8',
+                    )
+
+                    with self.assertRaisesRegex(
+                        CrawlStateError,
+                        expected_reason,
+                    ):
+                        CrawlState.resume(
+                            root,
+                            start_url=INDEX_URL,
+                            archive_month_limit=0,
+                            all_archive_months=True,
+                        )
+
+    def test_resume_rejects_manifest_with_public_permissions(self) -> None:
+        """所有者以外が読めるmanifestを再利用しないこと"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / 'state'
+            _complete_index_only_state(root)
+            (root / 'manifest.json').chmod(0o644)
+
+            with self.assertRaisesRegex(
+                CrawlStateError,
+                'permissions must be 0600',
+            ):
+                CrawlState.resume(
+                    root,
+                    start_url=INDEX_URL,
+                    archive_month_limit=0,
+                    all_archive_months=True,
+                )
 
 
 
