@@ -1,6 +1,7 @@
 """環境省報道発表を手動で取得しDBへ保存するCLI入口"""
 
 import argparse
+from collections import deque
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -11,6 +12,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 from typing import Protocol
 
 from sqlalchemy.orm import Session
@@ -33,6 +35,8 @@ DATABASE_CONFIGURATION_FAILED_REASON = (
 )
 CREDENTIALS_IN_URL_RE = re.compile(r"(?i)(https?://)[^/@\s]+@")
 MAX_DIAGNOSTIC_VALUE_LENGTH = 1000
+PROCESS_TERMINATE_TIMEOUT_SECONDS = 5.0
+SCRAPER_STDERR_TAIL_LINES = 50
 SCRAPER_ENV_KEYS = (
     "HOME",
     "PATH",
@@ -378,20 +382,19 @@ def _collect_releases_from_scraper_cli(
             args,
             known_release_urls_file=known_release_urls_file,
         )
-        completed = subprocess.run(
+        completed = _run_scraper_process(
             command,
             cwd=scraper_dir,
             env=env,
-            text=True,
-            capture_output=True,
-            check=False,
+            stderr=stderr,
+            forward_stderr=args.verbose,
         )
     finally:
         if known_release_urls_file is not None:
             known_release_urls_file.unlink(missing_ok=True)
 
     if completed.returncode != 0:
-        reason = _one_line(completed.stderr) or (
+        reason = _one_line_tail(completed.stderr) or (
             f"exit code {completed.returncode}"
         )
         raise RuntimeError(
@@ -399,10 +402,143 @@ def _collect_releases_from_scraper_cli(
             f"exit_code={completed.returncode} stderr={reason}"
         )
 
-    if args.verbose and completed.stderr:
-        stderr.write(completed.stderr)
-
     return _parse_scraper_snapshot(completed.stdout)
+
+
+def _run_scraper_process(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    stderr: object,
+    forward_stderr: bool,
+) -> subprocess.CompletedProcess[str]:
+    """scraper子プロセスのstdoutとstderrを同時に読み取る
+
+    Args:
+        command: scraper CLIを実行するコマンド引数列
+        cwd: scraper子プロセスの作業ディレクトリ
+        env: scraper子プロセスへ渡す環境変数
+        stderr: verbose進捗の転送先
+        forward_stderr: stderrを実行中に転送するかどうか
+
+    Returns:
+        終了コード、stdout、stderrを保持する子プロセス実行結果
+    """
+
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=1,
+    )
+    if process.stdout is None or process.stderr is None:
+        raise RuntimeError("scraper process pipes could not be opened")
+
+    captured_stdout: list[str] = []
+    captured_stderr: deque[str] = deque(
+        maxlen=SCRAPER_STDERR_TAIL_LINES,
+    )
+    stdout_errors: list[Exception] = []
+    forwarding_errors: list[Exception] = []
+
+    def read_stdout() -> None:
+        try:
+            captured_stdout.append(process.stdout.read())
+        except Exception as exc:
+            stdout_errors.append(exc)
+        finally:
+            process.stdout.close()
+
+    def read_stderr() -> None:
+        try:
+            for raw_line in process.stderr:
+                line = _one_line(raw_line)
+                captured_stderr.append(line)
+                if forward_stderr:
+                    stderr.write(f"{line}\n")
+                    flush = getattr(stderr, "flush", None)
+                    if flush is not None:
+                        flush()
+        except Exception as exc:
+            forwarding_errors.append(exc)
+        finally:
+            process.stderr.close()
+
+    stdout_thread = threading.Thread(
+        target=read_stdout,
+        name="scraper-stdout-reader",
+    )
+    stderr_thread = threading.Thread(
+        target=read_stderr,
+        name="scraper-stderr-reader",
+    )
+    stdout_thread.start()
+    stderr_thread.start()
+    process_error: BaseException | None = None
+    returncode = 1
+    try:
+        while True:
+            if stdout_errors or forwarding_errors:
+                _stop_process(process)
+                break
+            try:
+                returncode = process.wait(timeout=0.1)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+    except BaseException as exc:
+        process_error = exc
+        _stop_process(process)
+    finally:
+        stdout_thread.join()
+        stderr_thread.join()
+
+    if forwarding_errors:
+        raise RuntimeError("scraper progress output failed") from (
+            forwarding_errors[0]
+        )
+    if stdout_errors:
+        raise RuntimeError("scraper stdout read failed") from (
+            stdout_errors[0]
+        )
+    if process_error is not None:
+        raise process_error
+
+    stdout_text = "".join(captured_stdout)
+    stderr_text = "\n".join(captured_stderr)
+    if captured_stderr:
+        stderr_text += "\n"
+    return subprocess.CompletedProcess(
+        command,
+        returncode,
+        stdout_text,
+        stderr_text,
+    )
+
+
+def _stop_process(process: subprocess.Popen[str]) -> None:
+    """子プロセスをterminateし、必要ならkillして回収
+
+    Args:
+        process: 終了・回収する子プロセス
+    """
+
+    try:
+        process.terminate()
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=PROCESS_TERMINATE_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+        process.wait()
 
 
 def _scraper_command(
@@ -417,7 +553,7 @@ def _scraper_command(
         known_release_urls_file: scraper CLIへ渡す既知URLファイル
 
     Returns:
-        `subprocess.run()` に渡すコマンド引数列
+        scraper子プロセスへ渡すコマンド引数列
     """
 
     command = [
@@ -705,20 +841,52 @@ def _one_line(value: str) -> str:
         連続空白を1つにまとめた1行文字列
     """
 
-    redacted_value = CREDENTIALS_IN_URL_RE.sub(
-        r"\1[redacted]@",
-        value,
-    )
-    one_line_value = " ".join(redacted_value.split())
-    one_line_value = "".join(
-        character if character.isprintable() else repr(character)[1:-1]
-        for character in one_line_value
-    )
+    one_line_value = _normalize_diagnostic(value)
     if len(one_line_value) > MAX_DIAGNOSTIC_VALUE_LENGTH:
         return (
             f"{one_line_value[:MAX_DIAGNOSTIC_VALUE_LENGTH - 3]}..."
         )
     return one_line_value
+
+
+def _one_line_tail(value: str) -> str:
+    """stderr末尾を残して1行・最大長へ正規化
+
+    Args:
+        value: 子プロセスのstderr文字列
+
+    Returns:
+        末尾の失敗理由を保持した1行文字列
+    """
+
+    one_line_value = _normalize_diagnostic(value)
+    if len(one_line_value) > MAX_DIAGNOSTIC_VALUE_LENGTH:
+        return (
+            "..."
+            f"{one_line_value[-(MAX_DIAGNOSTIC_VALUE_LENGTH - 3):]}"
+        )
+    return one_line_value
+
+
+def _normalize_diagnostic(value: str) -> str:
+    """診断値を伏字・表示可能な1行へ変換
+
+    Args:
+        value: stderrへ埋め込む文字列
+
+    Returns:
+        URL認証情報と制御文字を除いた1行文字列
+    """
+
+    redacted_value = CREDENTIALS_IN_URL_RE.sub(
+        r"\1[redacted]@",
+        value,
+    )
+    one_line_value = " ".join(redacted_value.split())
+    return "".join(
+        character if character.isprintable() else repr(character)[1:-1]
+        for character in one_line_value
+    )
 
 
 if __name__ == "__main__":
