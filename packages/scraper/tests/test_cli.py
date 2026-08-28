@@ -71,6 +71,19 @@ KNOWN_RELEASE_URLS_FILE_WITHOUT_ARCHIVE_CRAWL_ERROR = (
 )
 
 
+class _FakeClock:
+    """CLIの要求間隔テスト用の単調増加時計"""
+
+    def __init__(self) -> None:
+        self.current = 0.0
+
+    def __call__(self) -> float:
+        return self.current
+
+    def sleep(self, seconds: float) -> None:
+        self.current += seconds
+
+
 def _press_index_html() -> str:
     """CLIテスト用の報道発表一覧HTMLを生成
 
@@ -175,8 +188,27 @@ def _recording_html_fetcher(
         URLを受け取り、記録後に対応するHTMLを返す関数
     """
 
-    def fetcher(url: str) -> str:
+    def fetcher(url: str, **_kwargs: object) -> str:
         fetched_urls.append(url)
+        return html_by_url[url]
+
+    return fetcher
+
+
+def _rate_limited_html_fetcher(
+    html_by_url: dict[str, str],
+) -> Callable[..., str]:
+    """transport limiterを通るCLIテスト用fetcherを生成
+
+    Args:
+        html_by_url: 取得URLごとに返すHTMLの辞書
+
+    Returns:
+        共有rate limiterを呼んでからHTMLを返す関数
+    """
+
+    def fetcher(url: str, *, rate_limiter: object) -> str:
+        rate_limiter.wait(url)
         return html_by_url[url]
 
     return fetcher
@@ -309,16 +341,12 @@ def _run_cli(*args: str) -> dict[str, object]:
     return payload
 
 
-def _run_cli_raw(
-    *args: str,
-    request_interval_seconds: float = 3.0,
-) -> tuple[int, str, str]:
+def _run_cli_raw(*args: str) -> tuple[int, str, str]:
     """CLIを実行して終了コード、stdout、stderrを取得
 
     Args:
         args: プログラム名を除くCLI引数。stderrを検証したい失敗系で使う。
             例: `*_from_file_args(path), *_all_archive_months_args()`
-        request_interval_seconds: テスト時に差し替える巡回待機秒数
 
     Returns:
         終了コード、stdout、stderr
@@ -326,16 +354,12 @@ def _run_cli_raw(
 
     stdout = io.StringIO()
     stderr = io.StringIO()
+    fake_clock = _FakeClock()
 
     # main()を直接呼ぶため、CLI引数・標準出力・巡回待機をテスト内で差し替える。
     with patch('sys.argv', _cli_argv(*args)):
-        with patch.object(
-            cli,
-            'REQUEST_INTERVAL_SECONDS',
-            request_interval_seconds,
-        ):
-            with patch.object(cli, 'sleep', create=True) as mock_sleep:
-                mock_sleep.return_value = None
+        with patch.object(cli, 'monotonic', fake_clock):
+            with patch.object(cli, 'sleep', fake_clock.sleep):
                 with redirect_stdout(stdout), redirect_stderr(stderr):
                     exit_code = cli.main()
 
@@ -432,7 +456,9 @@ class ScraperCliTest(unittest.TestCase):
 
             payload = _run_cli(*_url_args())
 
-        mock_fetch.assert_called_once_with(EXAMPLE_INDEX_URL)
+        mock_fetch.assert_called_once()
+        self.assertEqual(mock_fetch.call_args.args, (EXAMPLE_INDEX_URL,))
+        self.assertIsNotNone(mock_fetch.call_args.kwargs['rate_limiter'])
         self.assertEqual(payload['exit_code'], 0)
         self.assertEqual(
             payload['source_url'],
@@ -502,6 +528,40 @@ class ScraperCliTest(unittest.TestCase):
             [MAY_RELEASE_TITLE, APRIL_RELEASE_TITLE],
         )
 
+    def test_main_shares_rate_limiter_across_archive_crawl(self) -> None:
+        """CLI月別巡回の全HTTP取得で同じrate limiterを使うこと"""
+
+        html_by_url = _archive_html_by_url()
+        rate_limiters: list[object | None] = []
+
+        def fetch_page(
+            url: str,
+            *,
+            rate_limiter: object | None = None,
+        ) -> str:
+            rate_limiters.append(rate_limiter)
+            return html_by_url[url]
+
+        with patch.object(
+            cli,
+            FETCH_PRESS_PAGE_HTML_ATTR,
+            side_effect=fetch_page,
+        ):
+            payload = _run_cli(
+                *_url_args(),
+                *_archive_month_limit_args(limit=2),
+            )
+
+        self.assertEqual(payload['exit_code'], 0)
+        self.assertEqual(len(rate_limiters), 3)
+        self.assertIsNotNone(rate_limiters[0])
+        self.assertTrue(
+            all(
+                limiter is rate_limiters[0]
+                for limiter in rate_limiters[1:]
+            )
+        )
+
     def test_main_outputs_progress_to_stderr_when_verbose(self) -> None:
         """verbose指定時に月別巡回の進捗をstderrへ出すこと"""
 
@@ -510,28 +570,37 @@ class ScraperCliTest(unittest.TestCase):
         with patch.object(
             cli,
             FETCH_PRESS_PAGE_HTML_ATTR,
-            side_effect=html_by_url.__getitem__,
+            side_effect=_rate_limited_html_fetcher(html_by_url),
         ):
             exit_code, stdout, stderr = _run_cli_raw(
                 *_url_args(),
                 *_archive_month_limit_args(limit=2),
                 *_verbose_args(),
-                request_interval_seconds=3.0,
             )
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(json.loads(stdout)['count'], 2)
-        self.assertIn(f'fetching index: {EXAMPLE_INDEX_URL}', stderr)
         self.assertIn(
-            'waiting 3s before fetching archive page',
+            f'request 1 started at +0.000s: {EXAMPLE_INDEX_URL}',
             stderr,
         )
         self.assertIn(
-            f'fetching archive page: {EXAMPLE_MAY_ARCHIVE_URL}',
+            f'waiting {cli.REQUEST_INTERVAL_SECONDS:g}s before request 2: '
+            f'{EXAMPLE_MAY_ARCHIVE_URL}',
             stderr,
         )
         self.assertIn(
-            f'fetching archive page: {EXAMPLE_APRIL_ARCHIVE_URL}',
+            f'archive page 1/2: {EXAMPLE_MAY_ARCHIVE_URL}',
+            stderr,
+        )
+        self.assertIn(
+            f'archive page 2/2: {EXAMPLE_APRIL_ARCHIVE_URL}',
+            stderr,
+        )
+        self.assertIn(
+            f'request 3 started at '
+            f'+{cli.REQUEST_INTERVAL_SECONDS * 2:.3f}s: '
+            f'{EXAMPLE_APRIL_ARCHIVE_URL}',
             stderr,
         )
 
@@ -546,7 +615,7 @@ class ScraperCliTest(unittest.TestCase):
             with patch.object(
                 cli,
                 FETCH_PRESS_PAGE_HTML_ATTR,
-                side_effect=html_by_url.__getitem__,
+                side_effect=_rate_limited_html_fetcher(html_by_url),
             ):
                 exit_code, stdout, stderr = _run_cli_raw(
                     *_url_args(),
@@ -554,7 +623,6 @@ class ScraperCliTest(unittest.TestCase):
                     *_verbose_args(),
                     *_no_stdout_json_args(),
                     *_output_args(output_path),
-                    request_interval_seconds=3.0,
                 )
 
             saved_payload = json.loads(
@@ -564,13 +632,17 @@ class ScraperCliTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(stdout, '')
         self.assertEqual(saved_payload['count'], 1)
-        self.assertIn(f'fetching index: {EXAMPLE_INDEX_URL}', stderr)
         self.assertIn(
-            'waiting 3s before fetching archive page',
+            f'request 1 started at +0.000s: {EXAMPLE_INDEX_URL}',
             stderr,
         )
         self.assertIn(
-            f'fetching archive page: {EXAMPLE_MAY_ARCHIVE_URL}',
+            f'waiting {cli.REQUEST_INTERVAL_SECONDS:g}s before request 2: '
+            f'{EXAMPLE_MAY_ARCHIVE_URL}',
+            stderr,
+        )
+        self.assertIn(
+            f'archive page 1/1: {EXAMPLE_MAY_ARCHIVE_URL}',
             stderr,
         )
 
@@ -585,7 +657,7 @@ class ScraperCliTest(unittest.TestCase):
         with patch.object(
             cli,
             FETCH_PRESS_PAGE_HTML_ATTR,
-            side_effect=html_by_url.__getitem__,
+            side_effect=lambda url, **_kwargs: html_by_url[url],
         ):
             payload = _run_cli(
                 *_url_args(),
@@ -704,7 +776,9 @@ class ScraperCliTest(unittest.TestCase):
                 *_archive_month_limit_args(limit=0),
             )
 
-        mock_fetch.assert_called_once_with(EXAMPLE_INDEX_URL)
+        mock_fetch.assert_called_once()
+        self.assertEqual(mock_fetch.call_args.args, (EXAMPLE_INDEX_URL,))
+        self.assertIsNotNone(mock_fetch.call_args.kwargs['rate_limiter'])
         self.assertEqual(payload['exit_code'], 0)
         self.assertEqual(payload['count'], 2)
         self.assertEqual(
@@ -990,20 +1064,29 @@ class ScraperCliTest(unittest.TestCase):
         self.assertIn(r'\x1b[31m', stderr.getvalue())
         self.assertIn(r'\x1b[0m', stderr.getvalue())
 
-    def test_print_progress_normalizes_message_to_one_line(self) -> None:
-        """verbose進捗メッセージの改行をstderrへ持ち込まないこと"""
+    def test_print_progress_sanitizes_message(self) -> None:
+        """verbose進捗の認証情報と制御文字をstderrへ出さないこと"""
 
+        credential_url = (
+            'https://user:password@example.com/press/index.html'
+        )
         stderr = io.StringIO()
 
         with redirect_stderr(stderr):
             cli._print_progress(
                 True,
-                f'fetching index: {EXAMPLE_INDEX_URL}\ninjected=true',
+                f'fetching index: {credential_url}\ninjected=true\x1b[31m',
             )
 
         self.assertEqual(len(stderr.getvalue().splitlines()), 1)
+        self.assertNotIn('user:password', stderr.getvalue())
+        self.assertNotIn('\x1b', stderr.getvalue())
         self.assertIn(
-            f'fetching index: {EXAMPLE_INDEX_URL} injected=true',
+            (
+                'fetching index: '
+                'https://[redacted]@example.com/press/index.html '
+                r'injected=true\x1b[31m'
+            ),
             stderr.getvalue(),
         )
 
@@ -1115,7 +1198,7 @@ class ScraperCliTest(unittest.TestCase):
     def test_main_stops_when_archive_month_page_fetch_fails(self) -> None:
         """月別ページ取得時の例外で途中結果をJSON出力しないこと"""
 
-        def fetcher(url: str) -> str:
+        def fetcher(url: str, **_kwargs: object) -> str:
             # 最初のindex.html取得だけ成功させ、月別ページ取得で失敗させる。
             if url == EXAMPLE_INDEX_URL:
                 return _press_index_html()

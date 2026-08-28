@@ -3,7 +3,9 @@ from datetime import date
 import io
 import json
 from pathlib import Path
+import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import MagicMock, Mock, patch
 
@@ -789,10 +791,10 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         )
 
         with patch.object(
-            fetch_and_save_env_press.subprocess,
-            "run",
-        ) as mock_run:
-            mock_run.return_value = completed
+            fetch_and_save_env_press,
+            "_run_scraper_process",
+            return_value=completed,
+        ):
             with self.assertRaises(RuntimeError) as raised:
                 fetch_and_save_env_press._collect_releases_from_scraper_cli(
                     args,
@@ -807,8 +809,41 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         self.assertIn("URL形式が不正な発表", message)
         self.assertIn("href='/press/日本語.html'", message)
 
+    def test_collect_releases_keeps_final_error_after_long_progress(
+        self,
+    ) -> None:
+        """長い進捗の末尾にある子プロセス失敗理由を保持すること"""
+
+        final_reason = "final fetch failure"
+        completed = Mock(
+            returncode=1,
+            stdout="",
+            stderr=("progress line\n" * 200) + f"error: {final_reason}\n",
+        )
+        args = Mock(
+            url=INDEX_URL,
+            from_file=None,
+            archive_month_limit=None,
+            all_archive_months=False,
+            verbose=True,
+        )
+
+        with patch.object(
+            fetch_and_save_env_press,
+            "_run_scraper_process",
+            return_value=completed,
+        ):
+            with self.assertRaises(RuntimeError) as raised:
+                fetch_and_save_env_press._collect_releases_from_scraper_cli(
+                    args,
+                    io.StringIO(),
+                    (),
+                )
+
+        self.assertIn(final_reason, str(raised.exception))
+
     def test_collect_releases_forwards_verbose_stderr_on_success(self) -> None:
-        """verbose時はscraper CLIの進捗をstderrへ流すこと"""
+        """verbose時は子プロセス終了前にscraper進捗を転送すること"""
 
         from press_watch_api.commands import fetch_and_save_env_press
 
@@ -831,13 +866,61 @@ class FetchAndSaveCommandTest(unittest.TestCase):
             all_archive_months=False,
             verbose=True,
         )
-        stderr = io.StringIO()
+        progress_forwarded = threading.Event()
 
-        with patch.object(
-            fetch_and_save_env_press.subprocess,
-            "run",
-        ) as mock_run:
-            mock_run.return_value = completed
+        class ProgressOutput(io.StringIO):
+            """進捗書き込みを偽子プロセスへ通知する出力先"""
+
+            def write(self, value: str) -> int:
+                written = super().write(value)
+                progress_forwarded.set()
+                return written
+
+        class FakeProcess:
+            """進捗転送後にだけ終了する偽子プロセス"""
+
+            def __init__(self) -> None:
+                self.stdout = io.StringIO(completed.stdout)
+                self.stderr = io.StringIO(completed.stderr)
+                self.returncode: int | None = None
+                self.waited_after_forward = False
+
+            def poll(self) -> int | None:
+                if progress_forwarded.is_set():
+                    self.returncode = 0
+                return self.returncode
+
+            def wait(self, timeout: float | None = None) -> int:
+                if not progress_forwarded.wait(timeout):
+                    raise fetch_and_save_env_press.subprocess.TimeoutExpired(
+                        "scraper",
+                        timeout,
+                    )
+                self.waited_after_forward = True
+                self.returncode = 0
+                return 0
+
+            def terminate(self) -> None:
+                self.returncode = 1
+
+            def kill(self) -> None:
+                self.returncode = 1
+
+        stderr = ProgressOutput()
+        process = FakeProcess()
+
+        with (
+            patch.object(
+                fetch_and_save_env_press.subprocess,
+                "Popen",
+                return_value=process,
+            ) as mock_popen,
+            patch.object(
+                fetch_and_save_env_press.subprocess,
+                "run",
+                return_value=completed,
+            ) as mock_run,
+        ):
 
             fetch_and_save_env_press._collect_releases_from_scraper_cli(
                 args,
@@ -845,7 +928,246 @@ class FetchAndSaveCommandTest(unittest.TestCase):
                 (),
             )
 
+        mock_popen.assert_called_once()
+        mock_run.assert_not_called()
+        self.assertTrue(process.waited_after_forward)
         self.assertEqual(stderr.getvalue(), completed.stderr)
+
+    def test_run_scraper_process_stops_child_when_progress_output_fails(
+        self,
+    ) -> None:
+        """進捗転送失敗時は子プロセスをkillして回収すること"""
+
+        progress_failed = threading.Event()
+
+        class FailingOutput:
+            """write時に失敗する進捗出力先"""
+
+            def write(self, _value: str) -> int:
+                progress_failed.set()
+                raise OSError("output unavailable")
+
+            def flush(self) -> None:
+                return None
+
+        class WaitingStdout(io.StringIO):
+            """進捗転送失敗後に読込を終える偽stdout"""
+
+            def read(self, *args: object, **kwargs: object) -> str:
+                progress_failed.wait(timeout=1.0)
+                return super().read(*args, **kwargs)
+
+        class FakeProcess:
+            """kill後にだけ終了する偽子プロセス"""
+
+            def __init__(self) -> None:
+                self.stdout = WaitingStdout("{}")
+                self.stderr = io.StringIO("progress\n")
+                self.returncode: int | None = None
+                self.terminate_calls = 0
+                self.kill_calls = 0
+
+            def wait(self, timeout: float | None = None) -> int:
+                if self.kill_calls == 0:
+                    raise fetch_and_save_env_press.subprocess.TimeoutExpired(
+                        "scraper",
+                        timeout,
+                    )
+                self.returncode = 1
+                return 1
+
+            def terminate(self) -> None:
+                self.terminate_calls += 1
+
+            def kill(self) -> None:
+                self.kill_calls += 1
+
+        process = FakeProcess()
+        with patch.object(
+            fetch_and_save_env_press.subprocess,
+            "Popen",
+            return_value=process,
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "scraper progress output failed",
+            ):
+                fetch_and_save_env_press._run_scraper_process(
+                    ["scraper"],
+                    cwd=Path("."),
+                    env={},
+                    stderr=FailingOutput(),
+                    forward_stderr=True,
+                )
+
+        self.assertGreaterEqual(process.terminate_calls, 1)
+        self.assertEqual(process.kill_calls, 1)
+
+    def test_progress_failure_does_not_wait_for_stdout_eof(self) -> None:
+        """進捗転送失敗時はstdout EOFを待たずに子を停止すること"""
+
+        progress_failed = threading.Event()
+        release_stdout = threading.Event()
+        child_killed = threading.Event()
+
+        class FailingOutput:
+            def write(self, _value: str) -> int:
+                progress_failed.set()
+                raise OSError("output unavailable")
+
+        class BlockingStdout(io.StringIO):
+            def read(self, *args: object, **kwargs: object) -> str:
+                release_stdout.wait()
+                return super().read(*args, **kwargs)
+
+        class FakeProcess:
+            def __init__(self) -> None:
+                self.stdout = BlockingStdout("{}")
+                self.stderr = io.StringIO("progress\n")
+                self.returncode: int | None = None
+
+            def wait(self, timeout: float | None = None) -> int:
+                if not child_killed.is_set():
+                    raise fetch_and_save_env_press.subprocess.TimeoutExpired(
+                        "scraper",
+                        timeout,
+                    )
+                self.returncode = 1
+                return 1
+
+            def terminate(self) -> None:
+                return None
+
+            def kill(self) -> None:
+                child_killed.set()
+                release_stdout.set()
+
+        process = FakeProcess()
+        raised_errors: list[BaseException] = []
+
+        def run_process() -> None:
+            try:
+                fetch_and_save_env_press._run_scraper_process(
+                    ["scraper"],
+                    cwd=Path("."),
+                    env={},
+                    stderr=FailingOutput(),
+                    forward_stderr=True,
+                )
+            except BaseException as exc:
+                raised_errors.append(exc)
+
+        with patch.object(
+            fetch_and_save_env_press.subprocess,
+            "Popen",
+            return_value=process,
+        ):
+            worker = threading.Thread(target=run_process)
+            worker.start()
+            try:
+                killed_before_stdout_eof = child_killed.wait(timeout=0.2)
+            finally:
+                release_stdout.set()
+                worker.join(timeout=1.0)
+
+        self.assertTrue(killed_before_stdout_eof)
+        self.assertFalse(worker.is_alive())
+        self.assertIsInstance(raised_errors[0], RuntimeError)
+
+    def test_run_scraper_process_drains_large_stdout_and_stderr(self) -> None:
+        """大量のstdoutとstderrを同時に読み取りデッドロックしないこと"""
+
+        output_size = 200_000
+        completed = fetch_and_save_env_press._run_scraper_process(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import sys; "
+                    f"sys.stderr.write('e' * {output_size}); "
+                    "sys.stderr.flush(); "
+                    f"sys.stdout.write('o' * {output_size}); "
+                    "sys.stdout.flush()"
+                ),
+            ],
+            cwd=Path("."),
+            env={"PYTHONUTF8": "1"},
+            stderr=io.StringIO(),
+            forward_stderr=False,
+        )
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(len(completed.stdout), output_size)
+        self.assertLessEqual(
+            len(completed.stderr),
+            fetch_and_save_env_press.MAX_DIAGNOSTIC_VALUE_LENGTH + 1,
+        )
+
+    def test_run_scraper_process_keeps_only_recent_stderr_lines(self) -> None:
+        """長時間実行のstderrは最新の50行だけ保持すること"""
+
+        completed = fetch_and_save_env_press._run_scraper_process(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import sys; "
+                    "[print(f'progress {index}', file=sys.stderr) "
+                    "for index in range(100)]; "
+                    "print('final error', file=sys.stderr)"
+                ),
+            ],
+            cwd=Path("."),
+            env={"PYTHONUTF8": "1"},
+            stderr=io.StringIO(),
+            forward_stderr=False,
+        )
+
+        stderr_lines = completed.stderr.splitlines()
+        self.assertLessEqual(len(stderr_lines), 50)
+        self.assertNotIn("progress 0", stderr_lines)
+        self.assertEqual(stderr_lines[-1], "final error")
+
+    def test_run_scraper_process_stops_child_when_interrupted(self) -> None:
+        """親プロセス中断時は子プロセスを停止して再送出すること"""
+
+        class FakeProcess:
+            """最初のwaitでCtrl+C相当を再現する偽子プロセス"""
+
+            def __init__(self) -> None:
+                self.stdout = io.StringIO("{}")
+                self.stderr = io.StringIO("")
+                self.returncode: int | None = None
+                self.terminate_calls = 0
+
+            def wait(self, timeout: float | None = None) -> int:
+                if self.terminate_calls == 0:
+                    raise KeyboardInterrupt
+                self.returncode = 1
+                return 1
+
+            def terminate(self) -> None:
+                self.terminate_calls += 1
+
+            def kill(self) -> None:
+                self.returncode = 1
+
+        process = FakeProcess()
+        with patch.object(
+            fetch_and_save_env_press.subprocess,
+            "Popen",
+            return_value=process,
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                fetch_and_save_env_press._run_scraper_process(
+                    ["scraper"],
+                    cwd=Path("."),
+                    env={},
+                    stderr=io.StringIO(),
+                    forward_stderr=False,
+                )
+
+        self.assertEqual(process.terminate_calls, 1)
 
     def test_collect_releases_forwards_known_release_urls_file(self) -> None:
         """既知URLを改行区切りファイルとしてscraper CLIへ渡すこと"""
@@ -884,10 +1206,10 @@ class FetchAndSaveCommandTest(unittest.TestCase):
             return completed
 
         with patch.object(
-            fetch_and_save_env_press.subprocess,
-            "run",
-        ) as mock_run:
-            mock_run.side_effect = run_subprocess
+            fetch_and_save_env_press,
+            "_run_scraper_process",
+            side_effect=run_subprocess,
+        ):
 
             collected = (
                 fetch_and_save_env_press._collect_releases_from_scraper_cli(

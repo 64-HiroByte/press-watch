@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import re
 import sys
-from time import sleep
+from time import monotonic, sleep
 
 from .env_press import (
     CHARSET,
@@ -16,6 +16,7 @@ from .env_press import (
     CrawlStopReason,
     PressRelease,
     REQUEST_INTERVAL_SECONDS,
+    _RequestRateLimiter,
     crawl_press_releases,
     fetch_press_page_html,
     parse_archive_month_links,
@@ -139,26 +140,25 @@ def main() -> int:
         if args.all_archive_months or archive_month_limit_value > 0:
             source_url = args.url
 
+            def progress(message: str) -> None:
+                _print_progress(args.verbose, message)
+
+            rate_limiter = _RequestRateLimiter(
+                interval_seconds=REQUEST_INTERVAL_SECONDS,
+                clock=monotonic,
+                sleeper=sleep,
+                progress=progress,
+            )
+
             def fetcher(url: str) -> str:
                 nonlocal error_target
 
                 # 取得に失敗したとき、stderrへそのURLを表示できるようにする。
                 error_target = url
-                if url == args.url:
-                    _print_progress(args.verbose, f'fetching index: {url}')
-                else:
-                    _print_progress(
-                        args.verbose,
-                        f'fetching archive page: {url}',
-                    )
-                return fetch_press_page_html(url)
-
-            def sleeper(seconds: float) -> None:
-                _print_progress(
-                    args.verbose,
-                    f'waiting {seconds:g}s before fetching archive page',
+                return fetch_press_page_html(
+                    url,
+                    rate_limiter=rate_limiter,
                 )
-                sleep(seconds)
 
             crawl_result = crawl_press_releases(
                 start_url=args.url,
@@ -167,7 +167,8 @@ def main() -> int:
                 fetcher=fetcher,
                 known_release_urls=known_release_urls,
                 request_interval_seconds=REQUEST_INTERVAL_SECONDS,
-                sleeper=sleeper,
+                sleeper=sleep,
+                progress=progress,
             )
             releases = crawl_result.releases
             archive_month_links = crawl_result.archive_month_links
@@ -186,8 +187,19 @@ def main() -> int:
             fetched_page_urls: list[str] = []
             stop_reason = None
         else:
-            _print_progress(args.verbose, f'fetching page: {args.url}')
-            html = fetch_press_page_html(args.url)
+            def progress(message: str) -> None:
+                _print_progress(args.verbose, message)
+
+            rate_limiter = _RequestRateLimiter(
+                interval_seconds=REQUEST_INTERVAL_SECONDS,
+                clock=monotonic,
+                sleeper=sleep,
+                progress=progress,
+            )
+            html = fetch_press_page_html(
+                args.url,
+                rate_limiter=rate_limiter,
+            )
             source_url = args.url
             base_url = args.url
             releases = parse_press_releases(html, base_url=base_url)
@@ -314,7 +326,7 @@ def _print_progress(enabled: bool, message: str) -> None:
     """
 
     if enabled:
-        print(_one_line(message), file=sys.stderr)
+        print(_one_line(message), file=sys.stderr, flush=True)
 
 
 def _write_stdout_json(json_text: str) -> None:
