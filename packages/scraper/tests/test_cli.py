@@ -43,6 +43,7 @@ DUPLICATE_RELEASE_DETECTED = 'duplicate_release_detected'
 # CLI引数
 ALL_ARCHIVE_MONTHS_ARG = '--all-archive-months'
 ARCHIVE_MONTH_LIMIT_ARG = '--archive-month-limit'
+CLEANUP_CRAWL_STATE_ARG = '--cleanup-crawl-state'
 CRAWL_STATE_DIR_ARG = '--crawl-state-dir'
 FROM_FILE_ARG = '--from-file'
 KNOWN_RELEASE_URLS_FILE_ARG = '--known-release-urls-file'
@@ -346,6 +347,17 @@ def _refetch_invalid_pages_args() -> tuple[str]:
     return (REFETCH_INVALID_PAGES_ARG,)
 
 
+def _cleanup_crawl_state_args(path: Path) -> tuple[str, str]:
+    """完了巡回state削除指定のCLI引数を生成
+
+    Args:
+        path: `--cleanup-crawl-state` に渡すディレクトリパス
+
+    Returns:
+        `--cleanup-crawl-state` とディレクトリパス値の引数列
+    """
+
+    return (CLEANUP_CRAWL_STATE_ARG, str(path))
 
 
 def _cli_argv(*args: str) -> list[str]:
@@ -1140,8 +1152,109 @@ class ScraperCliTest(unittest.TestCase):
         )
         self.assertEqual(refetched_urls, [EXAMPLE_INDEX_URL])
 
+    def test_main_cleans_up_valid_completed_crawl_state(self) -> None:
+        """検証済み完了stateだけを専用操作で削除すること"""
 
+        html_by_url = _archive_html_by_url()
 
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_dir = Path(temp_dir) / 'crawl-state'
+
+            with patch.object(
+                cli,
+                FETCH_PRESS_PAGE_HTML_ATTR,
+                side_effect=lambda url, **_kwargs: html_by_url[url],
+            ):
+                initial_payload = _run_cli(
+                    *_url_args(),
+                    *_all_archive_months_args(),
+                    *_crawl_state_dir_args(state_dir),
+                )
+
+            with patch.object(
+                cli,
+                FETCH_PRESS_PAGE_HTML_ATTR,
+            ) as cleanup_fetch:
+                cleanup_exit_code, cleanup_stdout, cleanup_stderr = (
+                    _run_cli_raw(*_cleanup_crawl_state_args(state_dir))
+                )
+
+            state_exists_after_cleanup = state_dir.exists()
+
+        self.assertEqual(initial_payload['exit_code'], 0)
+        self.assertEqual(cleanup_exit_code, 0)
+        self.assertEqual(cleanup_stdout, '')
+        self.assertIn('deleted crawl state', cleanup_stderr)
+        self.assertFalse(state_exists_after_cleanup)
+        cleanup_fetch.assert_not_called()
+
+    def test_main_refuses_cleanup_of_incomplete_crawl_state(self) -> None:
+        """未完了stateのcleanupは何も削除せず失敗すること"""
+
+        html_by_url = _archive_html_by_url()
+
+        def failing_fetcher(url: str, **_kwargs: object) -> str:
+            if url == EXAMPLE_APRIL_ARCHIVE_URL:
+                raise URLError(FETCH_ERROR_REASON)
+            return html_by_url[url]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_dir = Path(temp_dir) / 'crawl-state'
+
+            with patch.object(
+                cli,
+                FETCH_PRESS_PAGE_HTML_ATTR,
+                side_effect=failing_fetcher,
+            ):
+                crawl_exit_code, _crawl_stdout, _crawl_stderr = _run_cli_raw(
+                    *_url_args(),
+                    *_all_archive_months_args(),
+                    *_crawl_state_dir_args(state_dir),
+                )
+
+            cleanup_exit_code, cleanup_stdout, cleanup_stderr = _run_cli_raw(
+                *_cleanup_crawl_state_args(state_dir)
+            )
+            manifest_still_exists = (state_dir / 'manifest.json').is_file()
+
+        self.assertEqual(crawl_exit_code, 1)
+        self.assertEqual(cleanup_exit_code, 1)
+        self.assertEqual(cleanup_stdout, '')
+        self.assertIn('crawl state is not complete', cleanup_stderr)
+        self.assertTrue(manifest_still_exists)
+
+    def test_main_refuses_cleanup_when_state_has_unmanaged_file(self) -> None:
+        """管理外ファイルがある完了stateは何も削除しないこと"""
+
+        html_by_url = _archive_html_by_url()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_dir = Path(temp_dir) / 'crawl-state'
+
+            with patch.object(
+                cli,
+                FETCH_PRESS_PAGE_HTML_ATTR,
+                side_effect=lambda url, **_kwargs: html_by_url[url],
+            ):
+                _run_cli(
+                    *_url_args(),
+                    *_all_archive_months_args(),
+                    *_crawl_state_dir_args(state_dir),
+                )
+
+            unmanaged_path = state_dir / 'keep.txt'
+            unmanaged_path.write_text('keep', encoding='utf-8')
+            cleanup_exit_code, cleanup_stdout, cleanup_stderr = _run_cli_raw(
+                *_cleanup_crawl_state_args(state_dir)
+            )
+            manifest_still_exists = (state_dir / 'manifest.json').is_file()
+            unmanaged_still_exists = unmanaged_path.is_file()
+
+        self.assertEqual(cleanup_exit_code, 1)
+        self.assertEqual(cleanup_stdout, '')
+        self.assertIn('unmanaged crawl state entry', cleanup_stderr)
+        self.assertTrue(manifest_still_exists)
+        self.assertTrue(unmanaged_still_exists)
 
     def test_main_uses_known_release_urls_for_archive_crawl(self) -> None:
         """既知URLだけの月に到達した停止理由をJSONへ出すこと"""

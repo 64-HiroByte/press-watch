@@ -9,7 +9,7 @@ import re
 import sys
 from time import monotonic, sleep
 
-from .crawl_state import CrawlState
+from .crawl_state import CrawlState, cleanup_crawl_state
 from .env_press import (
     CHARSET,
     PRESS_INDEX_URL,
@@ -82,6 +82,11 @@ def main() -> int:
         help='Refetch invalid saved pages during an explicit resume.',
     )
     parser.add_argument(
+        '--cleanup-crawl-state',
+        type=Path,
+        help='Remove a validated completed local crawl state.',
+    )
+    parser.add_argument(
         '--output',
         type=Path,
         help='Write the same JSON snapshot as stdout to this path.',
@@ -142,6 +147,23 @@ def main() -> int:
             '--crawl-state-dir requires --archive-month-limit greater than 0 '
             'or --all-archive-months.'
         )
+    if args.cleanup_crawl_state is not None and any(
+        (
+            args.from_file is not None,
+            archive_month_limit is not None,
+            args.all_archive_months,
+            args.known_release_urls_file is not None,
+            args.crawl_state_dir is not None,
+            args.resume,
+            args.refetch_invalid_pages,
+            args.output is not None,
+            args.no_stdout_json,
+        )
+    ):
+        parser.error(
+            '--cleanup-crawl-state cannot be combined with crawl or output '
+            'options.'
+        )
     if args.no_stdout_json and args.output is None:
         parser.error('--no-stdout-json requires --output.')
     if (
@@ -154,6 +176,20 @@ def main() -> int:
     error_target = (
         str(args.from_file) if args.from_file is not None else args.url
     )
+
+    if args.cleanup_crawl_state is not None:
+        error_target = str(args.cleanup_crawl_state)
+        try:
+            cleanup_crawl_state(args.cleanup_crawl_state)
+        except Exception as exc:
+            _print_runtime_error(error_target, exc)
+            return 1
+        print(
+            'deleted crawl state: '
+            f'{_one_line(str(args.cleanup_crawl_state))}',
+            file=sys.stderr,
+        )
+        return 0
 
     # 成功時だけJSONをstdoutへ出す。途中で失敗した場合は、
     # 途中結果を出さずにstderrと終了コードで失敗を伝える。
