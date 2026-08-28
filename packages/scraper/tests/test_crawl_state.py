@@ -11,6 +11,7 @@ from press_watch_scraper import crawl_state
 from press_watch_scraper.crawl_state import (
     CrawlState,
     CrawlStateError,
+    cleanup_crawl_state,
 )
 from press_watch_scraper.env_press import ArchiveMonthLink
 
@@ -342,6 +343,23 @@ class CrawlStateTest(unittest.TestCase):
                     all_archive_months=True,
                 )
 
+    def test_cleanup_removes_recognized_internal_temporary_files(self) -> None:
+        """完了stateの内部一時ファイルは管理対象として削除すること"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / 'state'
+            _complete_index_only_state(root)
+            manifest_temp = root / '.manifest.json.interrupted.tmp'
+            page_temp = root / 'pages' / '.index.html.interrupted.tmp'
+            manifest_temp.write_text('temporary', encoding='utf-8')
+            page_temp.write_text('temporary', encoding='utf-8')
+            manifest_temp.chmod(0o600)
+            page_temp.chmod(0o600)
+
+            cleanup_crawl_state(root)
+            root_exists = root.exists()
+
+        self.assertFalse(root_exists)
 
 
 if __name__ == '__main__':

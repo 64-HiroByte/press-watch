@@ -526,6 +526,49 @@ class CrawlState:
         )
 
 
+def cleanup_crawl_state(root: Path) -> None:
+    """検証済みの完了巡回stateを削除
+
+    削除対象をすべて検証してから、manifestで管理するHTML、内部一時
+    ファイル、manifest、空ディレクトリの順に削除する。
+
+    Args:
+        root: 削除するstateディレクトリ
+
+    Raises:
+        CrawlStateError: 未完了、破損、管理外ファイルなどを検出した場合
+    """
+
+    _validate_existing_state_directory(root)
+    manifest_path = root / MANIFEST_FILENAME
+    manifest = _read_manifest(manifest_path)
+    start_url = manifest.get('start_url')
+    crawl_mode = manifest.get('crawl_mode')
+    archive_month_limit = manifest.get('archive_month_limit')
+    if not isinstance(start_url, str) or not isinstance(crawl_mode, str):
+        raise CrawlStateError('crawl state manifest fields are invalid')
+    validated_start_url = _validated_url(start_url)
+    _validate_manifest(
+        manifest,
+        expected_start_url=validated_start_url,
+        expected_mode=crawl_mode,
+        expected_limit=archive_month_limit,
+    )
+    if manifest['status'] != 'complete':
+        raise CrawlStateError('crawl state is not complete')
+    if any(page['status'] != 'parsed' for page in manifest['pages']):
+        raise CrawlStateError('completed crawl state has unparsed pages')
+
+    state = CrawlState(root, manifest)
+    for page in manifest['pages']:
+        state._read_valid_page(page)
+
+    page_paths, temporary_paths = _validated_cleanup_entries(root, manifest)
+    for path in [*page_paths, *temporary_paths]:
+        path.unlink()
+    manifest_path.unlink()
+    (root / PAGES_DIRECTORY_NAME).rmdir()
+    root.rmdir()
 
 
 def _new_page(
@@ -677,8 +720,80 @@ def _read_manifest(path: Path) -> dict[str, Any]:
     return manifest_value
 
 
+def _validated_cleanup_entries(
+    root: Path,
+    manifest: dict[str, Any],
+) -> tuple[list[Path], list[Path]]:
+    """cleanup対象だけでstateが構成されていることを事前検証
+
+    この関数では削除せず、ディレクトリ内の項目をmanifest管理下の
+    HTMLと内部一時ファイルへ分類し、管理外項目がないことを確認する。
+
+    Args:
+        root: cleanup対象のstateディレクトリ
+        manifest: 検証済みの完了manifest
+
+    Returns:
+        manifest管理下のHTMLパスと内部一時ファイルパス
+
+    Raises:
+        CrawlStateError: symlink、管理外項目、権限不正を検出した場合
+    """
+
+    pages_directory = root / PAGES_DIRECTORY_NAME
+    expected_page_paths = {
+        root / page['file'] for page in manifest['pages']
+    }
+    temporary_paths: list[Path] = []
+
+    for entry in root.iterdir():
+        if entry in {root / MANIFEST_FILENAME, pages_directory}:
+            continue
+        if _is_internal_temporary_file(entry, {MANIFEST_FILENAME}):
+            temporary_paths.append(entry)
+            continue
+        raise CrawlStateError(
+            f'unmanaged crawl state entry: {entry.name}'
+        )
+
+    expected_page_names = {path.name for path in expected_page_paths}
+    for entry in pages_directory.iterdir():
+        if entry in expected_page_paths:
+            continue
+        if _is_internal_temporary_file(entry, expected_page_names):
+            temporary_paths.append(entry)
+            continue
+        raise CrawlStateError(
+            f'unmanaged crawl state entry: {entry.name}'
+        )
+
+    for temporary_path in temporary_paths:
+        _validate_state_file(temporary_path, 'crawl state temporary file')
+    return sorted(expected_page_paths), temporary_paths
 
 
+def _is_internal_temporary_file(
+    path: Path,
+    target_names: set[str],
+) -> bool:
+    """原子的保存で生成される内部一時ファイルか判定
+
+    Args:
+        path: 判定するファイルパス
+        target_names: 一時ファイルの置換先として許可するファイル名
+
+    Returns:
+        許可した置換先の内部一時ファイルならTrue
+    """
+
+    if path.is_symlink() or not path.is_file():
+        return False
+    return any(
+        path.name.startswith(f'.{target_name}.')
+        and path.name.endswith('.tmp')
+        and len(path.name) > len(target_name) + len('...tmp')
+        for target_name in target_names
+    )
 
 
 def _validate_manifest(
