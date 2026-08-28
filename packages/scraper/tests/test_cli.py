@@ -341,16 +341,12 @@ def _run_cli(*args: str) -> dict[str, object]:
     return payload
 
 
-def _run_cli_raw(
-    *args: str,
-    request_interval_seconds: float = 3.0,
-) -> tuple[int, str, str]:
+def _run_cli_raw(*args: str) -> tuple[int, str, str]:
     """CLIを実行して終了コード、stdout、stderrを取得
 
     Args:
         args: プログラム名を除くCLI引数。stderrを検証したい失敗系で使う。
             例: `*_from_file_args(path), *_all_archive_months_args()`
-        request_interval_seconds: テスト時に差し替える巡回待機秒数
 
     Returns:
         終了コード、stdout、stderr
@@ -362,15 +358,10 @@ def _run_cli_raw(
 
     # main()を直接呼ぶため、CLI引数・標準出力・巡回待機をテスト内で差し替える。
     with patch('sys.argv', _cli_argv(*args)):
-        with patch.object(
-            cli,
-            'REQUEST_INTERVAL_SECONDS',
-            request_interval_seconds,
-        ):
-            with patch.object(cli, 'monotonic', fake_clock):
-                with patch.object(cli, 'sleep', fake_clock.sleep):
-                    with redirect_stdout(stdout), redirect_stderr(stderr):
-                        exit_code = cli.main()
+        with patch.object(cli, 'monotonic', fake_clock):
+            with patch.object(cli, 'sleep', fake_clock.sleep):
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    exit_code = cli.main()
 
     return exit_code, stdout.getvalue(), stderr.getvalue()
 
@@ -585,7 +576,6 @@ class ScraperCliTest(unittest.TestCase):
                 *_url_args(),
                 *_archive_month_limit_args(limit=2),
                 *_verbose_args(),
-                request_interval_seconds=3.0,
             )
 
         self.assertEqual(exit_code, 0)
@@ -595,7 +585,8 @@ class ScraperCliTest(unittest.TestCase):
             stderr,
         )
         self.assertIn(
-            f'waiting 3s before request 2: {EXAMPLE_MAY_ARCHIVE_URL}',
+            f'waiting {cli.REQUEST_INTERVAL_SECONDS:g}s before request 2: '
+            f'{EXAMPLE_MAY_ARCHIVE_URL}',
             stderr,
         )
         self.assertIn(
@@ -607,7 +598,9 @@ class ScraperCliTest(unittest.TestCase):
             stderr,
         )
         self.assertIn(
-            f'request 3 started at +6.000s: {EXAMPLE_APRIL_ARCHIVE_URL}',
+            f'request 3 started at '
+            f'+{cli.REQUEST_INTERVAL_SECONDS * 2:.3f}s: '
+            f'{EXAMPLE_APRIL_ARCHIVE_URL}',
             stderr,
         )
 
@@ -630,7 +623,6 @@ class ScraperCliTest(unittest.TestCase):
                     *_verbose_args(),
                     *_no_stdout_json_args(),
                     *_output_args(output_path),
-                    request_interval_seconds=3.0,
                 )
 
             saved_payload = json.loads(
@@ -645,7 +637,8 @@ class ScraperCliTest(unittest.TestCase):
             stderr,
         )
         self.assertIn(
-            f'waiting 3s before request 2: {EXAMPLE_MAY_ARCHIVE_URL}',
+            f'waiting {cli.REQUEST_INTERVAL_SECONDS:g}s before request 2: '
+            f'{EXAMPLE_MAY_ARCHIVE_URL}',
             stderr,
         )
         self.assertIn(
