@@ -34,13 +34,35 @@ def _create_state(root: Path) -> CrawlState:
     )
 
 
-def _complete_index_only_state(root: Path) -> CrawlState:
-    """indexページだけを持つ完了stateを作成"""
+def _complete_index_only_state(
+    root: Path,
+    *,
+    start_url: str = INDEX_URL,
+    archive_month_limit: int = 0,
+    all_archive_months: bool = True,
+) -> CrawlState:
+    """指定した巡回条件でindexページだけを持つ完了stateを作成
 
-    state = _create_state(root)
-    state.load_or_fetch(INDEX_URL, lambda _url: INDEX_HTML)
-    state.mark_parsing(INDEX_URL)
-    state.mark_parsed(INDEX_URL)
+    Args:
+        root: stateディレクトリ
+        start_url: 起点ページURL
+        archive_month_limit: 取得する月別ページ数
+        all_archive_months: 全月別ページを巡回するかどうか
+
+    Returns:
+        完了状態の巡回state
+    """
+
+    state = CrawlState.create(
+        root,
+        start_url=start_url,
+        archive_month_limit=archive_month_limit,
+        all_archive_months=all_archive_months,
+    )
+    state.load_or_fetch(start_url, lambda _url: INDEX_HTML)
+    state.mark_parsing(start_url)
+    state.mark_parsed(start_url)
+    state.register_archive_pages(())
     state.mark_complete(COMPLETED_REASON)
     return state
 
@@ -198,6 +220,40 @@ class CrawlStateTest(unittest.TestCase):
             manifest['pages'][0]['failure']['reason'],
         )
 
+    def test_resume_refetches_missing_saved_page_only_when_explicit(
+        self,
+    ) -> None:
+        """欠損HTMLは通常再開で拒否し、明示指定時だけ再取得すること"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / 'state'
+            _complete_index_only_state(root)
+            (root / 'pages' / 'index.html').unlink()
+
+            with self.assertRaisesRegex(
+                CrawlStateError,
+                'cannot be reused',
+            ):
+                CrawlState.resume(
+                    root,
+                    start_url=INDEX_URL,
+                    archive_month_limit=0,
+                    all_archive_months=True,
+                )
+
+            state = CrawlState.resume(
+                root,
+                start_url=INDEX_URL,
+                archive_month_limit=0,
+                all_archive_months=True,
+                refetch_invalid_pages=True,
+            )
+            fetcher = Mock(return_value=INDEX_HTML)
+            html = state.load_or_fetch(INDEX_URL, fetcher)
+
+        self.assertEqual(html, INDEX_HTML)
+        fetcher.assert_called_once_with(INDEX_URL)
+
     def test_resume_moves_completed_state_back_to_in_progress(self) -> None:
         """完了stateの再解析前に全体状態を実行中へ戻すこと"""
 
@@ -219,6 +275,107 @@ class CrawlStateTest(unittest.TestCase):
         self.assertEqual(manifest['status'], 'in_progress')
         self.assertIsNone(manifest['stop_reason'])
         self.assertIsNone(manifest['completed_at'])
+
+    def test_empty_archive_plan_is_persisted_before_crawl_completion(
+        self,
+    ) -> None:
+        """対象0件の月別計画も巡回完了前に確定済みとして保存すること"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / 'state'
+            state = _create_state(root)
+            state.load_or_fetch(INDEX_URL, lambda _url: INDEX_HTML)
+            state.mark_parsing(INDEX_URL)
+            state.mark_parsed(INDEX_URL)
+            state.register_archive_pages(())
+
+            manifest = json.loads(
+                (root / 'manifest.json').read_text(encoding='utf-8')
+            )
+
+        self.assertEqual(manifest['status'], 'in_progress')
+        self.assertIs(manifest['archive_plan_registered'], True)
+        self.assertEqual(len(manifest['pages']), 1)
+
+    def test_mark_complete_rejects_unregistered_archive_plan(self) -> None:
+        """月別計画が未確定のstateを完了扱いにしないこと"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / 'state'
+            state = _create_state(root)
+            state.load_or_fetch(INDEX_URL, lambda _url: INDEX_HTML)
+            state.mark_parsing(INDEX_URL)
+            state.mark_parsed(INDEX_URL)
+
+            with self.assertRaisesRegex(
+                CrawlStateError,
+                'before archive plan registration',
+            ):
+                state.mark_complete(COMPLETED_REASON)
+
+            manifest = json.loads(
+                (root / 'manifest.json').read_text(encoding='utf-8')
+            )
+
+        self.assertEqual(manifest['status'], 'in_progress')
+        self.assertIs(manifest['archive_plan_registered'], False)
+
+    def test_resume_rejects_mismatched_crawl_conditions(self) -> None:
+        """起点URL、巡回モード、月別件数が異なる再開を拒否すること"""
+
+        cases = (
+            (
+                {
+                    'start_url': INDEX_URL,
+                    'archive_month_limit': 0,
+                    'all_archive_months': True,
+                },
+                {
+                    'start_url': 'https://example.com/press/other.html',
+                    'archive_month_limit': 0,
+                    'all_archive_months': True,
+                },
+                'crawl start URL does not match manifest',
+            ),
+            (
+                {
+                    'start_url': INDEX_URL,
+                    'archive_month_limit': 0,
+                    'all_archive_months': True,
+                },
+                {
+                    'start_url': INDEX_URL,
+                    'archive_month_limit': 1,
+                    'all_archive_months': False,
+                },
+                'crawl mode does not match manifest',
+            ),
+            (
+                {
+                    'start_url': INDEX_URL,
+                    'archive_month_limit': 1,
+                    'all_archive_months': False,
+                },
+                {
+                    'start_url': INDEX_URL,
+                    'archive_month_limit': 2,
+                    'all_archive_months': False,
+                },
+                'crawl month limit does not match manifest',
+            ),
+        )
+
+        for create_options, resume_options, expected_reason in cases:
+            with self.subTest(expected_reason=expected_reason):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    root = Path(temp_dir) / 'state'
+                    _complete_index_only_state(root, **create_options)
+
+                    with self.assertRaisesRegex(
+                        CrawlStateError,
+                        expected_reason,
+                    ):
+                        CrawlState.resume(root, **resume_options)
 
     def test_resume_refetches_page_interrupted_during_fetch(self) -> None:
         """取得中断ページは通常再開で未取得として再取得すること"""
@@ -354,6 +511,54 @@ class CrawlStateTest(unittest.TestCase):
         self.assertEqual(manifest['pages'][0]['status'], 'save_failed')
         self.assertEqual(manifest['pages'][0]['failure']['stage'], 'save')
 
+    def test_resume_refetches_save_failed_page_only_when_explicit(
+        self,
+    ) -> None:
+        """保存失敗ページは通常再開で拒否し、明示指定時だけ再取得すること"""
+
+        real_replace = os.replace
+
+        def failing_page_replace(source: object, destination: object) -> None:
+            if Path(destination).name == 'index.html':
+                raise OSError('replace failed')
+            real_replace(source, destination)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / 'state'
+            state = _create_state(root)
+
+            with patch.object(
+                _crawl_state_storage.os,
+                'replace',
+                side_effect=failing_page_replace,
+            ):
+                with self.assertRaisesRegex(OSError, 'replace failed'):
+                    state.load_or_fetch(INDEX_URL, lambda _url: INDEX_HTML)
+
+            with self.assertRaisesRegex(
+                CrawlStateError,
+                'requires --refetch-invalid-pages',
+            ):
+                CrawlState.resume(
+                    root,
+                    start_url=INDEX_URL,
+                    archive_month_limit=0,
+                    all_archive_months=True,
+                )
+
+            resumed_state = CrawlState.resume(
+                root,
+                start_url=INDEX_URL,
+                archive_month_limit=0,
+                all_archive_months=True,
+                refetch_invalid_pages=True,
+            )
+            fetcher = Mock(return_value=INDEX_HTML)
+            html = resumed_state.load_or_fetch(INDEX_URL, fetcher)
+
+        self.assertEqual(html, INDEX_HTML)
+        fetcher.assert_called_once_with(INDEX_URL)
+
     def test_failed_manifest_replace_keeps_previous_manifest(self) -> None:
         """manifest置換失敗時は旧内容を保持して一時ファイルを消すこと"""
 
@@ -410,6 +615,11 @@ class CrawlStateTest(unittest.TestCase):
         cases = (
             ('version', 2, 'version is unsupported'),
             ('version', True, 'version is invalid'),
+            (
+                'archive_plan_registered',
+                'yes',
+                'archive plan status is invalid',
+            ),
             ('status', 'unknown', 'status is invalid'),
             ('status', [], 'status is invalid'),
             ('pages', {}, 'pages are invalid'),
@@ -440,6 +650,31 @@ class CrawlStateTest(unittest.TestCase):
                             all_archive_months=True,
                         )
 
+    def test_resume_rejects_date_without_utc_time(self) -> None:
+        """時刻とUTC情報を持たない日付だけのmanifest日時を拒否すること"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / 'state'
+            _complete_index_only_state(root)
+            manifest_path = root / 'manifest.json'
+            manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+            manifest['created_at'] = '2026-08-28Z'
+            manifest_path.write_text(
+                json.dumps(manifest),
+                encoding='utf-8',
+            )
+
+            with self.assertRaisesRegex(
+                CrawlStateError,
+                'created_at is invalid',
+            ):
+                CrawlState.resume(
+                    root,
+                    start_url=INDEX_URL,
+                    archive_month_limit=0,
+                    all_archive_months=True,
+                )
+
     def test_resume_rejects_malformed_manifest_json(self) -> None:
         """JSONとして壊れたmanifestを再開前に拒否すること"""
 
@@ -454,6 +689,25 @@ class CrawlStateTest(unittest.TestCase):
             with self.assertRaisesRegex(
                 CrawlStateError,
                 'manifest is invalid',
+            ):
+                CrawlState.resume(
+                    root,
+                    start_url=INDEX_URL,
+                    archive_month_limit=0,
+                    all_archive_months=True,
+                )
+
+    def test_resume_rejects_missing_manifest(self) -> None:
+        """manifestが欠損したstateを再開前に拒否すること"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / 'state'
+            _complete_index_only_state(root)
+            (root / 'manifest.json').unlink()
+
+            with self.assertRaisesRegex(
+                CrawlStateError,
+                'manifest is missing or invalid',
             ):
                 CrawlState.resume(
                     root,
@@ -562,6 +816,30 @@ class CrawlStateTest(unittest.TestCase):
             root_exists = root.exists()
 
         self.assertFalse(root_exists)
+
+    def test_cleanup_rejects_hash_mismatch_without_deleting_files(self) -> None:
+        """破損HTMLを検出したcleanupはstateを何も削除しないこと"""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / 'state'
+            _complete_index_only_state(root)
+            page_path = root / 'pages' / 'index.html'
+            original_bytes = page_path.read_bytes()
+            page_path.write_bytes(original_bytes[:-1] + b'X')
+
+            with self.assertRaisesRegex(
+                CrawlStateError,
+                'hash does not match',
+            ):
+                cleanup_crawl_state(root)
+
+            root_still_exists = root.is_dir()
+            manifest_still_exists = (root / 'manifest.json').is_file()
+            page_still_exists = page_path.is_file()
+
+        self.assertTrue(root_still_exists)
+        self.assertTrue(manifest_still_exists)
+        self.assertTrue(page_still_exists)
 
     def test_cleanup_rejects_symlinked_page_without_deleting_files(
         self,

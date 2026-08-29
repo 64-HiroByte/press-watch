@@ -81,7 +81,7 @@
 - 巡回stateは本番へ配置せず、定期差分取得、実行履歴、長期保存、自動再試行の管理には使用しない。
 - state利用時は`--all-archive-months`または正の`--archive-month-limit`を必須とし、`--from-file`と`--known-release-urls-file`は併用しない。
 - 最終JSONはstateディレクトリ外の`--output`へ保存し、巡回全体が完了するまでは解析成功ページを含むHTMLを保持する。
-- HTMLは`pages/index.html`と`pages/archive-NNNN.html`へ保存し、manifestには巡回条件、全体状態、停止理由、ページ別の取得・保存・解析状態、サイズ、SHA-256、UTC日時、失敗段階と理由を記録する。
+- HTMLは`pages/index.html`と`pages/archive-NNNN.html`へ保存し、manifestには巡回条件、月別対象の確定状態、全体状態、停止理由、ページ別の取得・保存・解析状態、サイズ、SHA-256、UTC日時、失敗段階と理由を記録する。
 - HTMLとmanifestは同じディレクトリ内の一時ファイルへ書き、`os.replace()`で原子的に置換する。
 - stateディレクトリと`pages`は`0700`、manifestとHTMLは`0600`で作成する。
 - manifestの日時は確認用であり、再開可否の判定には使用しない。

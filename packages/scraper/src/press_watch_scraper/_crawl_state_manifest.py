@@ -1,6 +1,6 @@
 """ローカル巡回manifestの形式と値の検証"""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import re
 from typing import Any
 
@@ -124,6 +124,7 @@ def validate_manifest(
         'start_url',
         'crawl_mode',
         'archive_month_limit',
+        'archive_plan_registered',
         'status',
         'stop_reason',
         'created_at',
@@ -160,6 +161,8 @@ def validate_manifest(
         or manifest['archive_month_limit'] <= 0
     ):
         raise CrawlStateError('crawl month limit is invalid')
+    if not isinstance(manifest['archive_plan_registered'], bool):
+        raise CrawlStateError('crawl archive plan status is invalid')
     if not isinstance(manifest['status'], str) or manifest['status'] not in {
         'in_progress',
         'failed',
@@ -195,6 +198,10 @@ def validate_manifest(
         raise CrawlStateError('crawl state pages are invalid')
     for index, page in enumerate(pages):
         _validate_page(page, index=index, start_url=expected_start_url)
+    if not manifest['archive_plan_registered'] and len(pages) > 1:
+        raise CrawlStateError(
+            'unregistered crawl archive plan has archive pages'
+        )
     page_urls = [page['url'] for page in pages]
     if len(set(page_urls)) != len(page_urls):
         raise CrawlStateError('crawl state page URLs must be unique')
@@ -212,6 +219,13 @@ def validate_manifest(
     ):
         raise CrawlStateError(
             'completed crawl state has unparsed pages'
+        )
+    if (
+        manifest['status'] == 'complete'
+        and not manifest['archive_plan_registered']
+    ):
+        raise CrawlStateError(
+            'completed crawl state requires an archive plan'
         )
 
 
@@ -398,16 +412,19 @@ def _is_timestamp(value: object) -> bool:
         value: 判定する値
 
     Returns:
-        `Z`で終わる解釈可能な日時文字列ならTrue
+        `Z`で終わるUTCの解釈可能な日時文字列ならTrue
     """
 
     if not isinstance(value, str) or not value.endswith('Z'):
         return False
     try:
-        datetime.fromisoformat(f'{value[:-1]}+00:00')
+        parsed_value = datetime.fromisoformat(f'{value[:-1]}+00:00')
     except ValueError:
         return False
-    return True
+    return (
+        parsed_value.tzinfo is not None
+        and parsed_value.utcoffset() == timedelta(0)
+    )
 
 
 def validated_url(url: str) -> str:

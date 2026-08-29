@@ -43,7 +43,6 @@ def main() -> int:
     )
     parser.add_argument(
         '--url',
-        default=PRESS_INDEX_URL,
         help='HTTP(S) press list page URL to fetch.',
     )
     parser.add_argument(
@@ -102,6 +101,7 @@ def main() -> int:
         help='Do not write the JSON snapshot to stdout.',
     )
     args = parser.parse_args()
+    url_was_explicitly_provided = args.url is not None
 
     archive_month_limit = args.archive_month_limit
     if archive_month_limit is not None and archive_month_limit < 0:
@@ -150,6 +150,7 @@ def main() -> int:
     if args.cleanup_crawl_state is not None and any(
         (
             args.from_file is not None,
+            url_was_explicitly_provided,
             archive_month_limit is not None,
             args.all_archive_months,
             args.known_release_urls_file is not None,
@@ -164,6 +165,8 @@ def main() -> int:
             '--cleanup-crawl-state cannot be combined with crawl or output '
             'options.'
         )
+    if args.url is None:
+        args.url = PRESS_INDEX_URL
     if args.no_stdout_json and args.output is None:
         parser.error('--no-stdout-json requires --output.')
     if (

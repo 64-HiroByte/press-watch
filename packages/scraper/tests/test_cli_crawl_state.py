@@ -19,6 +19,7 @@ from test_cli import (
     FETCH_ERROR_REASON,
     FETCH_PRESS_PAGE_HTML_ATTR,
     _all_archive_months_args,
+    _archive_month_limit_args,
     _archive_html_by_url,
     _cli_argv,
     _from_file_args,
@@ -125,6 +126,7 @@ class ScraperCrawlStateCliTest(unittest.TestCase):
         self.assertEqual(may_html, html_by_url[EXAMPLE_MAY_ARCHIVE_URL])
         self.assertEqual(april_html, html_by_url[EXAMPLE_APRIL_ARCHIVE_URL])
         self.assertEqual(manifest['version'], 1)
+        self.assertIs(manifest['archive_plan_registered'], True)
         self.assertEqual(manifest['status'], 'complete')
         self.assertEqual(
             [page['status'] for page in manifest['pages']],
@@ -141,6 +143,43 @@ class ScraperCrawlStateCliTest(unittest.TestCase):
         self.assertIsNotNone(manifest['created_at'])
         self.assertIsNotNone(manifest['updated_at'])
         self.assertIsNotNone(manifest['completed_at'])
+
+    def test_main_saves_limited_archive_crawl_in_state(self) -> None:
+        """正の月別件数指定でも対象ページだけをstateへ保存すること"""
+
+        html_by_url = _archive_html_by_url()
+        fetched_urls: list[str] = []
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_dir = Path(temp_dir) / 'crawl-state'
+
+            with patch.object(
+                cli,
+                FETCH_PRESS_PAGE_HTML_ATTR,
+                side_effect=_recording_html_fetcher(
+                    html_by_url,
+                    fetched_urls,
+                ),
+            ):
+                payload = _run_cli(
+                    *_url_args(),
+                    *_archive_month_limit_args(limit=1),
+                    *_crawl_state_dir_args(state_dir),
+                )
+
+            manifest = json.loads(
+                (state_dir / 'manifest.json').read_text(encoding='utf-8')
+            )
+
+        self.assertEqual(payload['exit_code'], 0)
+        self.assertEqual(
+            fetched_urls,
+            [EXAMPLE_INDEX_URL, EXAMPLE_MAY_ARCHIVE_URL],
+        )
+        self.assertEqual(manifest['crawl_mode'], 'archive_month_limit')
+        self.assertEqual(manifest['archive_month_limit'], 1)
+        self.assertEqual(manifest['status'], 'complete')
+        self.assertEqual(len(manifest['pages']), 2)
 
     def test_main_resumes_after_archive_page_fetch_failure(self) -> None:
         """取得失敗後に保存済みHTMLを再利用して失敗ページだけ取得すること"""
@@ -527,6 +566,10 @@ class ScraperCrawlStateCliTest(unittest.TestCase):
                     *_refetch_invalid_pages_args(),
                 )
 
+            failed_manifest = json.loads(
+                (state_dir / 'manifest.json').read_text(encoding='utf-8')
+            )
+
         self.assertEqual(exit_code, 1)
         self.assertEqual(stdout, '')
         self.assertIn(
@@ -534,6 +577,77 @@ class ScraperCrawlStateCliTest(unittest.TestCase):
             stderr,
         )
         self.assertEqual(refetched_urls, [EXAMPLE_INDEX_URL])
+        self.assertEqual(failed_manifest['status'], 'failed')
+        self.assertEqual(
+            failed_manifest['pages'][0]['status'],
+            'invalid',
+        )
+        self.assertEqual(
+            failed_manifest['pages'][0]['failure']['stage'],
+            'validate',
+        )
+
+    def test_main_rejects_new_archive_plan_after_refetching_empty_plan(
+        self,
+    ) -> None:
+        """確定済み対象0件から月別対象が増えた場合も続行しないこと"""
+
+        html_by_url = _archive_html_by_url()
+        refetched_urls: list[str] = []
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_dir = Path(temp_dir) / 'crawl-state'
+
+            with patch.object(
+                cli,
+                FETCH_PRESS_PAGE_HTML_ATTR,
+                return_value='<html></html>',
+            ):
+                initial_payload = _run_cli(
+                    *_url_args(),
+                    *_all_archive_months_args(),
+                    *_crawl_state_dir_args(state_dir),
+                )
+
+            (state_dir / 'pages' / 'index.html').write_text(
+                'damaged',
+                encoding='utf-8',
+            )
+
+            with patch.object(
+                cli,
+                FETCH_PRESS_PAGE_HTML_ATTR,
+                side_effect=_recording_html_fetcher(
+                    html_by_url,
+                    refetched_urls,
+                ),
+            ):
+                exit_code, stdout, stderr = _run_cli_raw(
+                    *_url_args(),
+                    *_all_archive_months_args(),
+                    *_crawl_state_dir_args(state_dir),
+                    *_resume_args(),
+                    *_refetch_invalid_pages_args(),
+                )
+
+            failed_manifest = json.loads(
+                (state_dir / 'manifest.json').read_text(encoding='utf-8')
+            )
+
+        self.assertEqual(initial_payload['exit_code'], 0)
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout, '')
+        self.assertIn(
+            'archive page plan does not match crawl state manifest',
+            stderr,
+        )
+        self.assertEqual(refetched_urls, [EXAMPLE_INDEX_URL])
+        self.assertEqual(failed_manifest['status'], 'failed')
+        self.assertEqual(len(failed_manifest['pages']), 1)
+        self.assertEqual(
+            failed_manifest['pages'][0]['status'],
+            'invalid',
+        )
 
     def test_main_cleans_up_valid_completed_crawl_state(self) -> None:
         """検証済み完了stateだけを専用操作で削除すること"""
@@ -656,6 +770,34 @@ class ScraperCrawlStateCliTest(unittest.TestCase):
             stderr.getvalue(),
         )
         mock_fetch.assert_not_called()
+
+    def test_main_rejects_cleanup_with_explicit_crawl_url(self) -> None:
+        """cleanupと明示的な巡回URLの併用を処理開始前に拒否すること"""
+
+        stderr = io.StringIO()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_dir = Path(temp_dir) / 'crawl-state'
+
+            with patch.object(cli, 'cleanup_crawl_state') as mock_cleanup:
+                with patch(
+                    'sys.argv',
+                    _cli_argv(
+                        *_cleanup_crawl_state_args(state_dir),
+                        *_url_args(),
+                    ),
+                ):
+                    with redirect_stderr(stderr):
+                        with self.assertRaises(SystemExit) as raised:
+                            cli.main()
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn(
+            '--cleanup-crawl-state cannot be combined with crawl or output '
+            'options',
+            stderr.getvalue(),
+        )
+        mock_cleanup.assert_not_called()
 
     def test_main_rejects_crawl_state_without_archive_crawl(self) -> None:
         """月別巡回指定なしのstate利用を取得前に拒否すること"""

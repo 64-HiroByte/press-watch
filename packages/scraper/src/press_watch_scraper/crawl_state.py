@@ -112,6 +112,7 @@ class CrawlState:
             'archive_month_limit': (
                 None if all_archive_months else archive_month_limit
             ),
+            'archive_plan_registered': False,
             'status': 'in_progress',
             'stop_reason': None,
             'created_at': now,
@@ -215,7 +216,7 @@ class CrawlState:
             for link in archive_links
         )
         existing_archive_pages = self._manifest['pages'][1:]
-        if existing_archive_pages:
+        if self._manifest['archive_plan_registered']:
             expected = [
                 (
                     page['year'],
@@ -238,9 +239,16 @@ class CrawlState:
                 )
             ]
             if actual != expected:
-                raise CrawlStateError(
+                mismatch_error = CrawlStateError(
                     'archive page plan does not match crawl state manifest'
                 )
+                self._record_failure(
+                    self._manifest['pages'][0],
+                    'invalid',
+                    'validate',
+                    mismatch_error,
+                )
+                raise mismatch_error
             return
 
         now = self._now()
@@ -260,6 +268,7 @@ class CrawlState:
                     updated_at=now,
                 )
             )
+        self._manifest['archive_plan_registered'] = True
         self._touch(now)
         self._write_manifest()
 
@@ -371,6 +380,10 @@ class CrawlState:
             stop_reason: 月別巡回が正常に終了した理由
         """
 
+        if not self._manifest['archive_plan_registered']:
+            raise CrawlStateError(
+                'crawl state cannot complete before archive plan registration'
+            )
         if any(
             page['status'] != 'parsed' for page in self._manifest['pages']
         ):
