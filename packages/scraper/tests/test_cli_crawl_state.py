@@ -408,6 +408,64 @@ class ScraperCrawlStateCliTest(unittest.TestCase):
         self.assertEqual(resumed_payload['exit_code'], 0)
         self.assertEqual(resumed_payload['count'], 2)
 
+    def test_main_reports_reused_page_url_when_reparse_fails(self) -> None:
+        """保存HTMLの再解析失敗時に対象ページURLをstderrへ出すこと"""
+
+        html_by_url = _archive_html_by_url()
+        parse_press_releases = env_press.parse_press_releases
+
+        def failing_parser(html: str, base_url: str) -> object:
+            if base_url == EXAMPLE_APRIL_ARCHIVE_URL:
+                raise RuntimeError('archive parser failed again')
+            return parse_press_releases(html, base_url=base_url)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_dir = Path(temp_dir) / 'crawl-state'
+
+            with (
+                patch.object(
+                    cli,
+                    FETCH_PRESS_PAGE_HTML_ATTR,
+                    side_effect=lambda url, **_kwargs: html_by_url[url],
+                ),
+                patch.object(
+                    env_press,
+                    'parse_press_releases',
+                    side_effect=failing_parser,
+                ),
+            ):
+                first_exit_code, _first_stdout, _first_stderr = _run_cli_raw(
+                    *_url_args(),
+                    *_all_archive_months_args(),
+                    *_crawl_state_dir_args(state_dir),
+                )
+
+            with (
+                patch.object(cli, FETCH_PRESS_PAGE_HTML_ATTR) as resumed_fetch,
+                patch.object(
+                    env_press,
+                    'parse_press_releases',
+                    side_effect=failing_parser,
+                ),
+            ):
+                resumed_exit_code, resumed_stdout, resumed_stderr = (
+                    _run_cli_raw(
+                        *_url_args(),
+                        *_all_archive_months_args(),
+                        *_crawl_state_dir_args(state_dir),
+                        *_resume_args(),
+                    )
+                )
+
+        self.assertEqual(first_exit_code, 1)
+        self.assertEqual(resumed_exit_code, 1)
+        self.assertEqual(resumed_stdout, '')
+        self.assertIn(
+            f'target={EXAMPLE_APRIL_ARCHIVE_URL}',
+            resumed_stderr,
+        )
+        resumed_fetch.assert_not_called()
+
     def test_main_refetches_invalid_page_only_when_explicitly_requested(
         self,
     ) -> None:

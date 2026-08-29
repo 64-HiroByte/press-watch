@@ -263,6 +263,9 @@ def main() -> int:
                 error_target = args.url
 
             def fetcher(url: str) -> str:
+                nonlocal error_target
+
+                error_target = url
                 if crawl_state is None:
                     return network_fetcher(url)
                 return crawl_state.load_or_fetch(
