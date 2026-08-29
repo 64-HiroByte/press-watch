@@ -4,7 +4,7 @@ from datetime import date
 import http.client
 import re
 from time import monotonic, sleep
-from typing import Any, Literal, NoReturn
+from typing import Any, Literal, NoReturn, Protocol
 from urllib.error import HTTPError
 from urllib.parse import urljoin, urlsplit
 from urllib.request import (
@@ -372,6 +372,50 @@ class PressReleaseCrawlResult:
     stop_reason: CrawlStopReason
 
 
+class CrawlStateObserver(Protocol):
+    """月別巡回のページ計画と解析状態を受け取るobserver"""
+
+    def register_archive_pages(
+        self,
+        archive_links: tuple[ArchiveMonthLink, ...],
+    ) -> None:
+        """巡回対象の月別ページを登録
+
+        Args:
+            archive_links: 実際に巡回する年月降順の月別リンク
+        """
+
+        ...
+
+    def mark_parsing(self, url: str) -> None:
+        """ページ解析開始を記録
+
+        Args:
+            url: 解析を開始するページURL
+        """
+
+        ...
+
+    def mark_parsed(self, url: str) -> None:
+        """ページ解析成功を記録
+
+        Args:
+            url: 解析に成功したページURL
+        """
+
+        ...
+
+    def mark_parse_failed(self, url: str, exc: Exception) -> None:
+        """ページ解析失敗を記録
+
+        Args:
+            url: 解析に失敗したページURL
+            exc: 解析処理が送出した例外
+        """
+
+        ...
+
+
 def fetch_press_page_html(
     url: str = PRESS_INDEX_URL,
     timeout: float = 20.0,
@@ -424,6 +468,7 @@ def crawl_press_releases(
     request_interval_seconds: float = REQUEST_INTERVAL_SECONDS,
     sleeper: Callable[[float], None] = sleep,
     progress: Callable[[str], None] | None = None,
+    observer: CrawlStateObserver | None = None,
 ) -> PressReleaseCrawlResult:
     """月別アーカイブページを巡回して報道発表を取得
 
@@ -436,6 +481,7 @@ def crawl_press_releases(
         request_interval_seconds: HTTP要求開始の最小間隔
         sleeper: 不足する要求間隔の待機に使う関数
         progress: 月別ページの処理状況を通知する関数
+        observer: ページ計画と解析状態を通知するobserver
 
     Returns:
         月別アーカイブページから取得した報道発表と巡回情報
@@ -472,15 +518,26 @@ def crawl_press_releases(
     # 月別巡回では、index.htmlからは月別リンクだけを拾う。
     # 報道発表データは各月別ページから取得する。
     index_html = fetcher(start_url)
-    archive_month_links = parse_archive_month_links(
-        index_html,
-        base_url=start_url,
-    )
+    if observer is not None:
+        observer.mark_parsing(start_url)
+    try:
+        archive_month_links = parse_archive_month_links(
+            index_html,
+            base_url=start_url,
+        )
+    except Exception as exc:
+        if observer is not None:
+            observer.mark_parse_failed(start_url, exc)
+        raise
+    if observer is not None:
+        observer.mark_parsed(start_url)
     unique_archive_links = _unique_archive_month_links(archive_month_links)
     selected_archive_links = _select_archive_month_links(
         archive_month_links,
         limit=None if all_archive_months else archive_month_limit,
     )
+    if observer is not None:
+        observer.register_archive_pages(tuple(selected_archive_links))
 
     releases: list[PressRelease] = []
     fetched_page_urls: list[str] = []
@@ -502,6 +559,7 @@ def crawl_press_releases(
         page_releases = _fetch_archive_page_releases(
             archive_link,
             fetcher,
+            observer=observer,
         )
         fetched_page_urls.append(archive_link.url)
 
@@ -659,19 +717,32 @@ def parse_archive_month_links(
 def _fetch_archive_page_releases(
     archive_link: ArchiveMonthLink,
     fetcher: Callable[[str], str],
+    *,
+    observer: CrawlStateObserver | None = None,
 ) -> list[PressRelease]:
     """月別ページを取得して報道発表を抽出
 
     Args:
         archive_link: 取得対象の月別リンク
         fetcher: URLを受け取りHTMLを返す取得関数
+        observer: ページ解析状態を通知するobserver
 
     Returns:
         月別ページから抽出した報道発表
     """
 
     html = fetcher(archive_link.url)
-    return parse_press_releases(html, base_url=archive_link.url)
+    if observer is not None:
+        observer.mark_parsing(archive_link.url)
+    try:
+        releases = parse_press_releases(html, base_url=archive_link.url)
+    except Exception as exc:
+        if observer is not None:
+            observer.mark_parse_failed(archive_link.url, exc)
+        raise
+    if observer is not None:
+        observer.mark_parsed(archive_link.url)
+    return releases
 
 
 def _contains_only_known_releases(

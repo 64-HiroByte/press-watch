@@ -164,14 +164,72 @@ cd ../..
 ```
 
 実HTTPで全月別アーカイブを巡回し、結果をスナップショットとして残す場合は次の形です。
-全月取得を実行する前に、現在のrobots.txtと利用条件を再確認し、途中失敗時に取得済みページを再アクセスしない保存・再開方法を用意します。
+全月取得を実行する前に、現在のrobots.txtと利用条件を再確認します。
+`--crawl-state-dir` はローカルで行う初回全件取得の途中保存と手動再開専用です。
+本番環境へ配置せず、定期差分取得、実行履歴、再試行管理には使用しません。
+stateと最終JSONが同じcleanupで消えないよう、`--output` はstateディレクトリ外へ指定します。
 
 ```bash
 cd packages/scraper
-PYTHONPATH=src uv run python -m press_watch_scraper --all-archive-months --output /tmp/env_press_all.json
-python -m json.tool /tmp/env_press_all.json
+PYTHONPATH=src \
+uv run --locked python -m press_watch_scraper \
+  --all-archive-months \
+  --crawl-state-dir /private/tmp/press-watch-env-crawl-state \
+  --verbose \
+  --no-stdout-json \
+  --output /private/tmp/env_press_all.json
+python -m json.tool /private/tmp/env_press_all.json
 cd ../..
 ```
+
+途中で取得または解析に失敗した場合は、同じ巡回条件とstateディレクトリを指定して再開します。
+取得失敗ページは再取得し、解析失敗ページは保存済みHTMLから再解析します。
+
+```bash
+cd packages/scraper
+PYTHONPATH=src \
+uv run --locked python -m press_watch_scraper \
+  --all-archive-months \
+  --crawl-state-dir /private/tmp/press-watch-env-crawl-state \
+  --resume \
+  --verbose \
+  --no-stdout-json \
+  --output /private/tmp/env_press_all.json
+cd ../..
+```
+
+保存HTMLの欠損、サイズ不一致、SHA-256不一致、保存途中の状態は、通常の再開では拒否します。
+対象ページを実HTTPで取得し直すことを確認した場合だけ、`--refetch-invalid-pages`を`--resume`と併用します。
+
+```bash
+cd packages/scraper
+PYTHONPATH=src \
+uv run --locked python -m press_watch_scraper \
+  --all-archive-months \
+  --crawl-state-dir /private/tmp/press-watch-env-crawl-state \
+  --resume \
+  --refetch-invalid-pages \
+  --verbose \
+  --no-stdout-json \
+  --output /private/tmp/env_press_all.json
+cd ../..
+```
+
+最終JSONの内容を確認し、後続検証でHTMLを再利用しないことを確認してから、完了stateを削除します。
+cleanupは、有効な`complete` manifestと管理対象ファイルだけを持つstateに限定し、未完了、破損、symlink、管理外ファイルを検出した場合は何も削除しません。
+
+```bash
+cd packages/scraper
+PYTHONPATH=src \
+uv run --locked python -m press_watch_scraper \
+  --cleanup-crawl-state /private/tmp/press-watch-env-crawl-state
+cd ../..
+```
+
+巡回中は解析成功ページを含むHTMLを`pages/`に保持し、manifestへ月別対象の確定状態、取得、保存、解析の状態とUTC日時を記録します。
+HTMLとmanifestは原子的に置換し、stateディレクトリを`0700`、ファイルを`0600`で作成します。
+stateには取得した公開ページ本文とURLが含まれるため、Git管理外のローカル一時データとして扱います。
+SHA-256は偶発的な破損検出に使い、改ざんを証明する電子署名としては扱いません。
 
 取得中の要求番号、開始からの経過秒、URL、待機の残り秒数、月別ページ番号と対象件数をターミナルで確認したい場合は、`--verbose` を指定します。
 進捗は実行中に stderr へ出力し、stdout のJSONとは分けて扱います。
@@ -381,7 +439,8 @@ cd ../..
 
 保存済み報道発表がないDBへの初回全件取得として、環境省の一覧ページから見つかるすべての月別アーカイブを取得して保存する場合は `--all-archive-months` を指定します。
 実HTTPで多数のページを取得し、DBへ保存するため、事前に現在のrobots.txtと利用条件、DB接続先、migration適用状態を確認します。
-また、途中失敗時に取得済みページを再アクセスしない保存・再開方法が整うまで、早期検証ではこのコマンドを実行しません。
+API側の取得・保存コマンドは、scraper CLIのローカル巡回stateを使用せず、途中保存や再開には対応しません。
+途中保存が必要な実データ早期検証では、先にscraper CLIの`--crawl-state-dir`を使用して最終JSONを作成し、このコマンドを直接実行しません。
 
 ```bash
 cd apps/api
