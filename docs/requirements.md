@@ -107,7 +107,7 @@ PressWatch は、環境省サイト内の報道発表を定期取得し、一覧
 - フロントエンドが `GET /press-releases` で報道発表一覧を取得できること
 - 一覧は `published_at DESC, id DESC` の順で取得し、同じ公開日の順序を安定させること
 - `page` は1始まりでデフォルト値を1、許容範囲を1から10,000とすること
-- `page_size` はデフォルト値を20、許容範囲を1から100とすること
+- `page_size` はデフォルト値を50、許容範囲を10から100とすること
 - `page` または `page_size` が許容範囲外の場合は、HTTP 422を返すこと
 - レスポンスは `items` と `pagination` を持つこと
 - `items` には `title`、`source_url`、`published_at`、`source_categories` を含めること
