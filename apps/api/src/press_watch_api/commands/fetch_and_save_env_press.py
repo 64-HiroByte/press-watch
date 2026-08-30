@@ -15,6 +15,7 @@ import tempfile
 import threading
 from typing import Protocol
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from press_watch_api.config import DATABASE_URL_ENV
@@ -33,6 +34,7 @@ DEFAULT_KNOWN_RELEASE_MONTHS = 3
 DATABASE_CONFIGURATION_FAILED_REASON = (
     "database configuration could not be loaded"
 )
+DATABASE_OPERATION_FAILED_REASON = "database operation failed"
 CREDENTIALS_IN_URL_RE = re.compile(r"(?i)(https?://)[^/@\s]+@")
 MAX_DIAGNOSTIC_VALUE_LENGTH = 1000
 PROCESS_TERMINATE_TIMEOUT_SECONDS = 5.0
@@ -795,12 +797,17 @@ def _print_runtime_error(
         exc: stderrへ種類と理由を出す例外
     """
 
+    reason = (
+        DATABASE_OPERATION_FAILED_REASON
+        if isinstance(exc, SQLAlchemyError)
+        else _one_line(str(exc)) or "no detail"
+    )
     print(
         (
             "error: "
             f"target={_one_line(target)} "
             f"exception={type(exc).__name__} "
-            f"reason={_one_line(str(exc)) or 'no detail'}"
+            f"reason={reason}"
         ),
         file=output,
     )

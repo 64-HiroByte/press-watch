@@ -1,18 +1,21 @@
 from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from itertools import batched
 from typing import Protocol
 
 from sqlalchemy.orm import Session
 
 from press_watch_api.models.press_release import PressRelease as PressReleaseModel
 from press_watch_api.repositories.press_release import (
-    create_press_release,
+    create_press_releases,
     get_latest_press_release_published_at,
-    has_press_release_with_source_url,
     list_press_release_source_urls_published_from,
 )
 from press_watch_api.schemas.press_release import PressReleaseCreate
+
+
+_SAVE_BATCH_SIZE = 1_000
 
 
 @dataclass(frozen=True)
@@ -110,27 +113,41 @@ def save_press_releases(
         releases,
         fetched_at=fetched_at,
     )
-    saved_press_releases: list[PressReleaseModel] = []
-    skipped_count = 0
-
-    for create_dto in create_dtos:
-        if has_press_release_with_source_url(
-            session,
-            create_dto.source_url,
-        ):
-            skipped_count += 1
-            continue
-
-        saved_press_releases.append(
-            create_press_release(
-                session,
-                create_dto,
-            )
+    if not create_dtos:
+        return PressReleaseSaveResult(
+            saved_press_releases=(),
+            skipped_count=0,
         )
 
+    candidates_by_source_url: dict[str, PressReleaseCreate] = {}
+    for create_dto in create_dtos:
+        candidates_by_source_url.setdefault(
+            create_dto.source_url,
+            create_dto,
+        )
+
+    saved_by_source_url: dict[str, PressReleaseModel] = {}
+    for create_batch in batched(
+        candidates_by_source_url.values(),
+        _SAVE_BATCH_SIZE,
+    ):
+        for saved_press_release in create_press_releases(
+            session,
+            create_batch,
+        ):
+            saved_by_source_url[saved_press_release.source_url] = (
+                saved_press_release
+            )
+
+    saved_press_releases = tuple(
+        saved_by_source_url[source_url]
+        for source_url in candidates_by_source_url
+        if source_url in saved_by_source_url
+    )
+
     return PressReleaseSaveResult(
-        saved_press_releases=tuple(saved_press_releases),
-        skipped_count=skipped_count,
+        saved_press_releases=saved_press_releases,
+        skipped_count=len(create_dtos) - len(saved_press_releases),
     )
 
 

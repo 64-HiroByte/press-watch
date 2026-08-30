@@ -61,12 +61,12 @@ class RealSnapshotExecutionSafetyTest(unittest.TestCase):
         self.assertNotIn(item_value, message)
 
     def test_save_failure_does_not_expose_snapshot_values(self) -> None:
-        save_and_commit = getattr(
+        save_releases = getattr(
             real_snapshot_test,
-            "_save_and_commit_without_exposing_snapshot",
+            "_save_without_exposing_snapshot",
             None,
         )
-        if save_and_commit is None:
+        if save_releases is None:
             self.fail("安全な保存ヘルパーが未実装です。")
 
         title = "snapshot-secret-title"
@@ -93,7 +93,7 @@ class RealSnapshotExecutionSafetyTest(unittest.TestCase):
             side_effect=error,
         ):
             with self.assertRaises(AssertionError) as raised:
-                save_and_commit(
+                save_releases(
                     session,
                     releases,
                     fetched_at=datetime(2026, 8, 29, tzinfo=UTC),
@@ -106,13 +106,15 @@ class RealSnapshotExecutionSafetyTest(unittest.TestCase):
         self.assertNotIn(source_url, message)
         self.assertTrue(raised.exception.__suppress_context__)
 
-    def test_successful_save_commits_and_returns_result(self) -> None:
-        save_and_commit = getattr(
+    def test_successful_save_returns_result_without_committing(self) -> None:
+        """保存ヘルパーがcommitせず結果だけを返すこと"""
+
+        save_releases = getattr(
             real_snapshot_test,
-            "_save_and_commit_without_exposing_snapshot",
+            "_save_without_exposing_snapshot",
             None,
         )
-        if save_and_commit is None:
+        if save_releases is None:
             self.fail("安全な保存ヘルパーが未実装です。")
 
         releases = (
@@ -135,7 +137,7 @@ class RealSnapshotExecutionSafetyTest(unittest.TestCase):
             "save_press_releases",
             return_value=expected,
         ) as save:
-            actual = save_and_commit(
+            actual = save_releases(
                 session,
                 releases,
                 fetched_at=fetched_at,
@@ -148,6 +150,49 @@ class RealSnapshotExecutionSafetyTest(unittest.TestCase):
             releases,
             fetched_at=fetched_at,
         )
+        session.commit.assert_not_called()
+
+    def test_commit_failure_does_not_expose_database_details(self) -> None:
+        """commit失敗時にSQLAlchemy例外の詳細を表示しないこと"""
+
+        commit = getattr(
+            real_snapshot_test,
+            "_commit_without_exposing_snapshot",
+            None,
+        )
+        if commit is None:
+            self.fail("安全なcommitヘルパーが未実装です。")
+
+        session = Mock(spec=Session)
+        sensitive_value = "snapshot-secret-commit-value"
+        session.commit.side_effect = StatementError(
+            sensitive_value,
+            "commit sensitive statement",
+            {"value": sensitive_value},
+            RuntimeError("database rejected commit"),
+        )
+
+        with self.assertRaises(AssertionError) as raised:
+            commit(session, phase="初回投入")
+
+        message = str(raised.exception)
+        self.assertEqual(
+            message,
+            "初回投入のcommitに失敗しました: StatementError",
+        )
+        self.assertNotIn(sensitive_value, message)
+        self.assertTrue(raised.exception.__suppress_context__)
+
+    def test_successful_commit_uses_session_commit(self) -> None:
+        """commitヘルパーがSessionのcommitを1回呼ぶこと"""
+
+        session = Mock(spec=Session)
+
+        real_snapshot_test._commit_without_exposing_snapshot(
+            session,
+            phase="再投入",
+        )
+
         session.commit.assert_called_once_with()
 
     def test_source_url_order_failure_does_not_expose_urls(self) -> None:

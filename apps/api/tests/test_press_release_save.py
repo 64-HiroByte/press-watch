@@ -1,11 +1,13 @@
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
 import unittest
-from unittest.mock import Mock, call
+from unittest.mock import Mock
 
 from pydantic import ValidationError
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
+from press_watch_api.models.press_release import PressRelease
 from press_watch_api.schemas.press_release import PressReleaseCreate
 from press_watch_api.services.press_release_save import (
     list_known_release_urls_for_crawl,
@@ -238,6 +240,13 @@ class PressReleaseSaveServiceTest(unittest.TestCase):
 
         session = Mock(spec=Session)
         session.scalar.return_value = None
+        saved_first = _saved_press_release(SOURCE_URL_1)
+        saved_first.fetched_at = datetime(2026, 5, 26, 10, 0, tzinfo=UTC)
+        saved_first.source_categories = ["総合政策"]
+        saved_second = _saved_press_release(SOURCE_URL_2)
+        saved_second.fetched_at = datetime(2026, 5, 26, 10, 0, tzinfo=UTC)
+        saved_second.source_categories = None
+        session.scalars.return_value = (saved_first, saved_second)
         releases = [
             _scraped_release(
                 title="報道発表1",
@@ -271,14 +280,10 @@ class PressReleaseSaveServiceTest(unittest.TestCase):
         self.assertIsNone(press_releases[1].source_categories)
         self.assertEqual(result.saved_count, 2)
         self.assertEqual(result.skipped_count, 0)
-        self.assertEqual(
-            session.add.call_args_list,
-            [
-                call(press_releases[0]),
-                call(press_releases[1]),
-            ],
-        )
-        self.assertEqual(session.flush.call_count, 2)
+        session.scalar.assert_not_called()
+        session.add.assert_not_called()
+        session.flush.assert_not_called()
+        session.scalars.assert_called_once()
 
     def test_save_press_releases_skips_existing_source_url(
         self,
@@ -287,6 +292,9 @@ class PressReleaseSaveServiceTest(unittest.TestCase):
 
         session = Mock(spec=Session)
         session.scalar.side_effect = [None, 1, None]
+        saved_first = _saved_press_release(SOURCE_URL_1)
+        saved_third = _saved_press_release(SOURCE_URL_3)
+        session.scalars.return_value = (saved_first, saved_third)
         releases = [
             _scraped_release(
                 title="報道発表1",
@@ -321,15 +329,183 @@ class PressReleaseSaveServiceTest(unittest.TestCase):
         )
         self.assertEqual(result.saved_count, 2)
         self.assertEqual(result.skipped_count, 1)
-        self.assertEqual(session.scalar.call_count, 3)
-        self.assertEqual(
-            session.add.call_args_list,
-            [
-                call(result.saved_press_releases[0]),
-                call(result.saved_press_releases[1]),
-            ],
+        session.scalar.assert_not_called()
+        session.add.assert_not_called()
+        session.flush.assert_not_called()
+        session.scalars.assert_called_once()
+
+    def test_save_press_releases_bulk_saves_mixed_duplicates_in_input_order(
+        self,
+    ) -> None:
+        """混在する重複を一括保存し保存結果を入力順へ戻すこと"""
+
+        session = Mock(spec=Session)
+        session.scalar.side_effect = [None, 1, 1, None]
+        saved_first = Mock(spec=PressRelease)
+        saved_first.source_url = SOURCE_URL_1
+        saved_later = Mock(spec=PressRelease)
+        saved_later.source_url = SOURCE_URL_3
+        session.scalars.return_value = (saved_later, saved_first)
+        releases = [
+            _scraped_release(
+                title="入力内で最初の報道発表",
+                url=SOURCE_URL_1,
+            ),
+            _scraped_release(
+                title="DB既存相当の報道発表",
+                url=SOURCE_URL_2,
+            ),
+            _scraped_release(
+                title="入力内で重複する後続の報道発表",
+                url=SOURCE_URL_1,
+            ),
+            _scraped_release(
+                title="後続の新規報道発表",
+                url=SOURCE_URL_3,
+            ),
+        ]
+
+        result = save_press_releases(session, releases)
+
+        session.scalar.assert_not_called()
+        session.add.assert_not_called()
+        session.flush.assert_not_called()
+        session.scalars.assert_called_once()
+        statement = session.scalars.call_args.args[0]
+        parameters = statement.compile(dialect=postgresql.dialect()).params
+        self.assertEqual(len(parameters), 15)
+        self.assertIn("入力内で最初の報道発表", parameters.values())
+        self.assertNotIn(
+            "入力内で重複する後続の報道発表",
+            parameters.values(),
         )
-        self.assertEqual(session.flush.call_count, 2)
+        self.assertEqual(result.saved_count, 2)
+        self.assertEqual(result.skipped_count, 2)
+        self.assertEqual(
+            result.saved_press_releases,
+            (saved_first, saved_later),
+        )
+        session.commit.assert_not_called()
+        session.rollback.assert_not_called()
+
+    def test_save_press_releases_splits_1001_candidates_into_two_batches(
+        self,
+    ) -> None:
+        """1,001候補を1,000件と1件に分け全体の入力順を維持すること"""
+
+        session = Mock(spec=Session)
+        session.scalar.return_value = None
+        releases = [
+            _scraped_release(
+                title=f"報道発表{index}",
+                url=f"https://example.test/press/{index}",
+            )
+            for index in range(1_001)
+        ]
+        saved_press_releases = [
+            _saved_press_release(release.url)
+            for release in releases
+        ]
+        session.scalars.side_effect = (
+            tuple(reversed(saved_press_releases[:1_000])),
+            tuple(reversed(saved_press_releases[1_000:])),
+        )
+
+        result = save_press_releases(session, releases)
+
+        self.assertEqual(session.scalars.call_count, 2)
+        parameter_counts = [
+            len(
+                called.args[0].compile(
+                    dialect=postgresql.dialect(),
+                ).params
+            )
+            for called in session.scalars.call_args_list
+        ]
+        self.assertEqual(parameter_counts, [5_000, 5])
+        self.assertTrue(
+            all(
+                actual is expected
+                for actual, expected in zip(
+                    result.saved_press_releases,
+                    saved_press_releases,
+                    strict=True,
+                )
+            ),
+            "保存結果が入力順と一致しません。",
+        )
+        self.assertEqual(result.saved_count, 1_001)
+        self.assertEqual(result.skipped_count, 0)
+        session.scalar.assert_not_called()
+        session.add.assert_not_called()
+        session.flush.assert_not_called()
+
+    def test_save_press_releases_does_not_execute_sql_for_empty_input(
+        self,
+    ) -> None:
+        """空入力では保存SQLを実行しないこと"""
+
+        session = Mock(spec=Session)
+
+        result = save_press_releases(session, [])
+
+        self.assertEqual(result.saved_press_releases, ())
+        self.assertEqual(result.saved_count, 0)
+        self.assertEqual(result.skipped_count, 0)
+        session.scalar.assert_not_called()
+        session.scalars.assert_not_called()
+        session.add.assert_not_called()
+        session.flush.assert_not_called()
+
+    def test_save_press_releases_validates_all_input_before_saving(
+        self,
+    ) -> None:
+        """後続入力のDTO検証失敗時に先行入力もDBへ渡さないこと"""
+
+        session = Mock(spec=Session)
+        releases = [
+            _scraped_release(url=SOURCE_URL_1),
+            _scraped_release(url="invalid-source-url"),
+        ]
+
+        with self.assertRaises(ValidationError):
+            save_press_releases(session, releases)
+
+        session.scalar.assert_not_called()
+        session.scalars.assert_not_called()
+        session.add.assert_not_called()
+        session.flush.assert_not_called()
+
+    def test_save_press_releases_uses_same_omitted_fetched_at_for_all_dtos(
+        self,
+    ) -> None:
+        """省略した取得日時を同じ呼び出し内の全DTOで一致させること"""
+
+        session = Mock(spec=Session)
+        session.scalar.return_value = None
+        session.scalars.return_value = (
+            _saved_press_release(SOURCE_URL_1),
+            _saved_press_release(SOURCE_URL_2),
+        )
+        releases = [
+            _scraped_release(url=SOURCE_URL_1),
+            _scraped_release(url=SOURCE_URL_2),
+        ]
+
+        save_press_releases(session, releases)
+
+        session.scalars.assert_called_once()
+        statement = session.scalars.call_args.args[0]
+        parameters = statement.compile(dialect=postgresql.dialect()).params
+        fetched_at_values = [
+            value
+            for name, value in parameters.items()
+            if name.startswith("fetched_at_")
+        ]
+        self.assertEqual(len(fetched_at_values), 2)
+        self.assertEqual(len(set(fetched_at_values)), 1)
+        self.assertIsNotNone(fetched_at_values[0].tzinfo)
+        self.assertEqual(fetched_at_values[0].utcoffset(), timedelta(0))
 
     def test_save_press_releases_leaves_transaction_control_to_caller(
         self,
@@ -337,7 +513,7 @@ class PressReleaseSaveServiceTest(unittest.TestCase):
         """serviceでもトランザクションの確定や取消を呼び出し元へ任せること"""
 
         session = Mock(spec=Session)
-        session.scalar.return_value = None
+        session.scalars.return_value = ()
         release = _scraped_release()
 
         save_press_releases(session, [release])
@@ -448,6 +624,14 @@ def _scraped_release(
         url=url,
         source_categories=source_categories,
     )
+
+
+def _saved_press_release(source_url: str) -> Mock:
+    """一括INSERTのRETURNING結果に相当するモデルMockを生成"""
+
+    press_release = Mock(spec=PressRelease)
+    press_release.source_url = source_url
+    return press_release
 
 
 if __name__ == "__main__":

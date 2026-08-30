@@ -6,6 +6,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from press_watch_api.models.press_release import PressRelease
+from press_watch_api.repositories import press_release as press_release_repository
 from press_watch_api.repositories.press_release import (
     count_press_releases,
     create_press_release,
@@ -79,6 +80,96 @@ class PressReleaseRepositoryTest(unittest.TestCase):
 
         create_press_release(session, dto)
 
+        session.commit.assert_not_called()
+        session.rollback.assert_not_called()
+
+    def test_create_press_releases_builds_explicit_postgresql_insert(
+        self,
+    ) -> None:
+        """明示5列とURL競合回避、モデル全列RETURNINGを組み立てること"""
+
+        session = Mock(spec=Session)
+        returned_first = Mock(spec=PressRelease)
+        returned_second = Mock(spec=PressRelease)
+        session.scalars.return_value = (returned_first, returned_second)
+        first_dto = _press_release_create(
+            source_url=SOURCE_URL_1,
+            source_categories=["総合政策", "自然環境"],
+        )
+        second_dto = _press_release_create(
+            source_url="https://example.test/press/2",
+            source_categories=None,
+        )
+        create_press_releases = getattr(
+            press_release_repository,
+            "create_press_releases",
+            None,
+        )
+        if create_press_releases is None:
+            self.fail("複数行保存repositoryが未実装です。")
+
+        result = create_press_releases(
+            session,
+            (first_dto, second_dto),
+        )
+
+        self.assertEqual(result, (returned_first, returned_second))
+        session.scalars.assert_called_once()
+        statement = session.scalars.call_args.args[0]
+        compiled = statement.compile(dialect=postgresql.dialect())
+        compiled_sql = str(compiled)
+        self.assertIn(
+            "INSERT INTO press_releases "
+            "(title, source_url, published_at, source_categories, fetched_at)",
+            compiled_sql,
+        )
+        self.assertIn(
+            "ON CONFLICT (source_url) DO NOTHING",
+            compiled_sql,
+        )
+        for column_name in (
+            "id",
+            "title",
+            "source_url",
+            "published_at",
+            "source_categories",
+            "fetched_at",
+            "created_at",
+            "updated_at",
+        ):
+            self.assertIn(
+                f"press_releases.{column_name}",
+                compiled_sql.partition("RETURNING")[2],
+            )
+        self.assertEqual(len(compiled.params), 10)
+        copied_categories = compiled.params["source_categories_m0"]
+        self.assertEqual(copied_categories, first_dto.source_categories)
+        self.assertIsNot(copied_categories, first_dto.source_categories)
+        session.add.assert_not_called()
+        session.flush.assert_not_called()
+        session.commit.assert_not_called()
+        session.rollback.assert_not_called()
+
+    def test_create_press_releases_does_not_execute_sql_for_empty_input(
+        self,
+    ) -> None:
+        """空のDTO列ではSQLを実行せず空タプルを返すこと"""
+
+        session = Mock(spec=Session)
+        create_press_releases = getattr(
+            press_release_repository,
+            "create_press_releases",
+            None,
+        )
+        if create_press_releases is None:
+            self.fail("複数行保存repositoryが未実装です。")
+
+        result = create_press_releases(session, ())
+
+        self.assertEqual(result, ())
+        session.scalars.assert_not_called()
+        session.add.assert_not_called()
+        session.flush.assert_not_called()
         session.commit.assert_not_called()
         session.rollback.assert_not_called()
 

@@ -9,6 +9,7 @@ import threading
 import unittest
 from unittest.mock import MagicMock, Mock, patch
 
+from sqlalchemy.exc import StatementError
 from sqlalchemy.orm import Session
 
 from press_watch_api.commands import fetch_and_save_env_press
@@ -35,7 +36,10 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         """取得結果を保存serviceへ渡し、成功時にcommitすること"""
 
         session = Mock(spec=Session)
-        session.scalar.return_value = None
+        session.scalars.return_value = (
+            Mock(source_url=SOURCE_URL_1),
+            Mock(source_url=SOURCE_URL_2),
+        )
         stdout = io.StringIO()
         stderr = io.StringIO()
 
@@ -61,22 +65,16 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         session.commit.assert_called_once_with()
         session.rollback.assert_not_called()
         session.close.assert_called_once_with()
-        self.assertEqual(
-            [
-                press_release.source_url
-                for press_release in (
-                    session.add.call_args_list[0].args[0],
-                    session.add.call_args_list[1].args[0],
-                )
-            ],
-            [SOURCE_URL_1, SOURCE_URL_2],
-        )
+        session.scalars.assert_called_once()
+        session.scalar.assert_not_called()
+        session.add.assert_not_called()
+        session.flush.assert_not_called()
 
     def test_main_reports_skipped_count(self) -> None:
         """既存URLをskip件数としてstdout JSONへ出すこと"""
 
         session = Mock(spec=Session)
-        session.scalar.side_effect = [None, 1]
+        session.scalars.return_value = (Mock(source_url=SOURCE_URL_1),)
         stdout = io.StringIO()
 
         exit_code = main(
@@ -425,7 +423,7 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         """保存失敗時は保存用Sessionをrollbackして閉じること"""
 
         session = Mock(spec=Session)
-        session.scalar.side_effect = RuntimeError("database unavailable")
+        session.scalars.side_effect = RuntimeError("database unavailable")
         stdout = io.StringIO()
         stderr = io.StringIO()
 
@@ -446,13 +444,106 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         session.rollback.assert_called_once_with()
         session.close.assert_called_once_with()
 
+    def test_main_does_not_expose_database_details_from_save_error(
+        self,
+    ) -> None:
+        """保存時のSQLAlchemyエラーへ入力値やSQLを表示しないこと"""
+
+        session = Mock(spec=Session)
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with patch.object(
+            fetch_and_save_env_press,
+            "save_press_releases",
+            side_effect=_database_statement_error(),
+        ):
+            exit_code = main(
+                ["--url", INDEX_URL],
+                session_factory=lambda: session,
+                collect_releases=(
+                    lambda _args, _stderr, _known_urls: _collected_releases()
+                ),
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        _assert_database_error_is_sanitized(stderr.getvalue())
+        session.commit.assert_not_called()
+        session.rollback.assert_called_once_with()
+        session.close.assert_called_once_with()
+
+    def test_main_does_not_expose_database_details_from_commit_error(
+        self,
+    ) -> None:
+        """commit時のSQLAlchemyエラーへ入力値やSQLを表示しないこと"""
+
+        session = Mock(spec=Session)
+        session.commit.side_effect = _database_statement_error()
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with patch.object(
+            fetch_and_save_env_press,
+            "save_press_releases",
+            return_value=Mock(saved_count=2, skipped_count=0),
+        ):
+            exit_code = main(
+                ["--url", INDEX_URL],
+                session_factory=lambda: session,
+                collect_releases=(
+                    lambda _args, _stderr, _known_urls: _collected_releases()
+                ),
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        _assert_database_error_is_sanitized(stderr.getvalue())
+        session.commit.assert_called_once_with()
+        session.rollback.assert_called_once_with()
+        session.close.assert_called_once_with()
+
+    def test_main_does_not_expose_database_details_from_known_url_error(
+        self,
+    ) -> None:
+        """既知URL取得時のSQLAlchemyエラーへDB詳細を表示しないこと"""
+
+        session = Mock(spec=Session)
+        session.scalar.side_effect = _database_statement_error()
+        collect_releases = Mock()
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        exit_code = main(
+            ["--url", INDEX_URL, "--archive-month-limit", "1"],
+            session_factory=lambda: session,
+            collect_releases=collect_releases,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        _assert_database_error_is_sanitized(stderr.getvalue())
+        collect_releases.assert_not_called()
+        session.commit.assert_not_called()
+        session.rollback.assert_not_called()
+        session.close.assert_called_once_with()
+
     def test_main_reports_output_failure_after_commit_without_rollback(
         self,
     ) -> None:
         """commit後の出力失敗を保存失敗と混同しないこと"""
 
         session = Mock(spec=Session)
-        session.scalar.return_value = None
+        session.scalars.return_value = (
+            Mock(source_url=SOURCE_URL_1),
+            Mock(source_url=SOURCE_URL_2),
+        )
         stdout = Mock()
         stdout.write.side_effect = BrokenPipeError("output closed")
         stderr = io.StringIO()
@@ -485,7 +576,10 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         """commit後のstdout flush失敗を保存失敗と混同しないこと"""
 
         session = Mock(spec=Session)
-        session.scalar.return_value = None
+        session.scalars.return_value = (
+            Mock(source_url=SOURCE_URL_1),
+            Mock(source_url=SOURCE_URL_2),
+        )
         stdout = Mock()
         # argparseの色表示判定から実際のstdoutと同様に整数のfdを返す。
         stdout.fileno.return_value = 1
@@ -1253,6 +1347,39 @@ class FetchAndSaveCommandTest(unittest.TestCase):
                     )
 
             self.assertFalse(partial_path.exists())
+
+
+def _database_statement_error() -> StatementError:
+    """入力値とDB詳細を含むSQLAlchemy例外を生成"""
+
+    return StatementError(
+        (
+            "sentinel press release title; "
+            "sentinel connection postgresql://user:password@database.test/db"
+        ),
+        (
+            "INSERT INTO press_releases (title, source_url) "
+            "VALUES (%(title)s, %(source_url)s)"
+        ),
+        {
+            "title": "sentinel press release title",
+            "source_url": "https://example.test/press/sentinel-detail",
+        },
+        RuntimeError("sentinel driver detail"),
+    )
+
+
+def _assert_database_error_is_sanitized(diagnostic: str) -> None:
+    """DBエラー診断が固定情報だけを含むことを安全に検証"""
+
+    expected = (
+        f"error: target={INDEX_URL} "
+        "exception=StatementError reason=database operation failed\n"
+    )
+    if diagnostic != expected:
+        raise AssertionError(
+            "SQLAlchemyエラーの診断が固定形式と一致しません。"
+        )
 
 
 def _collected_releases() -> CollectedPressReleases:
