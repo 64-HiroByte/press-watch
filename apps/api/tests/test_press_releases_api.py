@@ -130,6 +130,40 @@ class PressReleaseListApiTest(unittest.TestCase):
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
     @patch("press_watch_api.routers.press_releases.count_press_releases")
+    def test_list_does_not_add_page_when_total_items_is_divisible(
+        self,
+        count_press_releases_mock: Mock,
+        list_press_releases_mock: Mock,
+    ) -> None:
+        """総件数がページサイズで割り切れる場合に余分なページを作らないこと"""
+
+        count_press_releases_mock.return_value = 100
+        list_press_releases_mock.return_value = ()
+
+        response = self.client.get(
+            "/press-releases",
+            params={"page": 2, "page_size": 50},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["pagination"],
+            {
+                "page": 2,
+                "page_size": 50,
+                "total_items": 100,
+                "total_pages": 2,
+            },
+        )
+        list_press_releases_mock.assert_called_once_with(
+            self.session,
+            limit=50,
+            offset=50,
+            title_query=None,
+        )
+
+    @patch("press_watch_api.routers.press_releases.list_press_releases")
+    @patch("press_watch_api.routers.press_releases.count_press_releases")
     def test_list_returns_empty_response_without_list_query_when_no_data(
         self,
         count_press_releases_mock: Mock,
@@ -249,6 +283,40 @@ class PressReleaseListApiTest(unittest.TestCase):
             title_query=None,
         )
         list_press_releases_mock.assert_not_called()
+
+    @patch("press_watch_api.routers.press_releases.list_press_releases")
+    @patch("press_watch_api.routers.press_releases.count_press_releases")
+    def test_list_passes_maximum_page_size_to_repository(
+        self,
+        count_press_releases_mock: Mock,
+        list_press_releases_mock: Mock,
+    ) -> None:
+        """ページサイズの上限値をrepositoryの取得件数へ渡すこと"""
+
+        count_press_releases_mock.return_value = 101
+        list_press_releases_mock.return_value = ()
+
+        response = self.client.get(
+            "/press-releases",
+            params={"page_size": 100},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["pagination"],
+            {
+                "page": 1,
+                "page_size": 100,
+                "total_items": 101,
+                "total_pages": 2,
+            },
+        )
+        list_press_releases_mock.assert_called_once_with(
+            self.session,
+            limit=100,
+            offset=0,
+            title_query=None,
+        )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
     @patch("press_watch_api.routers.press_releases.count_press_releases")
