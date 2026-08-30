@@ -13,6 +13,10 @@ from api_test_constants import (
     ENV_PRESS_RELEASE_URL_2 as SOURCE_URL_2,
 )
 
+EXPECTED_DEFAULT_PAGE_SIZE = 50
+EXPECTED_MIN_PAGE_SIZE = 10
+EXPECTED_MAX_PAGE_SIZE = 100
+
 
 class PressReleaseListApiTest(unittest.TestCase):
     """報道発表一覧APIのテスト"""
@@ -77,7 +81,7 @@ class PressReleaseListApiTest(unittest.TestCase):
                 ],
                 "pagination": {
                     "page": 1,
-                    "page_size": 50,
+                    "page_size": EXPECTED_DEFAULT_PAGE_SIZE,
                     "total_items": 2,
                     "total_pages": 1,
                 },
@@ -89,78 +93,82 @@ class PressReleaseListApiTest(unittest.TestCase):
         )
         list_press_releases_mock.assert_called_once_with(
             self.session,
-            limit=50,
+            limit=EXPECTED_DEFAULT_PAGE_SIZE,
             offset=0,
             title_query=None,
         )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
     @patch("press_watch_api.routers.press_releases.count_press_releases")
-    def test_list_applies_requested_page_and_rounds_up_total_pages(
+    def test_list_applies_requested_page_and_offset(
         self,
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """指定ページをoffsetへ変換して総ページ数を切り上げること"""
+        """指定ページをoffsetへ変換して一覧取得すること"""
 
-        count_press_releases_mock.return_value = 34_421
+        requested_page = 2
+        page_size = EXPECTED_MIN_PAGE_SIZE
+        total_items = page_size * requested_page + 1
+        expected_offset = page_size * (requested_page - 1)
+
+        count_press_releases_mock.return_value = total_items
         list_press_releases_mock.return_value = ()
 
         response = self.client.get(
             "/press-releases",
-            params={"page": 2, "page_size": 10},
+            params={"page": requested_page, "page_size": page_size},
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
-            response.json()["pagination"],
-            {
-                "page": 2,
-                "page_size": 10,
-                "total_items": 34_421,
-                "total_pages": 3_443,
-            },
+            response.json()["pagination"]["page"],
+            requested_page,
         )
         list_press_releases_mock.assert_called_once_with(
             self.session,
-            limit=10,
-            offset=10,
+            limit=page_size,
+            offset=expected_offset,
             title_query=None,
         )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
     @patch("press_watch_api.routers.press_releases.count_press_releases")
-    def test_list_does_not_add_page_when_total_items_is_divisible(
+    def test_list_calculates_total_pages_around_divisible_boundary(
         self,
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """総件数がページサイズで割り切れる場合に余分なページを作らないこと"""
+        """ページサイズで割り切れる件数の前後で総ページ数を正しく返すこと"""
 
-        count_press_releases_mock.return_value = 100
+        page_size = EXPECTED_DEFAULT_PAGE_SIZE
+        expected_full_pages = 2
+        divisible_total_items = page_size * expected_full_pages
         list_press_releases_mock.return_value = ()
 
-        response = self.client.get(
-            "/press-releases",
-            params={"page": 2, "page_size": 50},
+        cases = (
+            (divisible_total_items - 1, expected_full_pages),
+            (divisible_total_items, expected_full_pages),
+            (divisible_total_items + 1, expected_full_pages + 1),
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json()["pagination"],
-            {
-                "page": 2,
-                "page_size": 50,
-                "total_items": 100,
-                "total_pages": 2,
-            },
-        )
-        list_press_releases_mock.assert_called_once_with(
-            self.session,
-            limit=50,
-            offset=50,
-            title_query=None,
-        )
+        for total_items, expected_total_pages in cases:
+            with self.subTest(
+                total_items=total_items,
+                expected_total_pages=expected_total_pages,
+            ):
+                count_press_releases_mock.return_value = total_items
+
+                response = self.client.get(
+                    "/press-releases",
+                    params={"page_size": page_size},
+                )
+
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(
+                    response.json()["pagination"]["total_pages"],
+                    expected_total_pages,
+                )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
     @patch("press_watch_api.routers.press_releases.count_press_releases")
@@ -181,7 +189,7 @@ class PressReleaseListApiTest(unittest.TestCase):
             response.json()["pagination"],
             {
                 "page": 1,
-                "page_size": 50,
+                "page_size": EXPECTED_DEFAULT_PAGE_SIZE,
                 "total_items": 0,
                 "total_pages": 0,
             },
@@ -197,11 +205,16 @@ class PressReleaseListApiTest(unittest.TestCase):
     ) -> None:
         """最終ページ超過時は一覧取得を省略して要求ページを返すこと"""
 
-        count_press_releases_mock.return_value = 34_421
+        page_size = EXPECTED_DEFAULT_PAGE_SIZE
+        last_page = 2
+        total_items = page_size * last_page
+        requested_page = last_page + 1
+
+        count_press_releases_mock.return_value = total_items
 
         response = self.client.get(
             "/press-releases",
-            params={"page": 690, "page_size": 50},
+            params={"page": requested_page, "page_size": page_size},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -209,45 +222,50 @@ class PressReleaseListApiTest(unittest.TestCase):
         self.assertEqual(
             response.json()["pagination"],
             {
-                "page": 690,
-                "page_size": 50,
-                "total_items": 34_421,
-                "total_pages": 689,
+                "page": requested_page,
+                "page_size": page_size,
+                "total_items": total_items,
+                "total_pages": last_page,
             },
         )
         list_press_releases_mock.assert_not_called()
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
     @patch("press_watch_api.routers.press_releases.count_press_releases")
-    def test_list_applies_last_page_offset_for_actual_data_size(
+    def test_list_applies_last_page_offset(
         self,
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """実データ規模の最終ページを正しいoffsetへ変換すること"""
+        """最終ページを正しいoffsetへ変換すること"""
 
-        count_press_releases_mock.return_value = 34_421
+        page_size = EXPECTED_DEFAULT_PAGE_SIZE
+        last_page = 3
+        expected_offset = page_size * (last_page - 1)
+        total_items = expected_offset + 1
+
+        count_press_releases_mock.return_value = total_items
         list_press_releases_mock.return_value = ()
 
         response = self.client.get(
             "/press-releases",
-            params={"page": 689, "page_size": 50},
+            params={"page": last_page, "page_size": page_size},
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.json()["pagination"],
             {
-                "page": 689,
-                "page_size": 50,
-                "total_items": 34_421,
-                "total_pages": 689,
+                "page": last_page,
+                "page_size": page_size,
+                "total_items": total_items,
+                "total_pages": last_page,
             },
         )
         list_press_releases_mock.assert_called_once_with(
             self.session,
-            limit=50,
-            offset=34_400,
+            limit=page_size,
+            offset=expected_offset,
             title_query=None,
         )
 
@@ -264,7 +282,7 @@ class PressReleaseListApiTest(unittest.TestCase):
 
         response = self.client.get(
             "/press-releases",
-            params={"page": 10_000, "page_size": 100},
+            params={"page": 10_000, "page_size": EXPECTED_MAX_PAGE_SIZE},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -273,7 +291,7 @@ class PressReleaseListApiTest(unittest.TestCase):
             response.json()["pagination"],
             {
                 "page": 10_000,
-                "page_size": 100,
+                "page_size": EXPECTED_MAX_PAGE_SIZE,
                 "total_items": 0,
                 "total_pages": 0,
             },
@@ -293,12 +311,14 @@ class PressReleaseListApiTest(unittest.TestCase):
     ) -> None:
         """ページサイズの上限値をrepositoryの取得件数へ渡すこと"""
 
-        count_press_releases_mock.return_value = 101
+        total_items = EXPECTED_MAX_PAGE_SIZE + 1
+
+        count_press_releases_mock.return_value = total_items
         list_press_releases_mock.return_value = ()
 
         response = self.client.get(
             "/press-releases",
-            params={"page_size": 100},
+            params={"page_size": EXPECTED_MAX_PAGE_SIZE},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -306,14 +326,14 @@ class PressReleaseListApiTest(unittest.TestCase):
             response.json()["pagination"],
             {
                 "page": 1,
-                "page_size": 100,
-                "total_items": 101,
+                "page_size": EXPECTED_MAX_PAGE_SIZE,
+                "total_items": total_items,
                 "total_pages": 2,
             },
         )
         list_press_releases_mock.assert_called_once_with(
             self.session,
-            limit=100,
+            limit=EXPECTED_MAX_PAGE_SIZE,
             offset=0,
             title_query=None,
         )
@@ -339,7 +359,7 @@ class PressReleaseListApiTest(unittest.TestCase):
 
         response = self.client.get(
             "/press-releases",
-            params={"page": 1, "page_size": 10},
+            params={"page": 1, "page_size": EXPECTED_MIN_PAGE_SIZE},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -348,7 +368,7 @@ class PressReleaseListApiTest(unittest.TestCase):
             response.json()["pagination"],
             {
                 "page": 1,
-                "page_size": 10,
+                "page_size": EXPECTED_MIN_PAGE_SIZE,
                 "total_items": 1,
                 "total_pages": 1,
             },
@@ -359,7 +379,7 @@ class PressReleaseListApiTest(unittest.TestCase):
         )
         list_press_releases_mock.assert_called_once_with(
             self.session,
-            limit=10,
+            limit=EXPECTED_MIN_PAGE_SIZE,
             offset=0,
             title_query=None,
         )
@@ -378,7 +398,11 @@ class PressReleaseListApiTest(unittest.TestCase):
 
         response = self.client.get(
             "/press-releases",
-            params={"q": "  水質50%_/  ", "page": 2, "page_size": 10},
+            params={
+                "q": "  水質50%_/  ",
+                "page": 2,
+                "page_size": EXPECTED_MIN_PAGE_SIZE,
+            },
         )
 
         self.assertEqual(response.status_code, 200)
@@ -386,7 +410,7 @@ class PressReleaseListApiTest(unittest.TestCase):
             response.json()["pagination"],
             {
                 "page": 2,
-                "page_size": 10,
+                "page_size": EXPECTED_MIN_PAGE_SIZE,
                 "total_items": 11,
                 "total_pages": 2,
             },
@@ -397,8 +421,8 @@ class PressReleaseListApiTest(unittest.TestCase):
         )
         list_press_releases_mock.assert_called_once_with(
             self.session,
-            limit=10,
-            offset=10,
+            limit=EXPECTED_MIN_PAGE_SIZE,
+            offset=EXPECTED_MIN_PAGE_SIZE,
             title_query="水質50%_/",
         )
 
@@ -424,7 +448,7 @@ class PressReleaseListApiTest(unittest.TestCase):
             response.json()["pagination"],
             {
                 "page": 1,
-                "page_size": 50,
+                "page_size": EXPECTED_DEFAULT_PAGE_SIZE,
                 "total_items": 51,
                 "total_pages": 2,
             },
@@ -435,7 +459,7 @@ class PressReleaseListApiTest(unittest.TestCase):
         )
         list_press_releases_mock.assert_called_once_with(
             self.session,
-            limit=50,
+            limit=EXPECTED_DEFAULT_PAGE_SIZE,
             offset=0,
             title_query="水質",
         )
@@ -571,7 +595,7 @@ class PressReleaseListApiTest(unittest.TestCase):
             params={
                 "q": "水質",
                 "page": 4,
-                "page_size": 10,
+                "page_size": EXPECTED_MIN_PAGE_SIZE,
             },
         )
 
@@ -598,8 +622,8 @@ class PressReleaseListApiTest(unittest.TestCase):
             {"page": -1},
             {"page": 0},
             {"page": 10_001},
-            {"page_size": 9},
-            {"page_size": 101},
+            {"page_size": EXPECTED_MIN_PAGE_SIZE - 1},
+            {"page_size": EXPECTED_MAX_PAGE_SIZE + 1},
         )
 
         for params in invalid_params:
@@ -637,9 +661,18 @@ class PressReleaseListApiTest(unittest.TestCase):
 
         self.assertEqual(page_size_parameter["in"], "query")
         self.assertFalse(page_size_parameter["required"])
-        self.assertEqual(page_size_parameter["schema"]["default"], 50)
-        self.assertEqual(page_size_parameter["schema"]["minimum"], 10)
-        self.assertEqual(page_size_parameter["schema"]["maximum"], 100)
+        self.assertEqual(
+            page_size_parameter["schema"]["default"],
+            EXPECTED_DEFAULT_PAGE_SIZE,
+        )
+        self.assertEqual(
+            page_size_parameter["schema"]["minimum"],
+            EXPECTED_MIN_PAGE_SIZE,
+        )
+        self.assertEqual(
+            page_size_parameter["schema"]["maximum"],
+            EXPECTED_MAX_PAGE_SIZE,
+        )
 
     def test_list_title_query_is_registered_in_openapi(self) -> None:
         """任意のタイトル検索条件と最大長がOpenAPIへ登録されること"""
