@@ -133,6 +133,24 @@ migration再適用テストでは、一度commitしたデータが`downgrade bas
 通常の開発DBが使う`127.0.0.1:5432`、`postgres17_data`、旧`postgres_data`、Supabaseには接続しません。
 `55432`が別のプロセスに使われている場合は、別ポートへ自動で切り替えずに起動を失敗させます。
 
+### 完成済み実データスナップショットを検証する
+
+Issue #70で確定した環境省報道発表34,421件のJSONスナップショットは、専用runnerから同じテスト専用PostgreSQL 17へ投入できます。
+スナップショットはGit管理外のローカルファイルとして用意し、リポジトリへ追加しません。
+
+```bash
+cd apps/api
+PYTHONPATH=src uv run --locked python -m integration_tests.run_real_snapshot /absolute/path/to/env_press_all.json
+cd ../..
+```
+
+runnerはComposeを起動する前に、ファイル、JSON構造、件数、各項目の型、保存DTO、詳細ページURLの重複、SHA-256、取得完了時刻を検証します。
+入力検証後は、空DBへの初回保存、全行の取得時刻、一覧APIの先頭・最終・超過ページ、タイトル検索、同じスナップショットの再投入を確認し、件数と所要時間だけを出力します。
+入力検証、DB操作、API取得の失敗時も、スナップショット本文、接続文字列、認証情報をエラーへ出力しません。
+
+接続先、schema、許可テーブルは通常のDB統合テストと同じ安全条件で検証します。
+成功時と失敗時のどちらでもテスト専用Compose projectを停止し、tmpfs上のテストデータ、専用コンテナ、networkを削除します。
+
 ## scraper を単体で起動する
 
 scraper の単体動作を確認します。保存済みHTMLを使うと、実HTTP取得をせずにJSON出力を確認できます。
