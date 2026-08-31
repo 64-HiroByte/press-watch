@@ -1,5 +1,4 @@
 from collections.abc import Iterator
-import sys
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -25,11 +24,14 @@ def get_db_session() -> Iterator[Session]:
         raise
     except Exception:
         raise DatabaseLifecycleError("initialization") from None
+    has_pending_error = False
     try:
         yield session
+    except BaseException:
+        # 呼び出し元のexceptとは区別し、closeの通常例外で終了通知を置き換えない。
+        has_pending_error = True
+        raise
     finally:
-        # close中の例外ではなく、終了処理へ入る前の例外を優先する。
-        has_pending_error = sys.exception() is not None
         try:
             session.close()
         except Exception as exc:
