@@ -93,12 +93,16 @@ class PressReleaseRepositoryTest(unittest.TestCase):
         returned_second = Mock(spec=PressRelease)
         session.scalars.return_value = (returned_first, returned_second)
         first_dto = _press_release_create(
+            title="最初の報道発表",
             source_url=SOURCE_URL_1,
             source_categories=["総合政策", "自然環境"],
         )
         second_dto = _press_release_create(
+            title="後の報道発表",
             source_url="https://example.test/press/2",
+            published_at=date(2026, 5, 27),
             source_categories=None,
+            fetched_at=datetime(2026, 5, 28, 11, 0, tzinfo=UTC),
         )
         create_press_releases = getattr(
             press_release_repository,
@@ -142,8 +146,20 @@ class PressReleaseRepositoryTest(unittest.TestCase):
                 compiled_sql.partition("RETURNING")[2],
             )
         self.assertEqual(len(compiled.params), 10)
+        for index, dto in enumerate((first_dto, second_dto)):
+            for column_name in (
+                "title",
+                "source_url",
+                "published_at",
+                "source_categories",
+                "fetched_at",
+            ):
+                self.assertTrue(
+                    compiled.params[f"{column_name}_m{index}"]
+                    == getattr(dto, column_name),
+                    f"INSERTの{index}行目の{column_name}がDTOと一致しません。",
+                )
         copied_categories = compiled.params["source_categories_m0"]
-        self.assertEqual(copied_categories, first_dto.source_categories)
         self.assertIsNot(copied_categories, first_dto.source_categories)
         session.add.assert_not_called()
         session.flush.assert_not_called()

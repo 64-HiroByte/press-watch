@@ -241,11 +241,7 @@ class PressReleaseSaveServiceTest(unittest.TestCase):
         session = Mock(spec=Session)
         session.scalar.return_value = None
         saved_first = _saved_press_release(SOURCE_URL_1)
-        saved_first.fetched_at = datetime(2026, 5, 26, 10, 0, tzinfo=UTC)
-        saved_first.source_categories = ["総合政策"]
         saved_second = _saved_press_release(SOURCE_URL_2)
-        saved_second.fetched_at = datetime(2026, 5, 26, 10, 0, tzinfo=UTC)
-        saved_second.source_categories = None
         session.scalars.return_value = (saved_first, saved_second)
         releases = [
             _scraped_release(
@@ -268,22 +264,30 @@ class PressReleaseSaveServiceTest(unittest.TestCase):
         )
         press_releases = result.saved_press_releases
 
-        self.assertEqual(
-            [press_release.source_url for press_release in press_releases],
-            [release.url for release in releases],
-        )
-        self.assertEqual(
-            [press_release.fetched_at for press_release in press_releases],
-            [fetched_at, fetched_at],
-        )
-        self.assertEqual(press_releases[0].source_categories, ["総合政策"])
-        self.assertIsNone(press_releases[1].source_categories)
+        self.assertEqual(len(press_releases), 2)
+        self.assertIs(press_releases[0], saved_first)
+        self.assertIs(press_releases[1], saved_second)
         self.assertEqual(result.saved_count, 2)
         self.assertEqual(result.skipped_count, 0)
         session.scalar.assert_not_called()
         session.add.assert_not_called()
         session.flush.assert_not_called()
         session.scalars.assert_called_once()
+        statement = session.scalars.call_args.args[0]
+        parameters = statement.compile(dialect=postgresql.dialect()).params
+        for index, release in enumerate(releases):
+            expected_values = {
+                "title": release.title,
+                "source_url": release.url,
+                "published_at": release.published_at,
+                "source_categories": list(release.source_categories) or None,
+                "fetched_at": fetched_at,
+            }
+            for column_name, expected_value in expected_values.items():
+                self.assertTrue(
+                    parameters[f"{column_name}_m{index}"] == expected_value,
+                    f"INSERTの{index}行目の{column_name}が変換結果と一致しません。",
+                )
 
     def test_save_press_releases_skips_existing_source_url(
         self,
@@ -317,15 +321,12 @@ class PressReleaseSaveServiceTest(unittest.TestCase):
             fetched_at=fetched_at,
         )
 
-        self.assertEqual(
+        self.assertTrue(
             [
                 press_release.source_url
                 for press_release in result.saved_press_releases
-            ],
-            [
-                SOURCE_URL_1,
-                SOURCE_URL_3,
-            ],
+            ] == [SOURCE_URL_1, SOURCE_URL_3],
+            "保存結果のsource_url順が一致しません。",
         )
         self.assertEqual(result.saved_count, 2)
         self.assertEqual(result.skipped_count, 1)
@@ -374,10 +375,13 @@ class PressReleaseSaveServiceTest(unittest.TestCase):
         statement = session.scalars.call_args.args[0]
         parameters = statement.compile(dialect=postgresql.dialect()).params
         self.assertEqual(len(parameters), 15)
-        self.assertIn("入力内で最初の報道発表", parameters.values())
-        self.assertNotIn(
-            "入力内で重複する後続の報道発表",
-            parameters.values(),
+        self.assertTrue(
+            releases[0].title in parameters.values(),
+            "入力内で最初のDTOが保存候補に含まれていません。",
+        )
+        self.assertTrue(
+            releases[2].title not in parameters.values(),
+            "入力内で重複する後続DTOが保存候補に含まれています。",
         )
         self.assertEqual(result.saved_count, 2)
         self.assertEqual(result.skipped_count, 2)
@@ -439,6 +443,8 @@ class PressReleaseSaveServiceTest(unittest.TestCase):
         session.scalar.assert_not_called()
         session.add.assert_not_called()
         session.flush.assert_not_called()
+        session.commit.assert_not_called()
+        session.rollback.assert_not_called()
 
     def test_save_press_releases_does_not_execute_sql_for_empty_input(
         self,

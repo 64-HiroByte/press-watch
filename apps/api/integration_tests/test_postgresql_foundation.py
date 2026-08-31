@@ -182,9 +182,10 @@ class PostgreSQLFoundationIntegrationTest(unittest.TestCase):
 
         self.assertEqual(result.saved_count, 2)
         self.assertEqual(result.skipped_count, 2)
-        self.assertEqual(
-            [release.source_url for release in result.saved_press_releases],
-            [first_new_url, later_new_url],
+        self.assertTrue(
+            [release.source_url for release in result.saved_press_releases]
+            == [first_new_url, later_new_url],
+            "保存結果のsource_url順が一致しません。",
         )
         self.assertEqual(
             self.connection.scalar(
@@ -192,6 +193,56 @@ class PostgreSQLFoundationIntegrationTest(unittest.TestCase):
             ),
             3,
         )
+
+    def test_bulk_save_preserves_all_five_values_in_database(self) -> None:
+        """一括INSERTの5列をDBから読み直し、カテゴリのNULLも維持すること"""
+
+        releases = (
+            ScraperCliRelease(
+                title="カテゴリありの報道発表",
+                published_at=date(2026, 8, 27),
+                url="https://example.test/press/bulk-values-first",
+                source_categories=("総合政策", "水環境"),
+            ),
+            ScraperCliRelease(
+                title="カテゴリなしの報道発表",
+                published_at=date(2026, 8, 28),
+                url="https://example.test/press/bulk-values-second",
+                source_categories=(),
+            ),
+        )
+        fetched_at = datetime(2026, 8, 29, 10, 0, tzinfo=UTC)
+
+        result = save_press_releases(
+            self.session, releases, fetched_at=fetched_at,
+        )
+
+        self.assertEqual(result.saved_count, 2)
+        self.assertEqual(result.skipped_count, 0)
+        rows = self.connection.execute(
+            text(
+                "select title, source_url, published_at, source_categories, fetched_at "
+                "from press_releases"
+            )
+        ).mappings().all()
+        self.assertEqual(len(rows), 2)
+        rows_by_url = {row["source_url"]: row for row in rows}
+        for index, release in enumerate(releases):
+            row = rows_by_url.get(release.url)
+            if row is None:
+                self.fail("一括保存した行がDBに見つかりません。")
+            expected_values = {
+                "title": release.title,
+                "source_url": release.url,
+                "published_at": release.published_at,
+                "source_categories": list(release.source_categories) or None,
+                "fetched_at": fetched_at,
+            }
+            for column_name, expected_value in expected_values.items():
+                self.assertTrue(
+                    row[column_name] == expected_value,
+                    f"DBの{index}行目の{column_name}が入力と一致しません。",
+                )
 
     def test_save_service_uses_two_inserts_for_1001_releases(
         self,
@@ -274,35 +325,49 @@ class PostgreSQLFoundationIntegrationTest(unittest.TestCase):
                 if insert_count == 2:
                     raise RuntimeError("fixed second insert failure")
 
-        event.listen(
-            self.engine,
-            "before_cursor_execute",
-            fail_before_second_insert,
-        )
         try:
-            with self.assertRaisesRegex(
-                RuntimeError,
-                "fixed second insert failure",
-            ):
-                try:
-                    save_press_releases(self.session, releases)
-                except RuntimeError:
-                    self.session.rollback()
-                    raise
-        finally:
-            event.remove(
+            event.listen(
                 self.engine,
                 "before_cursor_execute",
                 fail_before_second_insert,
             )
+            try:
+                # 外側のtransactionに参加させず、誤った中間commitもDBへ反映させる。
+                with Session(self.engine) as save_session:
+                    with self.assertRaisesRegex(
+                        RuntimeError,
+                        "fixed second insert failure",
+                    ):
+                        try:
+                            save_press_releases(save_session, releases)
+                        except RuntimeError:
+                            save_session.rollback()
+                            raise
+                    # 自動closeの取消に頼らず、明示rollbackの直後に確認する。
+                    self.assertFalse(save_session.in_transaction())
+                    self.assertEqual(
+                        save_session.scalar(
+                            text("select count(*) from press_releases")
+                        ),
+                        0,
+                    )
+            finally:
+                event.remove(
+                    self.engine,
+                    "before_cursor_execute",
+                    fail_before_second_insert,
+                )
 
-        self.assertEqual(insert_count, 2)
-        self.assertEqual(
-            self.connection.scalar(
-                text("select count(*) from press_releases")
-            ),
-            0,
-        )
+            self.assertEqual(insert_count, 2)
+            with self.engine.connect() as verification_connection:
+                row_count = verification_connection.scalar(
+                    text("select count(*) from press_releases")
+                )
+            self.assertEqual(row_count, 0)
+        finally:
+            # 回帰で中間commitされた場合も、専用テストDBへ行を残さない。
+            with self.engine.begin() as cleanup_connection:
+                cleanup_connection.execute(text("delete from press_releases"))
 
 
 class PostgreSQLMigrationCycleIntegrationTest(unittest.TestCase):
