@@ -1,6 +1,8 @@
+from collections.abc import Sequence
 from datetime import date
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from press_watch_api.models.press_release import PressRelease
@@ -96,6 +98,49 @@ def create_press_release(
     session.flush()
 
     return press_release
+
+
+def create_press_releases(
+    session: Session,
+    data: Sequence[PressReleaseCreate],
+) -> tuple[PressRelease, ...]:
+    """複数の報道発表DTOを重複時にskipして一括保存
+
+    Args:
+        session: 保存に使うSQLAlchemyセッション
+        data: 報道発表の新規保存DTO列
+
+    Returns:
+        実際にINSERTされた報道発表DBモデル
+    """
+
+    if not data:
+        return ()
+
+    values = [
+        {
+            "title": create_data.title,
+            "source_url": create_data.source_url,
+            "published_at": create_data.published_at,
+            "source_categories": (
+                list(create_data.source_categories)
+                if create_data.source_categories is not None
+                else None
+            ),
+            "fetched_at": create_data.fetched_at,
+        }
+        for create_data in data
+    ]
+    statement = (
+        insert(PressRelease)
+        .values(values)
+        .on_conflict_do_nothing(
+            index_elements=[PressRelease.source_url],
+        )
+        .returning(PressRelease)
+    )
+
+    return tuple(session.scalars(statement))
 
 
 def has_press_release_with_source_url(

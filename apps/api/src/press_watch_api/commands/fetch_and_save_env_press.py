@@ -15,6 +15,7 @@ import tempfile
 import threading
 from typing import Protocol
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from press_watch_api.config import DATABASE_URL_ENV
@@ -33,6 +34,7 @@ DEFAULT_KNOWN_RELEASE_MONTHS = 3
 DATABASE_CONFIGURATION_FAILED_REASON = (
     "database configuration could not be loaded"
 )
+DATABASE_OPERATION_FAILED_REASON = "database operation failed"
 CREDENTIALS_IN_URL_RE = re.compile(r"(?i)(https?://)[^/@\s]+@")
 MAX_DIAGNOSTIC_VALUE_LENGTH = 1000
 PROCESS_TERMINATE_TIMEOUT_SECONDS = 5.0
@@ -209,6 +211,7 @@ def main(
 
     session: Session | None = None
     committed = False
+    exit_code = 0
     try:
         if session_factory is None:
             try:
@@ -243,10 +246,14 @@ def main(
         session.commit()
         committed = True
         _write_json(output, result.to_json_dict())
-        return 0
     except Exception as exc:
+        exit_code = 1
+        rollback_error: Exception | None = None
         if session is not None and not committed:
-            session.rollback()
+            try:
+                session.rollback()
+            except Exception as cleanup_error:
+                rollback_error = cleanup_error
         if committed:
             _print_post_commit_output_error(
                 error_output,
@@ -255,10 +262,29 @@ def main(
             )
         else:
             _print_runtime_error(error_output, error_target, exc)
-        return 1
+        if rollback_error is not None:
+            _print_session_cleanup_error(
+                error_output,
+                error_target,
+                rollback_error,
+                operation="rollback",
+                committed=committed,
+            )
     finally:
         if session is not None:
-            session.close()
+            try:
+                session.close()
+            except Exception as exc:
+                exit_code = 1
+                _print_session_cleanup_error(
+                    error_output,
+                    error_target,
+                    exc,
+                    operation="close",
+                    committed=committed,
+                )
+
+    return exit_code
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -795,14 +821,19 @@ def _print_runtime_error(
         exc: stderrへ種類と理由を出す例外
     """
 
-    print(
+    reason = (
+        DATABASE_OPERATION_FAILED_REASON
+        if isinstance(exc, SQLAlchemyError)
+        else _one_line(str(exc)) or "no detail"
+    )
+    _write_error_line(
+        output,
         (
             "error: "
             f"target={_one_line(target)} "
             f"exception={type(exc).__name__} "
-            f"reason={_one_line(str(exc)) or 'no detail'}"
+            f"reason={reason}"
         ),
-        file=output,
     )
 
 
@@ -820,15 +851,55 @@ def _print_post_commit_output_error(
     """
 
     reason = _one_line(str(exc)) or "no detail"
-    print(
+    _write_error_line(
+        output,
         (
             "error: "
             f"target={_one_line(target)} "
             f"exception={type(exc).__name__} "
             f"reason={POST_COMMIT_OUTPUT_FAILED_REASON}: {reason}"
         ),
-        file=output,
     )
+
+
+def _print_session_cleanup_error(
+    output: object,
+    target: str,
+    exc: Exception,
+    *,
+    operation: str,
+    committed: bool,
+) -> None:
+    """終了処理の失敗を、DB例外の詳細を含めず報告
+
+    Args:
+        output: 診断を書き込む出力先
+        target: 取得対象URLまたはファイルパス
+        exc: rollbackまたはcloseで発生した例外
+        operation: 失敗した終了処理の名前
+        committed: commit呼び出しが正常終了したか
+    """
+
+    _write_error_line(
+        output,
+        (
+            "error: "
+            f"target={_one_line(target)} operation={operation} "
+            f"committed={str(committed).lower()} "
+            f"exception={type(exc).__name__} "
+            f"reason={DATABASE_OPERATION_FAILED_REASON}"
+        ),
+    )
+
+
+def _write_error_line(output: object, message: str) -> None:
+    """失敗時の診断を出力し、書込失敗による例外連鎖の露出を防止"""
+
+    try:
+        print(message, file=output)
+    except Exception:
+        # 診断を書けなくても、呼び出し元は終了コード1で失敗を通知する。
+        return
 
 
 def _one_line(value: str) -> str:

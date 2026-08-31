@@ -18,6 +18,7 @@ from integration_tests.run_real_snapshot import (
     REAL_SNAPSHOT_PATH_ENV,
     SNAPSHOT_FETCHED_AT_TEXT,
 )
+from integration_tests.sql_statement_counter import count_save_sql_statements
 from press_watch_api.commands.fetch_and_save_env_press import ScraperCliRelease
 from press_watch_api.dependencies import get_db_session
 from press_watch_api.main import app
@@ -64,16 +65,27 @@ class RealSnapshotPostgreSQLIntegrationTest(unittest.TestCase):
         with Session(self.engine) as session:
             self.assertEqual(_row_count(session), 0)
             started_at = perf_counter()
-            first_save_result = _save_and_commit_without_exposing_snapshot(
-                session,
-                self.snapshot.releases,
-                fetched_at=self.snapshot.fetched_at,
-                phase="初回投入",
-            )
+            with count_save_sql_statements(self.engine) as initial_sql_counts:
+                first_save_result = _save_without_exposing_snapshot(
+                    session,
+                    self.snapshot.releases,
+                    fetched_at=self.snapshot.fetched_at,
+                    phase="初回投入",
+                )
+            initial_saved_source_urls = [
+                release.source_url
+                for release in first_save_result.saved_press_releases
+            ]
+            _commit_without_exposing_snapshot(session, phase="初回投入")
             timings["initial_save"] = perf_counter() - started_at
 
             self.assertEqual(first_save_result.saved_count, 34_421)
             self.assertEqual(first_save_result.skipped_count, 0)
+            _assert_source_url_order(
+                initial_saved_source_urls,
+                [release.url for release in self.snapshot.releases],
+                context="初回保存結果",
+            )
             self.assertEqual(_row_count(session), 34_421)
             mismatched_fetched_at_count = session.scalar(
                 text(
@@ -207,12 +219,14 @@ class RealSnapshotPostgreSQLIntegrationTest(unittest.TestCase):
 
         with Session(self.engine) as session:
             started_at = perf_counter()
-            second_save_result = _save_and_commit_without_exposing_snapshot(
-                session,
-                self.snapshot.releases,
-                fetched_at=self.snapshot.fetched_at,
-                phase="再投入",
-            )
+            with count_save_sql_statements(self.engine) as duplicate_sql_counts:
+                second_save_result = _save_without_exposing_snapshot(
+                    session,
+                    self.snapshot.releases,
+                    fetched_at=self.snapshot.fetched_at,
+                    phase="再投入",
+                )
+            _commit_without_exposing_snapshot(session, phase="再投入")
             timings["duplicate_save"] = perf_counter() - started_at
 
             self.assertEqual(second_save_result.saved_count, 0)
@@ -226,6 +240,10 @@ class RealSnapshotPostgreSQLIntegrationTest(unittest.TestCase):
                     "initial_saved_count": first_save_result.saved_count,
                     "duplicate_skipped_count": second_save_result.skipped_count,
                     "database_total_count": 34_421,
+                    "sql_statement_counts": {
+                        "initial": initial_sql_counts.to_json_dict(),
+                        "duplicate": duplicate_sql_counts.to_json_dict(),
+                    },
                     "search_query": _SEARCH_QUERY,
                     "search_total_items": len(matching_releases),
                     "timings_seconds": {
@@ -239,12 +257,17 @@ class RealSnapshotPostgreSQLIntegrationTest(unittest.TestCase):
             flush=True,
         )
 
+        self.assertEqual(initial_sql_counts.select, 0)
+        self.assertEqual(initial_sql_counts.insert, 35)
+        self.assertEqual(duplicate_sql_counts.select, 0)
+        self.assertEqual(duplicate_sql_counts.insert, 35)
+
 
 def _row_count(session: Session) -> int:
     return int(session.scalar(text("select count(*) from press_releases")) or 0)
 
 
-def _save_and_commit_without_exposing_snapshot(
+def _save_without_exposing_snapshot(
     session: Session,
     releases: tuple[ScraperCliRelease, ...],
     *,
@@ -259,13 +282,27 @@ def _save_and_commit_without_exposing_snapshot(
             releases,
             fetched_at=fetched_at,
         )
-        session.commit()
     except Exception as error:
         raise AssertionError(
             f"{phase}に失敗しました: {type(error).__name__}"
         ) from None
 
     return result
+
+
+def _commit_without_exposing_snapshot(
+    session: Session,
+    *,
+    phase: str,
+) -> None:
+    """失敗時にDB例外の詳細を表示せず保存結果をcommit"""
+
+    try:
+        session.commit()
+    except Exception as error:
+        raise AssertionError(
+            f"{phase}のcommitに失敗しました: {type(error).__name__}"
+        ) from None
 
 
 def _assert_source_url_order(
