@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from press_watch_api.dependencies import get_db_session
@@ -32,6 +33,45 @@ class PressReleaseListApiTest(unittest.TestCase):
         app.dependency_overrides[get_db_session] = override_get_db_session
         self.addCleanup(app.dependency_overrides.clear)
         self.client = TestClient(app)
+
+    @patch("press_watch_api.routers.press_releases.count_press_releases")
+    def test_count_database_error_returns_safe_json_response(
+        self,
+        count_press_releases_mock: Mock,
+    ) -> None:
+        """件数取得のDB例外を固定JSONのHTTP 500として返すこと"""
+
+        count_press_releases_mock.side_effect = SQLAlchemyError(
+            "synthetic database error"
+        )
+
+        response = TestClient(app, raise_server_exceptions=False).get(
+            "/press-releases"
+        )
+
+        count_press_releases_mock.assert_called_once_with(
+            self.session,
+            title_query=None,
+        )
+        self.assertTrue(
+            response.status_code == 500,
+            "DB例外時はHTTP 500を返すこと",
+        )
+        self.assertTrue(
+            response.headers.get("content-type", "").partition(";")[0]
+            == "application/json",
+            "DB例外時はJSONのContent-Typeを返すこと",
+        )
+
+        response_json = None
+        try:
+            response_json = response.json()
+        except ValueError:
+            pass
+        self.assertTrue(
+            response_json == {"detail": "Internal server error"},
+            "DB例外時は内部情報を含まない固定JSONを返すこと",
+        )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
     @patch("press_watch_api.routers.press_releases.count_press_releases")
@@ -646,6 +686,52 @@ class PressReleaseListApiTest(unittest.TestCase):
             response_schema,
             {"$ref": "#/components/schemas/PressReleaseListResponse"},
         )
+
+    def test_error_responses_are_registered_in_openapi(self) -> None:
+        """DBエラーと想定外例外の応答形式を成功・422のschemaと併記すること"""
+
+        schema = app.openapi()
+        responses = schema["paths"]["/press-releases"]["get"]["responses"]
+        self.assertEqual(set(responses), {"200", "422", "500", "503"})
+
+        for status_code, message in (
+            ("500", "Internal server error"),
+            ("503", "Service unavailable"),
+        ):
+            with self.subTest(status_code=status_code):
+                content = responses[status_code]["content"]
+                expected_types = (
+                    {"application/json", "text/plain"}
+                    if status_code == "500"
+                    else {"application/json"}
+                )
+                self.assertEqual(set(content), expected_types)
+                self.assertEqual(
+                    content["application/json"]["schema"],
+                    {"$ref": "#/components/schemas/ErrorResponse"},
+                )
+                self.assertEqual(
+                    content["application/json"]["example"],
+                    {"detail": message},
+                )
+
+        self.assertEqual(
+            responses["500"]["content"]["text/plain"],
+            {"schema": {"type": "string"}, "example": "Internal Server Error"},
+        )
+        error_schema = schema["components"]["schemas"]["ErrorResponse"]
+        self.assertEqual(set(error_schema["properties"]), {"detail"})
+        self.assertEqual(error_schema["required"], ["detail"])
+        self.assertEqual(error_schema["properties"]["detail"]["type"], "string")
+        for status_code, response_model in (
+            ("200", "PressReleaseListResponse"),
+            ("422", "HTTPValidationError"),
+        ):
+            with self.subTest(status_code=status_code):
+                self.assertEqual(
+                    responses[status_code]["content"]["application/json"]["schema"],
+                    {"$ref": f"#/components/schemas/{response_model}"},
+                )
 
     def test_list_page_size_is_registered_in_openapi(self) -> None:
         """ページサイズの既定値と許容範囲がOpenAPIへ登録されること"""
