@@ -18,7 +18,7 @@ PressWatch は、こうした情報収集の負担や見逃しリスクを減ら
 - バックエンド: FastAPI / Python / SQLAlchemy / Alembic
 - スクレイパー: Python / Beautiful Soup / lxml
 - データベース: PostgreSQL 17 / psycopg
-- 管理 PostgreSQL: Supabase（プロジェクト作成、Direct connection、migration 適用を確認済み）
+- 管理 PostgreSQL: Supabase
 - 開発環境: Docker / docker compose
 - CI: GitHub Actions
 - パッケージ管理:
@@ -38,33 +38,20 @@ press-watch/
     └── scraper/
 ```
 
-## 現在の開発状況
+## MVPの範囲
 
-現在は **Phase 5: API実装** を進めており、ヘルスチェックと、タイトル検索に対応した保存済み報道発表一覧取得APIを利用できる段階です。
-Phase 5 の基盤として、ローカルの Docker Compose を PostgreSQL 17 へ変更し、空 DB への既存 Alembic migration 適用と、コンテナ再作成後も migration 適用状態が保持されることを確認済みです。
-管理 PostgreSQL の Supabase では、Direct connection による SQLAlchemy + psycopg 接続、SSL 接続、PostgreSQL 17.6、既存 Alembic migration の head `9f2c7a4e1d63` までの適用を確認済みです。
-Data API は利用せず、アプリケーションは FastAPI から PostgreSQL へ直接接続します。
+MVPでは、報道発表の収集・保存、一覧・検索、共有の固定カテゴリによる絞り込み、定期取得と失敗確認を目指します。
+ユーザー登録、ブックマーク、ユーザー定義カテゴリ、本格的な実行履歴管理はMVPに含めません。
 
-Phase 2では、DB保存前に取得結果を検証できるスクレイピング基盤を実装しました。
+## 利用できる機能
 
-- 環境省の報道発表一覧と月別アーカイブから、タイトル、公開日、詳細ページURL、取得元カテゴリを取得し、CLI で JSON として確認できます。
-- 月別巡回、停止理由、詳細ページURLによる重複除外、DB保存前の検証用 JSON スナップショット出力、実HTTP要求開始の3秒間隔、CLI のリアルタイム進捗表示まで実装済みです。
+- 環境省の報道発表一覧と月別アーカイブから、タイトル、公開日、詳細ページURL、取得元カテゴリを取得し、CLIでJSONとして確認できます。
+- 手動コマンドで初回全件取得・通常の差分取得を行い、詳細ページURLによる重複を除いてPostgreSQLへ保存できます。
+- DB設定に依存しないヘルスチェックと、offset方式のページネーション・タイトル検索に対応した報道発表一覧取得APIを利用できます。
 
-Phase 3では、次の DB 保存土台を追加しました。
+Data APIは利用せず、FastAPIからSQLAlchemy + psycopgでPostgreSQLへ直接接続します。
 
-- SQLAlchemy + psycopg で PostgreSQL に接続します。
-- Alembic で `press_releases` の初版 migration を管理します。
-- `source_url` の一意制約で重複登録を防ぐ前提にし、service 層では既存 `source_url` を skip して保存件数 / skip 件数を返します。
-- `source_categories` は環境省ページから取得した分類情報として保持し、欠損時は NULL を許容します。
-
-Phase 4では、scraper CLI の取得結果を API 側の保存 service へ渡し、PostgreSQL へ保存する手動取得・保存コマンドを実装しました。
-初回全件取得と DB 内の既知URLを利用する通常の差分取得を行い、実行結果と停止理由を確認できます。
-
-Phase 5では、DB設定に依存しないヘルスチェックと、offset方式のページネーション・タイトル検索に対応した報道発表一覧取得APIを実装しました。
-旧Topics CheckerのCSVと2024年以降の報道発表を調査し、水質を水道、環境水、排水へ分けた固定カテゴリの初期データ、DB構造、取込方法、分類方法を設計しました。
-固定カテゴリ用migrationを実装する前段として、PostgreSQL 17の一時DBへ現行Alembic migrationを適用し、実スキーマとDB固有の挙動を確認する統合テスト基盤を追加しました。
-固定カテゴリによる絞り込みAPI、フロントエンド画面、定期実行は今後のフェーズで実装します。
-ブックマーク、ユーザー登録、ユーザー定義カテゴリはMVP後に扱います。
+進捗・検証結果・今後の作業は[docs/tasks.md](docs/tasks.md)、製品要件とMVP範囲は[docs/requirements.md](docs/requirements.md)を参照してください。
 
 ## スクレイパー（`packages/scraper`）でできること
 
@@ -83,17 +70,17 @@ Phase 5では、DB設定に依存しないヘルスチェックと、offset方�
 巡回stateはローカルの初回全件取得と手動再開だけに使用します。
 本番の定期差分取得、実行履歴、再試行管理には使用せず、最終JSONの確認後に専用cleanup操作で削除します。
 
-## Phase 2 実装で考慮した点
+## スクレイピングの設計方針
 
 - 対象ページの構造、利用条件、robots.txt を確認してから実装する
 - 取得対象をタイトル、公開日、詳細ページURL、取得元カテゴリに絞り、DB保存前に検証できる形にする
-- 詳細ページURLを重複判定キーとして扱い、Phase 3 の DB 保存で `source_url` の一意制約へつなげる
+- 詳細ページURLを重複判定キーとして扱い、DB 保存で `source_url` の一意制約へつなげる
 - 月別巡回では停止理由を JSON に含め、取得上限に達した場合、月別リンクを最後まで巡回した場合、重複を検知した場合を区別できるようにする
 - 実HTTP取得ではすべての要求開始間に待機を入れ、`--verbose` で対象URL、待機、経過時間、月別ページ進捗をターミナルで確認できるようにする
 
 確認内容と取得時の配慮の詳細は `docs/scraping-env-go-jp.md` に記録しています。
 
-## Phase 3 DB 保存土台でできること
+## DB保存でできること
 
 - Docker Compose の `db` サービスとして PostgreSQL 17 を起動する
 - API コンテナから `DATABASE_URL` を使って PostgreSQL に接続する
@@ -104,7 +91,7 @@ Phase 5では、DB設定に依存しないヘルスチェックと、offset方�
 
 DB migration と保存済みデータの確認手順は `docs/db-migrations.md` と `docs/local-development.md` に整理しています。
 
-## Phase 4 手動取得・保存でできること
+## 手動取得・保存でできること
 
 - scraper CLI から API 側の保存 service までを接続し、取得した報道発表を手動コマンドで PostgreSQL へ保存する
 - 保存済み報道発表がない DB では、`--all-archive-months` を使って初回全件取得を行う
@@ -185,26 +172,9 @@ cd ../..
 
 - `docs/project-overview.md`: 背景、目的、想定ユーザー
 - `docs/requirements.md`: MVP 要件
-- `docs/tasks.md`: フェーズ別タスク
+- `docs/tasks.md`: 進捗・検証結果・今後の作業
 - `docs/tech-stack.md`: 技術選定とバージョン方針
 - `docs/local-development.md`: ローカル開発・確認手順
 - `docs/scraping-env-go-jp.md`: 環境省報道発表ページの構造とスクレイピング方針
 - `docs/db-migrations.md`: DB マイグレーション方針
 - `docs/fixed-categories.md`: 固定カテゴリの初期データと分類設計
-
-## 今後の予定
-
-現在のrobots.txtと利用条件を再確認したうえで、起点ページ1件と月別ページ359件を3秒以上の要求開始間隔で取得し、34,421件のJSONスナップショットを保存しました。
-ローカル全件取得の中断・再開方法を実装し、完了結果の検証後に巡回stateを削除する手順まで確認しました。
-次は、全件スナップショットをテスト専用PostgreSQL 17で検証してから、固定カテゴリの実装へ進みます。
-独自カテゴリは、旧 Topics Checker で使用していたCSVから正規化し、水関連分野を見直した初期データを使う共有の固定カテゴリとして実装します。
-ブックマーク、ユーザー登録、ユーザー定義カテゴリはMVP後に扱います。
-
-1. Phase 5: 実データ早期検証と再利用可能なスナップショットの確立
-2. Phase 5: 固定カテゴリのmigration、初期データ取込、分類、絞り込みAPIの実装
-3. Phase 6: 一覧、検索、固定カテゴリによる絞り込み画面の実装
-4. Phase 7: デプロイ先の決定、定期実行、失敗確認、公開APIの利用制限を含むMVP運用準備
-
-実行履歴の検索、長期保存、再試行管理などの本格的な運用機能はMVP後に検討します。
-
-この README は、実装 Phase の進捗に合わせて更新します。
