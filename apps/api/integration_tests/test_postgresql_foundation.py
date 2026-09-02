@@ -3,8 +3,8 @@ import json
 import unittest
 
 from alembic import command
-from sqlalchemy import BigInteger, Integer, Text, event, inspect, text
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy import BigInteger, Text, event, inspect, text
+from sqlalchemy.dialects.postgresql import ARRAY, INTEGER
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -139,7 +139,7 @@ class PostgreSQLFoundationIntegrationTest(unittest.TestCase):
         self.assertIsInstance(fixed_category_columns["name"]["type"], Text)
         self.assertIsInstance(
             fixed_category_columns["display_order"]["type"],
-            Integer,
+            INTEGER,
         )
         self.assertTrue(
             all(

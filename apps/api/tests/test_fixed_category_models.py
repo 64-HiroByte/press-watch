@@ -28,7 +28,7 @@ class FixedCategoryModelTest(unittest.TestCase):
         self.assertIsInstance(table.c.id.type, BigInteger)
         self.assertIsInstance(table.c.slug.type, Text)
         self.assertIsInstance(table.c.name.type, Text)
-        self.assertIsInstance(table.c.display_order.type, Integer)
+        self.assertIs(type(table.c.display_order.type), Integer)
         self.assertEqual(
             [column.name for column in table.primary_key.columns],
             ["id"],
