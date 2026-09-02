@@ -306,9 +306,11 @@ class TestDatabaseSafetyTest(unittest.TestCase):
         """Alembic接続で実アドレスとcurrent schemaを固定すること"""
 
         captured_database_urls: list[str] = []
+        captured_revisions: list[str] = []
 
-        def capture_database_url(*_args: object) -> None:
+        def capture_database_url(_config: object, revision: str) -> None:
             captured_database_urls.append(os.environ[database.DATABASE_URL_ENV])
+            captured_revisions.append(revision)
 
         with (
             patch("integration_tests.database._build_alembic_config"),
@@ -324,6 +326,7 @@ class TestDatabaseSafetyTest(unittest.TestCase):
             database._run_migrations_from_base(_VALID_TEST_DATABASE_URL)
 
         self.assertEqual(len(captured_database_urls), 2)
+        self.assertEqual(captured_revisions, ["base", "head"])
         for captured_database_url in captured_database_urls:
             secured_url = make_url(captured_database_url)
             self.assertEqual(
@@ -334,6 +337,31 @@ class TestDatabaseSafetyTest(unittest.TestCase):
                 secured_url.query.get("options"),
                 "-c search_path=public",
             )
+
+    def test_single_migration_command_uses_secured_url_and_revision(self) -> None:
+        """単一migrationも固定接続設定と指定revisionだけで実行すること"""
+
+        captured_database_urls: list[str] = []
+
+        def capture_database_url(_config: object, _revision: str) -> None:
+            captured_database_urls.append(os.environ[database.DATABASE_URL_ENV])
+
+        migration_command = Mock(side_effect=capture_database_url)
+        with patch("integration_tests.database._build_alembic_config"):
+            database._run_migration_command(
+                _VALID_TEST_DATABASE_URL,
+                migration_command,
+                "target-revision",
+            )
+
+        migration_command.assert_called_once()
+        self.assertEqual(migration_command.call_args.args[1], "target-revision")
+        secured_url = make_url(captured_database_urls[0])
+        self.assertEqual(secured_url.query.get("hostaddr"), TEST_DATABASE_HOST)
+        self.assertEqual(
+            secured_url.query.get("options"),
+            "-c search_path=public",
+        )
 
 
 if __name__ == "__main__":

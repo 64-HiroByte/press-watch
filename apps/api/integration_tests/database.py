@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 import os
 from pathlib import Path
@@ -24,7 +25,15 @@ TEST_DATABASE_USER = "presswatch_test"
 TEST_DATABASE_MAJOR_VERSION = 17
 
 _API_ROOT = Path(__file__).resolve().parents[1]
-_ALLOWED_PUBLIC_TABLES = frozenset({"alembic_version", "press_releases"})
+_ALLOWED_PUBLIC_TABLES = frozenset(
+    {
+        "alembic_version",
+        "fixed_categories",
+        "fixed_category_keywords",
+        "press_releases",
+        "press_release_fixed_categories",
+    }
+)
 _TEST_DATABASE_SCHEMA = "public"
 _TEST_DATABASE_CONNECTION_OPTIONS = f"-c search_path={_TEST_DATABASE_SCHEMA}"
 
@@ -269,15 +278,30 @@ def _run_migrations_from_base(url: URL) -> None:
         url: 検証済みのテスト専用DB接続URL
     """
 
-    alembic_config = _build_alembic_config()
+    _run_migration_command(url, command.downgrade, "base")
+    _run_migration_command(url, command.upgrade, "head")
 
+
+def _run_migration_command(
+    url: URL,
+    migration_command: Callable[[Config, str], None],
+    revision: str,
+) -> None:
+    """固定した接続設定で指定revisionへのmigrationを1回実行
+
+    Args:
+        url: 検証済みのテスト専用DB接続URL
+        migration_command: Alembicのupgradeまたはdowngrade関数
+        revision: 適用先のAlembic revision
+    """
+
+    alembic_config = _build_alembic_config()
     secured_url = url.update_query_dict(
         _test_database_connection_parameters()
     )
     rendered_url = secured_url.render_as_string(hide_password=False)
     with patch.dict(os.environ, {DATABASE_URL_ENV: rendered_url}):
-        command.downgrade(alembic_config, "base")
-        command.upgrade(alembic_config, "head")
+        migration_command(alembic_config, revision)
 
 
 def _build_alembic_config() -> Config:
