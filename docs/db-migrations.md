@@ -27,8 +27,8 @@ API 側の `pyproject.toml` / `uv.lock` で Alembic を管理し、root や scra
 
 Alembic の `target_metadata` は `press_watch_api.models.base.Base.metadata` を使う。
 
-Autogenerate でテーブルを認識できるように、`migrations/env.py` では `Base` だけでなく SQLAlchemy model モジュールも import する。
-モデルが増えた場合は、`press_watch_api.models.__init__` に model import を集約し、`env.py` はそのパッケージを import する形に寄せる。
+Autogenerateでテーブルを認識できるように、`migrations/env.py`では`Base`だけでなく`press_watch_api.models`パッケージもimportする。
+個別のmodel importは`press_watch_api.models.__init__`へ集約する。
 
 ```ini
 [alembic]
@@ -37,8 +37,8 @@ prepend_sys_path = src
 ```
 
 ```python
+import press_watch_api.models  # noqa: F401
 from press_watch_api.models.base import Base
-import press_watch_api.models.press_release  # noqa: F401
 
 target_metadata = Base.metadata
 ```
@@ -84,6 +84,13 @@ Phase 4 の通常差分取得では、DB内の最新公開日を取得し、そ�
 
 このmigrationのrevisionは `9f2c7a4e1d63`、直前のrevisionは初版migrationの `31765401e166` である。downgradeでは `ix_press_releases_published_at` だけを削除し、`press_releases` テーブルと保存済みデータは維持する。
 
+## 固定カテゴリ3テーブルの追加
+
+`a51eab6808f3_add_fixed_category_tables.py`で、カテゴリ定義、分類キーワード、報道発表との分類結果を保存する3テーブルを追加する。
+このmigrationのrevisionは`a51eab6808f3`、直前のrevisionは`9f2c7a4e1d63`である。
+CSVや初期データを含めず、テーブル、制約、外部キー削除規則、インデックスだけを変更する。
+downgradeでは分類結果、分類キーワード、カテゴリ定義の順に新3テーブルだけを削除し、`press_releases`テーブルと保存済みデータを維持する。
+
 ## updated_at トリガー
 
 初版 migration では `updated_at` 自動更新用の PostgreSQL トリガーは作らない。
@@ -110,9 +117,12 @@ Docker Compose の API コンテナから実行する場合:
 docker compose --env-file .env -f infra/compose.yml exec api uv run alembic upgrade head
 ```
 
-Supabase へ適用する場合は、`docs/local-development.md` の安全な手順で Direct connection の `DATABASE_URL` を現在のシェルへ設定します。
-実行前に SQLAlchemy + psycopg で接続できること、SSL が使用されていること、`public.press_releases` と `public.alembic_version` が未作成であることを確認します。
-対象テーブルがすでに存在する場合は、状態を確認せず migration を実行しません。
+Supabaseの空DBへ初めて適用する場合は、`docs/local-development.md`の安全な手順でDirect connectionの`DATABASE_URL`を現在のシェルへ設定します。
+初回適用前はSQLAlchemy + psycopgで接続できること、SSLが使用されていること、`public.press_releases`と`public.alembic_version`が未作成であることを確認します。
+初回適用対象のテーブルがすでに存在する場合は、状態を確認せずmigrationを実行しません。
+
+既存のSupabaseへ後続migrationを適用する場合は、現在のrevision、追加対象テーブルが未作成であること、影響範囲を再確認します。
+今回追加した固定カテゴリmigrationはSupabaseへ未適用であり、旧head`9f2c7a4e1d63`からの適用は別タスクとして改めて承認を得て実行します。
 
 影響するテーブル、制約、インデックスを確認してから、`apps/api` で既存 migration を適用します。
 
@@ -121,8 +131,9 @@ uv run alembic upgrade head
 uv run alembic current
 ```
 
-`alembic current` で `9f2c7a4e1d63 (head)` と表示されることを確認します。
-適用後は `public.press_releases`、一意制約 `uq_press_releases_source_url`、インデックス `ix_press_releases_published_at` が存在することを確認します。
+リポジトリの現在headまで適用した場合は、`alembic current`で`a51eab6808f3 (head)`と表示されることを確認します。
+適用後は`public.press_releases`と固定カテゴリ用3テーブル、各制約、外部キー削除規則、必要なインデックスが存在することを確認します。
+今回追加した固定カテゴリmigrationは開発DBとSupabaseへ未適用であり、両環境で適用確認済みのheadは`9f2c7a4e1d63`までです。
 実際の `DATABASE_URL`、DB パスワード、プロジェクト識別子はコマンド出力や文書へ記録しません。
 
 初版 migration 作成時は次の形を基本にし、生成後に内容をレビューする。
@@ -133,5 +144,5 @@ DATABASE_URL=postgresql+psycopg://presswatch:your-local-postgres-password@127.0.
 cd ../..
 ```
 
-現時点では `apps/api` に Alembic 依存、`alembic.ini`、`migrations/env.py`、初版 migration、公開日インデックス追加migrationが追加済みであり、headは `9f2c7a4e1d63` である。
+現時点では`apps/api`にAlembic依存、設定、初版migration、公開日インデックス追加migration、固定カテゴリ3テーブル追加migrationがあり、リポジトリのheadは`a51eab6808f3`である。
 今後のスキーマ変更では、同じ `apps/api` 配下で revision を追加し、生成内容を確認してから適用する。

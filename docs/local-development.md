@@ -110,14 +110,32 @@ cd ../..
 
 DB統合テストは既存のAPI unittestと別ディレクトリ、別コマンドで実行します。
 
+先に、Docker接続用環境変数を除外した状態のcontextとendpointを読み取り専用で確認します。
+
+```bash
+env -u DOCKER_HOST -u DOCKER_CONTEXT docker context show
+env -u DOCKER_HOST -u DOCKER_CONTEXT docker context inspect --format '{{json .Endpoints.docker.Host}}'
+```
+
+endpointが判別可能なローカルUnix socketを指す場合だけ、次の統合テストを実行します。
+remote endpoint、`unix://`以外、空出力などでローカルと確認できない場合は停止します。
+このpreflightは確認結果を表示するだけであり、統合テストrunnerがDocker contextを自動判定するものではありません。
+
 ```bash
 cd apps/api
-PYTHONPATH=src uv run --locked python -m integration_tests.run
+env -u DATABASE_URL \
+  -u PRESSWATCH_TEST_DATABASE_URL \
+  -u PRESSWATCH_TEST_POSTGRES_PASSWORD \
+  -u PRESSWATCH_REAL_SNAPSHOT_PATH \
+  -u DOCKER_HOST \
+  -u DOCKER_CONTEXT \
+  PYTHONPATH=src uv run --locked python -m integration_tests.run
 cd ../..
 ```
 
 このコマンドは`infra/compose.test.yml`を使い、テスト専用PostgreSQL 17を`127.0.0.1:55432`で起動します。
 実行ごとに一時的なテスト専用パスワードを生成するため、`.env`や製品用`DATABASE_URL`は使用しません。
+製品DB、外部のテストDB、実データスナップショット、別のDocker接続設定を親shellから引き継がず、ローカルCompose経路へ固定します。
 親shellのlibpq用`PG*`環境変数は子プロセスへ引き継がず、SQLAlchemyとAlembicの接続先IPを`127.0.0.1`、`search_path`を`public`へ固定します。
 
 テストはDBを変更する前に、接続URLのdriver、host、port、DB名、ユーザー名を検証します。
@@ -125,9 +143,10 @@ cd ../..
 安全条件を満たさない場合は、Alembic migrationやデータ操作を開始せずに失敗します。
 
 安全確認後、テスト専用DBだけを`downgrade base`で初期化し、既存migrationを`upgrade head`まで適用します。
-実スキーマとPostgreSQL固有の配列型、ILIKE、一意制約を確認します。
-スキーマ、repository、一意制約を確認する3件では、外部transactionを終了時にrollbackしてテストデータを分離します。
-migration再適用テストでは、一度commitしたデータが`downgrade base`と`upgrade head`によるDB再構築で消えることを確認します。
+実スキーマ、PostgreSQL固有の配列型、ILIKE、固定カテゴリの制約と削除規則を確認します。
+通常のDBテストでは、外部transactionを終了時にrollbackしてテストデータを分離します。
+既存のmigration再適用テストでは、一度commitしたデータが`downgrade base`と`upgrade head`によるDB再構築で消えることを確認します。
+固定カテゴリmigrationの部分downgradeテストでは、報道発表1行をcommitし、旧head`9f2c7a4e1d63`で新3テーブルだけが消えてその行が残ることと、現在head`a51eab6808f3`への再upgrade後も同じ行が残ることを確認します。
 
 テストデータはtmpfsに置かれ、成功時と失敗時のどちらでもテスト専用Compose projectを停止します。
 通常の開発DBが使う`127.0.0.1:5432`、`postgres17_data`、旧`postgres_data`、Supabaseには接続しません。
@@ -580,7 +599,10 @@ docker compose --env-file .env -f infra/compose.yml exec api uv run alembic upgr
 docker compose --env-file .env -f infra/compose.yml exec db psql -U presswatch -d presswatch
 ```
 
-Alembic migration が適用済みであることを確認します。現在のheadは、`published_at` のインデックスを追加する `9f2c7a4e1d63` です。`version_num` が初版 migration の `31765401e166` の場合は、`press_releases` テーブルは作成済みですが、公開日インデックスのmigrationは未適用です。
+Alembic migrationが適用済みであることを確認します。
+リポジトリの現在headは、固定カテゴリ3テーブルを追加する`a51eab6808f3`です。
+今回追加したmigrationは開発DBとSupabaseへ未適用であり、両環境で適用確認済みのheadは、`published_at`のインデックスを追加する`9f2c7a4e1d63`までです。
+`version_num`が`9f2c7a4e1d63`の場合は固定カテゴリ3テーブルが未適用で、初版migrationの`31765401e166`の場合は公開日インデックスも未適用です。
 
 ```sql
 select version_num
