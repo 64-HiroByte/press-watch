@@ -114,6 +114,28 @@ PressWatch は、環境省サイト内の報道発表を定期取得し、一覧
 - `pagination` には `page`、`page_size`、`total_items`、`total_pages` を含めること
 - データが0件の場合と最終ページを超えた場合は、HTTP 200と空の `items` を返すこと
 
+#### 一覧・検索APIのエラー応答
+
+`GET /press-releases`のDB関連エラーは、正常な空一覧へ置き換えず、次の`application/json`で返すこと。
+
+| 条件 | HTTPステータス | 応答 |
+| --- | --- | --- |
+| SQLAlchemyの`TimeoutError`、または`DBAPIError.connection_invalidated`が`True` | 503 | `{"detail":"Service unavailable"}` |
+| その他のSQLAlchemy例外、DB設定・初期化・Session終了の失敗 | 500 | `{"detail":"Internal server error"}` |
+
+- 例外本文やSQLSTATEによる追加分類、自動リトライ、`Retry-After`は追加しないこと
+- routeの想定外例外やレスポンスDTOの検証失敗は、DB関連エラーへ変換せず、既定のHTTP 500と`text/plain`を維持すること
+- Session生成後の正常終了・通常の例外終了では、応答送信前にcloseを1回試みること
+  closeだけが失敗した場合は上表に従い、処理中の例外もある場合は元の例外を優先すること。
+- 入力検証エラーとclose失敗が重なった場合は、元のHTTP 422と既存の形式を返すこと
+  Session初期化は入力検証より先に行われるため、この段階の失敗では入力が不正でも上表のエラーを返すこと。
+- DB関連エラーの応答と今回のアプリ診断には、元の例外本文、SQL、parameters、接続情報、秘密情報、報道発表の入力値を含めないこと
+  アプリ診断は固定イベント名をstderrへ出力し、書込・flushの失敗を再試行せず、HTTP応答や元の例外を置き換えないこと。
+- OpenAPIの500にはDB関連の`application/json`と既定の`text/plain`を、503には固定JSONを記載し、200・422のschemaを維持すること
+
+503で復旧や再試行の成功を保証しない。
+キャンセル・プロセス終了時の即時closeやclose成功、アクセスログ・SQLAlchemy内部ログ・ホスティング基盤を含む全ログの非露出は、このエラー処理の保証対象に含めない。
+
 ### REQ-013: 検索・絞り込みに対応したAPIを提供すること
 
 - キーワードやカテゴリを指定して一覧取得できること

@@ -201,11 +201,13 @@ apps/api/src/press_watch_api/
 ├── config.py
 ├── db.py
 ├── dependencies.py
+├── http_errors.py
 ├── models/
 │   └── press_release.py
 ├── routers/
 │   └── press_releases.py
 ├── schemas/
+│   ├── error.py
 │   └── press_release.py
 ├── repositories/
 │   └── press_release.py
@@ -215,6 +217,7 @@ apps/api/src/press_watch_api/
 
 - `models/`: SQLAlchemy model を置く
 - `dependencies.py`: HTTPリクエストごとのDB Sessionの生成と終了を扱う
+- `http_errors.py`: DB関連例外のHTTP応答への変換と固定診断の出力を扱う
 - `routers/`: FastAPIのpath operationとAPIレスポンスの組み立てを置く
 - `schemas/`: Pydantic schema / DTO を置く
 - `repositories/`: DB操作を置く
