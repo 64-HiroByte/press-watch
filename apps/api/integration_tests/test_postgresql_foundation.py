@@ -2,11 +2,13 @@ from datetime import UTC, date, datetime
 import json
 import unittest
 
-from sqlalchemy import event, inspect, text
-from sqlalchemy.dialects.postgresql import ARRAY
+from alembic import command
+from sqlalchemy import BigInteger, Text, event, inspect, text
+from sqlalchemy.dialects.postgresql import ARRAY, INTEGER
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from integration_tests import database as test_database
 from integration_tests.database import (
     get_current_migration_head,
     prepare_test_database,
@@ -20,6 +22,9 @@ from press_watch_api.repositories.press_release import (
 )
 from press_watch_api.schemas.press_release import PressReleaseCreate
 from press_watch_api.services.press_release_save import save_press_releases
+
+
+_PREVIOUS_MIGRATION_HEAD = "9f2c7a4e1d63"
 
 
 class PostgreSQLFoundationIntegrationTest(unittest.TestCase):
@@ -49,12 +54,18 @@ class PostgreSQLFoundationIntegrationTest(unittest.TestCase):
         self.connection.close()
 
     def test_migrations_create_current_postgresql_schema(self) -> None:
-        """空DBから現行headとpress_releasesスキーマを作成できること"""
+        """空DBから現行headの5テーブルを作成できること"""
 
         inspector = inspect(self.connection)
         self.assertEqual(
             set(inspector.get_table_names(schema="public")),
-            {"alembic_version", "press_releases"},
+            {
+                "alembic_version",
+                "fixed_categories",
+                "fixed_category_keywords",
+                "press_releases",
+                "press_release_fixed_categories",
+            },
         )
         self.assertEqual(
             self.connection.scalar(
@@ -106,6 +117,332 @@ class PostgreSQLFoundationIntegrationTest(unittest.TestCase):
                 and not index["unique"]
                 for index in indexes
             )
+        )
+
+    def test_fixed_category_schema_matches_contract(self) -> None:
+        """固定カテゴリ3テーブルの列と制約がモデル契約に一致すること"""
+
+        inspector = inspect(self.connection)
+        fixed_category_columns = {
+            column["name"]: column
+            for column in inspector.get_columns(
+                "fixed_categories",
+                schema="public",
+            )
+        }
+        self.assertEqual(
+            set(fixed_category_columns),
+            {"id", "slug", "name", "display_order"},
+        )
+        self.assertIsInstance(fixed_category_columns["id"]["type"], BigInteger)
+        self.assertIsInstance(fixed_category_columns["slug"]["type"], Text)
+        self.assertIsInstance(fixed_category_columns["name"]["type"], Text)
+        self.assertIsInstance(
+            fixed_category_columns["display_order"]["type"],
+            INTEGER,
+        )
+        self.assertTrue(
+            all(
+                not column["nullable"]
+                for column in fixed_category_columns.values()
+            )
+        )
+        self.assertEqual(
+            inspector.get_pk_constraint(
+                "fixed_categories",
+                schema="public",
+            )["constrained_columns"],
+            ["id"],
+        )
+
+        unique_constraints = {
+            constraint["name"]: constraint["column_names"]
+            for constraint in inspector.get_unique_constraints(
+                "fixed_categories",
+                schema="public",
+            )
+        }
+        self.assertEqual(
+            unique_constraints,
+            {
+                "uq_fixed_categories_slug": ["slug"],
+                "uq_fixed_categories_name": ["name"],
+                "uq_fixed_categories_display_order": ["display_order"],
+            },
+        )
+        check_constraints = {
+            constraint["name"]: constraint["sqltext"]
+            for constraint in inspector.get_check_constraints(
+                "fixed_categories",
+                schema="public",
+            )
+        }
+        self.assertIn(
+            "display_order > 0",
+            check_constraints["ck_fixed_categories_display_order_positive"],
+        )
+
+        keyword_columns = {
+            column["name"]: column
+            for column in inspector.get_columns(
+                "fixed_category_keywords",
+                schema="public",
+            )
+        }
+        self.assertEqual(
+            set(keyword_columns),
+            {"fixed_category_id", "keyword"},
+        )
+        self.assertIsInstance(
+            keyword_columns["fixed_category_id"]["type"],
+            BigInteger,
+        )
+        self.assertIsInstance(keyword_columns["keyword"]["type"], Text)
+        self.assertTrue(
+            all(not column["nullable"] for column in keyword_columns.values())
+        )
+        self.assertEqual(
+            inspector.get_pk_constraint(
+                "fixed_category_keywords",
+                schema="public",
+            )["constrained_columns"],
+            ["fixed_category_id", "keyword"],
+        )
+        keyword_foreign_key = inspector.get_foreign_keys(
+            "fixed_category_keywords",
+            schema="public",
+        )[0]
+        self.assertEqual(
+            (
+                keyword_foreign_key["constrained_columns"],
+                keyword_foreign_key["referred_table"],
+                keyword_foreign_key["referred_columns"],
+                keyword_foreign_key["options"].get("ondelete"),
+            ),
+            (["fixed_category_id"], "fixed_categories", ["id"], "CASCADE"),
+        )
+
+        assignment_columns = {
+            column["name"]: column
+            for column in inspector.get_columns(
+                "press_release_fixed_categories",
+                schema="public",
+            )
+        }
+        self.assertEqual(
+            set(assignment_columns),
+            {"press_release_id", "fixed_category_id"},
+        )
+        self.assertTrue(
+            all(
+                isinstance(column["type"], BigInteger)
+                and not column["nullable"]
+                for column in assignment_columns.values()
+            )
+        )
+        self.assertEqual(
+            inspector.get_pk_constraint(
+                "press_release_fixed_categories",
+                schema="public",
+            )["constrained_columns"],
+            ["press_release_id", "fixed_category_id"],
+        )
+        assignment_foreign_keys = {
+            foreign_key["constrained_columns"][0]: (
+                foreign_key["referred_table"],
+                foreign_key["referred_columns"],
+                foreign_key["options"].get("ondelete"),
+            )
+            for foreign_key in inspector.get_foreign_keys(
+                "press_release_fixed_categories",
+                schema="public",
+            )
+        }
+        self.assertEqual(
+            assignment_foreign_keys,
+            {
+                "press_release_id": ("press_releases", ["id"], "CASCADE"),
+                "fixed_category_id": ("fixed_categories", ["id"], "RESTRICT"),
+            },
+        )
+        assignment_indexes = {
+            index["name"]: (index["column_names"], index["unique"])
+            for index in inspector.get_indexes(
+                "press_release_fixed_categories",
+                schema="public",
+            )
+        }
+        self.assertEqual(
+            assignment_indexes,
+            {
+                "ix_press_release_fixed_categories_fixed_category_id": (
+                    ["fixed_category_id"],
+                    False,
+                )
+            },
+        )
+
+    def test_fixed_category_representative_constraints_are_enforced(self) -> None:
+        """表示順、一意制約、複合主キーの代表的な違反を拒否すること"""
+
+        savepoint = self.connection.begin_nested()
+        try:
+            with self.assertRaises(IntegrityError):
+                self.connection.execute(
+                    text(
+                        "insert into fixed_categories "
+                        "(slug, name, display_order) "
+                        "values (:slug, :name, :display_order)"
+                    ),
+                    {
+                        "slug": "invalid-order",
+                        "name": "不正表示順",
+                        "display_order": 0,
+                    },
+                )
+        finally:
+            if savepoint.is_active:
+                savepoint.rollback()
+
+        fixed_category_id = self.connection.scalar(
+            text(
+                "insert into fixed_categories (slug, name, display_order) "
+                "values (:slug, :name, :display_order) returning id"
+            ),
+            {"slug": "climate", "name": "気候", "display_order": 1},
+        )
+        duplicate_statements = [
+            (
+                "slug unique",
+                text(
+                    "insert into fixed_categories (slug, name, display_order) "
+                    "values (:slug, :name, :display_order)"
+                ),
+                {"slug": "climate", "name": "気候政策", "display_order": 2},
+            ),
+            (
+                "keyword composite primary key",
+                text(
+                    "insert into fixed_category_keywords "
+                    "(fixed_category_id, keyword) values (:category_id, :keyword)"
+                ),
+                {"category_id": fixed_category_id, "keyword": "気候変動"},
+            ),
+        ]
+        self.connection.execute(
+            duplicate_statements[1][1],
+            duplicate_statements[1][2],
+        )
+        for test_name, statement, parameters in duplicate_statements:
+            with self.subTest(test_name=test_name):
+                savepoint = self.connection.begin_nested()
+                try:
+                    with self.assertRaises(IntegrityError):
+                        self.connection.execute(statement, parameters)
+                finally:
+                    if savepoint.is_active:
+                        savepoint.rollback()
+
+    def test_fixed_category_delete_rules_support_multiple_categories(
+        self,
+    ) -> None:
+        """複数カテゴリ付与と3種類の削除規則が機能すること"""
+
+        press_release_id = self.connection.scalar(
+            text(
+                "insert into press_releases "
+                "(title, source_url, published_at, fetched_at) "
+                "values (:title, :source_url, :published_at, :fetched_at) "
+                "returning id"
+            ),
+            {
+                "title": "固定カテゴリ削除規則テスト",
+                "source_url": "https://example.test/press/fixed-category-delete",
+                "published_at": date(2026, 9, 2),
+                "fetched_at": datetime(2026, 9, 2, 10, 0, tzinfo=UTC),
+            },
+        )
+        category_ids = [
+            self.connection.scalar(
+                text(
+                    "insert into fixed_categories (slug, name, display_order) "
+                    "values (:slug, :name, :display_order) returning id"
+                ),
+                {"slug": slug, "name": name, "display_order": display_order},
+            )
+            for slug, name, display_order in (
+                ("climate", "気候", 1),
+                ("water", "水環境", 2),
+            )
+        ]
+        self.connection.execute(
+            text(
+                "insert into fixed_category_keywords "
+                "(fixed_category_id, keyword) values (:category_id, :keyword)"
+            ),
+            {"category_id": category_ids[1], "keyword": "水質"},
+        )
+        for category_id in category_ids:
+            self.connection.execute(
+                text(
+                    "insert into press_release_fixed_categories "
+                    "(press_release_id, fixed_category_id) "
+                    "values (:press_release_id, :fixed_category_id)"
+                ),
+                {
+                    "press_release_id": press_release_id,
+                    "fixed_category_id": category_id,
+                },
+            )
+        self.assertEqual(
+            self.connection.scalar(
+                text(
+                    "select count(*) from press_release_fixed_categories "
+                    "where press_release_id = :press_release_id"
+                ),
+                {"press_release_id": press_release_id},
+            ),
+            2,
+        )
+
+        savepoint = self.connection.begin_nested()
+        try:
+            with self.assertRaises(IntegrityError):
+                self.connection.execute(
+                    text("delete from fixed_categories where id = :category_id"),
+                    {"category_id": category_ids[0]},
+                )
+        finally:
+            if savepoint.is_active:
+                savepoint.rollback()
+
+        self.connection.execute(
+            text("delete from press_releases where id = :press_release_id"),
+            {"press_release_id": press_release_id},
+        )
+        self.assertEqual(
+            self.connection.scalar(
+                text(
+                    "select count(*) from press_release_fixed_categories "
+                    "where press_release_id = :press_release_id"
+                ),
+                {"press_release_id": press_release_id},
+            ),
+            0,
+        )
+        self.connection.execute(
+            text("delete from fixed_categories where id = :category_id"),
+            {"category_id": category_ids[1]},
+        )
+        self.assertEqual(
+            self.connection.scalar(
+                text(
+                    "select count(*) from fixed_category_keywords "
+                    "where fixed_category_id = :category_id"
+                ),
+                {"category_id": category_ids[1]},
+            ),
+            0,
         )
 
     def test_repository_executes_array_round_trip_and_literal_ilike(self) -> None:
@@ -406,6 +743,92 @@ class PostgreSQLMigrationCycleIntegrationTest(unittest.TestCase):
                 )
         finally:
             rebuilt_engine.dispose()
+
+    def test_downgrade_to_previous_head_preserves_press_release(self) -> None:
+        """旧headへのdowngradeと再upgradeで既存報道発表を維持すること"""
+
+        source_url = "https://example.test/press/partial-migration-cycle"
+        initial_engine = prepare_test_database()
+        database_url = initial_engine.url
+        try:
+            with Session(initial_engine) as session:
+                create_press_release(
+                    session,
+                    _press_release_create(source_url=source_url),
+                )
+                session.commit()
+        finally:
+            initial_engine.dispose()
+
+        try:
+            test_database._run_migration_command(
+                database_url,
+                command.downgrade,
+                _PREVIOUS_MIGRATION_HEAD,
+            )
+            downgraded_engine = test_database._create_test_engine(database_url)
+            try:
+                with downgraded_engine.connect() as connection:
+                    self.assertEqual(
+                        connection.scalar(
+                            text("select version_num from alembic_version")
+                        ),
+                        _PREVIOUS_MIGRATION_HEAD,
+                    )
+                    self.assertEqual(
+                        set(inspect(connection).get_table_names(schema="public")),
+                        {"alembic_version", "press_releases"},
+                    )
+                    self.assertEqual(
+                        connection.scalar(
+                            text(
+                                "select count(*) from press_releases "
+                                "where source_url = :source_url"
+                            ),
+                            {"source_url": source_url},
+                        ),
+                        1,
+                    )
+            finally:
+                downgraded_engine.dispose()
+        finally:
+            test_database._run_migration_command(
+                database_url,
+                command.upgrade,
+                "head",
+            )
+
+        upgraded_engine = test_database._create_test_engine(database_url)
+        try:
+            with upgraded_engine.connect() as connection:
+                self.assertEqual(
+                    connection.scalar(
+                        text("select version_num from alembic_version")
+                    ),
+                    get_current_migration_head(),
+                )
+                self.assertEqual(
+                    set(inspect(connection).get_table_names(schema="public")),
+                    {
+                        "alembic_version",
+                        "fixed_categories",
+                        "fixed_category_keywords",
+                        "press_releases",
+                        "press_release_fixed_categories",
+                    },
+                )
+                self.assertEqual(
+                    connection.scalar(
+                        text(
+                            "select count(*) from press_releases "
+                            "where source_url = :source_url"
+                        ),
+                        {"source_url": source_url},
+                    ),
+                    1,
+                )
+        finally:
+            upgraded_engine.dispose()
 
 
 def _press_release_create(

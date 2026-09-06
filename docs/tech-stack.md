@@ -147,6 +147,7 @@
 - Supabase プロジェクトを作成し、Direct connection で同期版 SQLAlchemy + psycopg から PostgreSQL 17.6 へ接続できることを確認済みである
 - Supabase へ既存 Alembic migration を head `9f2c7a4e1d63` まで適用し、`press_releases`、`uq_press_releases_source_url`、`ix_press_releases_published_at` が存在することを確認済みである
 - ローカルの Docker Compose は PostgreSQL 17 へ変更済みであり、新しい空 DB への既存 Alembic migration 適用と、コンテナ再作成後も migration 適用状態が保持されることを確認済みである
+- 固定カテゴリ3テーブルを追加するmigration `a51eab6808f3`はリポジトリへ追加済みであり、テスト専用PostgreSQL 17で適用、旧headへのdowngrade、再upgradeを確認済みだが、開発DBとSupabaseへは未適用である
 - Data API は利用せず、Supabase の `anon`・`authenticated` ロールが `public.press_releases` の `SELECT` 権限を持たないことを2026年8月20日に確認済みである
 - `postgres` のデフォルト権限に両ロール向けの `SELECT` が設定され、既存の `public.press_releases` に対する権限の付与元も `postgres` であることを確認したうえで、両方の `SELECT` 権限を取り消して再確認した
 - この結果は現時点の確認であり、Data API や Supabase Auth の採用時、権限や migration の変更時、Supabase プロジェクトや DB の再作成時、本番公開前には再確認する
@@ -186,7 +187,7 @@
 
 - Alembic の設定と migration ファイルは `apps/api` 配下に置く
 - `target_metadata` は `press_watch_api.models.base.Base.metadata` を使う
-- Autogenerate で SQLAlchemy model を認識できるように、Alembic の `env.py` では model モジュールを import する
+- Autogenerate でSQLAlchemy modelを認識できるように、Alembicの`env.py`では`press_watch_api.models`パッケージをimportする
 - 初版 migration は `press_releases` テーブルと `source_url` の名前付き一意制約に限定する
 - 初版 migration では `source_categories` を NULL 許容にする
 - 初版 migration では `updated_at` 自動更新用の PostgreSQL トリガーは作らない
@@ -203,6 +204,7 @@ apps/api/src/press_watch_api/
 ├── dependencies.py
 ├── http_errors.py
 ├── models/
+│   ├── fixed_category.py
 │   └── press_release.py
 ├── routers/
 │   └── press_releases.py
