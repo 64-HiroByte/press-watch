@@ -7,6 +7,10 @@ from pathlib import Path
 import re
 import unicodedata
 
+from sqlalchemy.orm import Session
+
+from press_watch_api.repositories import fixed_category as repository
+
 _CATEGORIES_FILE = "fixed_categories.csv"
 _KEYWORDS_FILE = "fixed_category_keywords.csv"
 
@@ -44,6 +48,73 @@ class FixedCategorySeedData:
 
     categories: tuple[FixedCategoryDefinition, ...]
     keywords: tuple[tuple[str, str], ...]
+
+
+class FixedCategorySeedConflictError(ValueError):
+    """既存DBとCSVの定義不一致"""
+
+
+@dataclass(frozen=True)
+class FixedCategorySeedResult:
+    """初期データ取込で追加した行数"""
+
+    categories_added: int
+    keywords_added: int
+
+
+def seed_fixed_categories(
+    session: Session,
+    data: FixedCategorySeedData,
+) -> FixedCategorySeedResult:
+    """既存データを照合し、呼び出し元のトランザクションへ不足分を追加
+
+    Args:
+        session: 呼び出し元がcommit・rollback・closeを管理するSession
+        data: 両CSVの検証を完了した取込データ
+
+    Returns:
+        commit前のカテゴリ・キーワード追加件数
+
+    Raises:
+        FixedCategorySeedConflictError: CSVにないデータや同一slugの定義相違がある場合
+    """
+
+    expected_categories = {category.slug: category for category in data.categories}
+    existing_categories = repository.list_fixed_categories(session)
+    existing_keywords = repository.list_fixed_category_keywords(session)
+    for category in existing_categories:
+        expected = expected_categories.get(category.slug)
+        if expected is None or (category.name, category.display_order) != (
+            expected.name, expected.display_order,
+        ):
+            raise FixedCategorySeedConflictError("category definition mismatch")
+
+    slugs_by_id = {category.id: category.slug for category in existing_categories}
+    expected_keywords = set(data.keywords)
+    known_keywords: set[tuple[str, str]] = set()
+    for keyword in existing_keywords:
+        slug = slugs_by_id.get(keyword.fixed_category_id)
+        if slug is None or (slug, keyword.keyword) not in expected_keywords:
+            raise FixedCategorySeedConflictError("keyword definition mismatch")
+        known_keywords.add((slug, keyword.keyword))
+
+    ids_by_slug = {category.slug: category.id for category in existing_categories}
+    missing_categories = [
+        (category.slug, category.name, category.display_order)
+        for category in data.categories
+        if category.slug not in ids_by_slug
+    ]
+    if missing_categories:
+        created = repository.create_fixed_categories(session, missing_categories)
+        ids_by_slug.update((category.slug, category.id) for category in created)
+    missing_keywords = [
+        (ids_by_slug[slug], keyword)
+        for slug, keyword in data.keywords
+        if (slug, keyword) not in known_keywords
+    ]
+    if missing_keywords:
+        repository.create_fixed_category_keywords(session, missing_keywords)
+    return FixedCategorySeedResult(len(missing_categories), len(missing_keywords))
 
 
 def load_fixed_category_seed() -> FixedCategorySeedData:
