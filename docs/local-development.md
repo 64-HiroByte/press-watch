@@ -106,6 +106,44 @@ PYTHONPATH=src uv run --locked python -m unittest discover -s tests
 cd ../..
 ```
 
+## 固定カテゴリの初期データを取り込む
+
+固定カテゴリ用migration `a51eab6808f3`が適用済みで、対象DBの`DATABASE_URL`を環境変数へ設定済みであることを前提とします。
+seed CLIはmigrationや`.env`の読込を行いません。
+開発DBとSupabaseへの固定カテゴリmigration適用・seed実行は、この実装の検証には含めていません。
+
+```bash
+cd apps/api
+PYTHONPATH=src uv run --locked python -m press_watch_api.commands.seed_fixed_categories
+cd ../..
+```
+
+APIパッケージに同梱したカテゴリ定義CSVとキーワードCSVだけを使い、入力ファイルを指定する引数はありません。
+`--help`はDBへ接続せずに表示できます。
+CSV検証規約は`docs/fixed-categories.md`を参照してください。
+
+初回投入では、stdoutへ次のJSONを出力します。
+
+```json
+{"categories_added": 10, "keywords_added": 57}
+```
+
+同一状態の再実行は両件数が0で成功し、同一定義の不足がある場合は不足分だけを追加します。
+CSVにないカテゴリ・キーワードや、同一slugの表示名・表示順の相違がある場合は失敗し、既存データを上書き・削除しません。
+報道発表の原本データと分類結果も変更しません。
+
+終了コードは成功・ヘルプ表示が0、CSV・DB・入出力の実行失敗が1、引数不正が2です。
+失敗時はstderrへ`operation`、`commit_succeeded`、固定の理由を出し、CSVの規約違反では固定ファイル名・行番号・列名も補足します。
+CSVの入力値、DB例外の詳細、SQL、接続文字列は診断に含めません。
+
+`commit_succeeded=true`で出力やSession終了処理が失敗した場合、DBへのcommitは済んでいます。
+`commit_succeeded=false`はcommit成功を確認できていないという意味であり、commit中の通信失敗などでDBが未変更と断定するものではありません。
+出力先や接続障害を解消した後に再実行して、同一状態または不足分の追加として確認できます。
+
+不整合の診断が出た場合は、対象DBと同梱CSVの組合せを確認してください。
+意図した分類ルールの変更はseedの再実行で上書きせず、CSV変更・DB更新・再分類を扱う別の保守作業とします。
+seedは単独で実行し、同時実行による制約エラーでは先行処理の完了後に再実行してください。
+
 ## PostgreSQL 17 DB統合テストを実行する
 
 DB統合テストは既存のAPI unittestと別ディレクトリ、別コマンドで実行します。
@@ -147,6 +185,10 @@ cd ../..
 通常のDBテストでは、外部transactionを終了時にrollbackしてテストデータを分離します。
 既存のmigration再適用テストでは、一度commitしたデータが`downgrade base`と`upgrade head`によるDB再構築で消えることを確認します。
 固定カテゴリmigrationの部分downgradeテストでは、報道発表1行をcommitし、旧head`9f2c7a4e1d63`で新3テーブルだけが消えてその行が残ることと、現在head`a51eab6808f3`への再upgrade後も同じ行が残ることを確認します。
+
+固定カテゴリseedのテストは外側のtransactionに包まず、CLI自身のcommit・rollbackを実際のDBへ反映します。
+初回投入、書込みのない再実行、不足補完、不整合拒否、途中失敗の取消、既存ID・原本・分類結果の保持を別Sessionから確認します。
+確認後は、成功・失敗にかかわらずテストデータを外部キーに沿った順序で削除します。
 
 テストデータはtmpfsに置かれ、成功時と失敗時のどちらでもテスト専用Compose projectを停止します。
 通常の開発DBが使う`127.0.0.1:5432`、`postgres17_data`、旧`postgres_data`、Supabaseには接続しません。
