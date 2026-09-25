@@ -1,5 +1,9 @@
 import io
 import json
+import os
+import subprocess
+import sys
+import textwrap
 import unittest
 from unittest.mock import Mock, patch
 
@@ -51,7 +55,10 @@ class SeedFixedCategoriesCommandTest(unittest.TestCase):
         })
 
     def test_help_and_invalid_arguments_do_not_read_csv_or_initialize_database(self) -> None:
-        for argv, expected in ((["--help"], 0), (["--from-file", "unused.csv"], 2)):
+        for argv, expected in (
+            (["--help"], 0), (["-h"], 0),
+            (["--from-file", "unused.csv"], 2), (["--help", "--unknown"], 2),
+        ):
             with (
                 self.subTest(argv=argv),
                 patch.object(command, "load_fixed_category_seed") as load,
@@ -62,6 +69,57 @@ class SeedFixedCategoriesCommandTest(unittest.TestCase):
                 get_factory.assert_not_called()
                 self.factory.assert_not_called()
                 self.seed.assert_not_called()
+
+    def test_invalid_arguments_report_fixed_diagnostic_without_echoing_values(self) -> None:
+        with (
+            patch.object(command, "load_fixed_category_seed") as load,
+            patch.object(command, "get_session_factory") as get_factory,
+        ):
+            self.assertEqual(self.run_command(["--unknown", "PRIVATE_CSV_VALUE"]), 2)
+        diagnostic = self.stderr.getvalue()
+        self.assertIn("operation=arguments", diagnostic)
+        self.assertIn("commit_succeeded=false", diagnostic)
+        self.assertIn("reason=invalid command arguments", diagnostic)
+        self.assertNotIn("PRIVATE_CSV_VALUE", diagnostic)
+        self.assertEqual(self.stdout.getvalue(), "")
+        load.assert_not_called()
+        get_factory.assert_not_called()
+        self.factory.assert_not_called()
+
+    def test_help_flushes_output_without_reading_csv_or_initializing_database(self) -> None:
+        output = Mock(wraps=io.StringIO())
+        with (
+            patch.object(command, "load_fixed_category_seed") as load,
+            patch.object(command, "get_session_factory") as get_factory,
+        ):
+            self.assertEqual(command.main(["--help"], stdout=output, stderr=self.stderr), 0)
+        output.write.assert_called_once()
+        output.flush.assert_called_once_with()
+        load.assert_not_called()
+        get_factory.assert_not_called()
+
+    def test_help_write_and_flush_failures_return_execution_failure(self) -> None:
+        for method in ("write", "flush"):
+            with (
+                self.subTest(method=method),
+                patch.object(command, "load_fixed_category_seed") as load,
+                patch.object(command, "get_session_factory") as get_factory,
+            ):
+                output, errors = Mock(), io.StringIO()
+                getattr(output, method).side_effect = OSError("PRIVATE_DB_DETAIL")
+                self.assertEqual(command.main(["--help"], stdout=output, stderr=errors), 1)
+                self.assert_safe_diagnostic(errors.getvalue())
+                self.assertIn("operation=help", errors.getvalue())
+                self.assertIn("commit_succeeded=false", errors.getvalue())
+                load.assert_not_called()
+                get_factory.assert_not_called()
+
+    def test_argument_diagnostic_write_and_flush_failures_return_execution_failure(self) -> None:
+        for method in ("write", "flush"):
+            with self.subTest(method=method):
+                errors = Mock()
+                getattr(errors, method).side_effect = OSError("PRIVATE_DB_DETAIL")
+                self.assertEqual(command.main(["--unknown"], stdout=self.stdout, stderr=errors), 1)
 
     def assert_safe_diagnostic(self, value: str) -> None:
         self.assertNotEqual(value, "")
@@ -265,6 +323,67 @@ class SeedFixedCategoriesCommandTest(unittest.TestCase):
         self.assertIn("operation=output", diagnostic)
         self.assertIn("operation=close", diagnostic)
         self.session.rollback.assert_not_called()
+
+
+class SeedFixedCategoriesProcessTest(unittest.TestCase):
+    def test_closed_output_pipes_keep_execution_failure_exit_code(self) -> None:
+        for stream, mode, argv in (
+            ("stdout", "success", ["--help"]),
+            ("stdout", "success", []),
+            ("stderr", "failure", []),
+            ("stderr", "success", ["--unknown"]),
+        ):
+            with self.subTest(stream=stream, mode=mode, argv=argv):
+                result = self._run_with_unavailable_output(stream, mode, argv)
+                self.assertEqual(result.returncode, 1)
+                visible_output = (result.stdout or b"") + (result.stderr or b"")
+                for forbidden in (b"PRIVATE_DB_DETAIL", b"PRIVATE_SQL", b"Traceback", b"Exception ignored"):
+                    self.assertNotIn(forbidden, visible_output)
+
+    def test_closed_standard_descriptors_keep_execution_failure_exit_code(self) -> None:
+        for stream, mode, argv in (("stdout", "success", ["--help"]), ("stderr", "failure", [])):
+            with self.subTest(stream=stream):
+                result = self._run_with_unavailable_output(stream, mode, argv, close_descriptor=True)
+                self.assertEqual(result.returncode, 1)
+                self.assertNotIn(b"Exception ignored", (result.stdout or b"") + (result.stderr or b""))
+
+    def _run_with_unavailable_output(
+        self, stream: str, mode: str, argv: list[str], *, close_descriptor: bool = False,
+    ) -> subprocess.CompletedProcess[bytes]:
+        # DBはMockへ差し替え、実際のファイル記述子とPython終了時のflushを確認する。
+        script = textwrap.dedent("""
+            import os
+            import sys
+            from unittest.mock import Mock, patch
+            from sqlalchemy.exc import StatementError
+            from sqlalchemy.orm import Session
+            from press_watch_api.commands import seed_fixed_categories as command
+            from press_watch_api.services.fixed_category_seed import FixedCategorySeedResult
+
+            session = Mock(spec=Session)
+            failure = StatementError("PRIVATE_DB_DETAIL", "PRIVATE_SQL", {}, RuntimeError("PRIVATE_DB_DETAIL"))
+            with (
+                patch.object(command, "get_session_factory", return_value=lambda: session),
+                patch.object(command, "seed_fixed_categories", return_value=FixedCategorySeedResult(10, 57)) as seed,
+            ):
+                if sys.argv[1] == "failure":
+                    seed.side_effect = failure
+                if sys.argv[2] != "-1":
+                    os.close(int(sys.argv[2]))
+                raise SystemExit(command.main(sys.argv[3:]))
+        """)
+        read_fd, write_fd = os.pipe()
+        os.close(read_fd)
+        try:
+            closed_fd = (1 if stream == "stdout" else 2) if close_descriptor else -1
+            return subprocess.run(
+                [sys.executable, "-c", script, mode, str(closed_fd), *argv],
+                stdout=write_fd if stream == "stdout" else subprocess.PIPE,
+                stderr=write_fd if stream == "stderr" else subprocess.PIPE,
+                timeout=10,
+            )
+        finally:
+            os.close(write_fd)
 
 
 def _database_error() -> StatementError:

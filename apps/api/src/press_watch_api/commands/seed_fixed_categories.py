@@ -2,7 +2,6 @@
 
 import argparse
 from collections.abc import Callable, Sequence
-from contextlib import redirect_stderr, redirect_stdout
 import json
 import os
 import sys
@@ -40,12 +39,23 @@ def main(
 
     output = stdout if stdout is not None else sys.stdout
     error_output = stderr if stderr is not None else sys.stderr
-    parser = argparse.ArgumentParser(description="Seed bundled fixed categories.")
+    parser = argparse.ArgumentParser(
+        description="Seed bundled fixed categories.", add_help=False, exit_on_error=False,
+    )
+    parser.add_argument("-h", "--help", action="store_true", help="show this help message and exit")
     try:
-        with redirect_stdout(output), redirect_stderr(error_output):
-            parser.parse_args(argv)
-    except SystemExit as exc:
-        return int(exc.code)
+        args = parser.parse_args(argv)
+    except argparse.ArgumentError as exc:
+        return 2 if _print_error(error_output, "arguments", False, exc) else 1
+    if args.help:
+        try:
+            output.write(parser.format_help())
+            output.flush()
+        except Exception as exc:
+            _redirect_stream_after_output_error(output)
+            _print_error(error_output, "help", False, exc)
+            return 1
+        return 0
 
     session: Session | None = None
     commit_succeeded = False
@@ -70,8 +80,8 @@ def main(
         output.flush()
     except Exception as exc:
         exit_code = 1
-        if operation == "output" and isinstance(exc, BrokenPipeError):
-            _redirect_stdout_after_broken_pipe(output)
+        if operation == "output":
+            _redirect_stream_after_output_error(output)
         _print_error(error_output, operation, commit_succeeded, exc)
         if session is not None and not commit_succeeded:
             try:
@@ -88,18 +98,20 @@ def main(
     return exit_code
 
 
-def _redirect_stdout_after_broken_pipe(output: TextIO) -> None:
-    """実stdoutの終了時再flushを破棄先へ切り替え"""
+def _redirect_stream_after_output_error(output: TextIO) -> None:
+    """実stdout・stderrの終了時再flushを破棄先へ切り替え"""
 
-    if output is not sys.stdout:
+    if output is not sys.stdout and output is not sys.stderr:
         return
     try:
-        stdout_fd = output.fileno()
+        stream_fd = output.fileno()
         devnull_fd = os.open(os.devnull, os.O_WRONLY)
-        try:
-            os.dup2(devnull_fd, stdout_fd)
-        finally:
-            os.close(devnull_fd)
+        # 閉じた標準FDと同じ番号で開けた場合は、出力先としてそのまま保持する。
+        if devnull_fd != stream_fd:
+            try:
+                os.dup2(devnull_fd, stream_fd)
+            finally:
+                os.close(devnull_fd)
     except (AttributeError, OSError, TypeError, ValueError):
         # 切替失敗で元の出力エラーを置き換えない。
         return
@@ -110,7 +122,7 @@ def _print_error(
     operation: str,
     commit_succeeded: bool,
     error: Exception,
-) -> None:
+) -> bool:
     context = ""
     if operation == "load_csv" and isinstance(error, FixedCategoryCsvError):
         reason = error.reason
@@ -123,6 +135,8 @@ def _print_error(
         reason = "database definitions differ from bundled CSV"
     else:
         reason = {
+            "arguments": "invalid command arguments",
+            "help": "help output failed",
             "load_csv": "bundled CSV could not be loaded",
             "configure": "database configuration could not be loaded",
             "output": "database commit succeeded but result output failed",
@@ -137,7 +151,9 @@ def _print_error(
         )
     except Exception:
         # 診断出力の失敗で元のDB例外の詳細を外へ伝えない。
-        return
+        _redirect_stream_after_output_error(output)
+        return False
+    return True
 
 
 if __name__ == "__main__":

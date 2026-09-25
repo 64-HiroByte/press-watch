@@ -134,7 +134,8 @@ CSVにないカテゴリ・キーワードや、同一slugの表示名・表示�
 
 終了コードは成功・ヘルプ表示が0、CSV・DB・入出力の実行失敗が1、引数不正が2です。
 失敗時はstderrへ`operation`、`commit_succeeded`、固定の理由を出し、CSVの規約違反では固定ファイル名・行番号・列名も補足します。
-CSVの入力値、DB例外の詳細、SQL、接続文字列は診断に含めません。
+引数不正も`operation=arguments`の固定形式で診断し、引数の値、CSVの入力値、DB例外の詳細、SQL、接続文字列は診断に含めません。
+ヘルプの出力や引数エラーの診断で入出力に失敗した場合も、終了コード1を返します。
 
 `commit_succeeded=true`で出力やSession終了処理が失敗した場合、DBへのcommitは済んでいます。
 `commit_succeeded=false`はcommit成功を確認できていないという意味であり、commit中の通信失敗などでDBが未変更と断定するものではありません。
