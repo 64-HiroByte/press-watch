@@ -12,6 +12,8 @@ class SqlStatementCounts:
 
     select: int = 0
     insert: int = 0
+    press_release_insert: int = 0
+    classification_insert: int = 0
 
     @property
     def total(self) -> int:
@@ -50,6 +52,13 @@ def count_save_sql_statements(
             counts.select += 1
         elif operation == "INSERT":
             counts.insert += 1
+            compiled = getattr(_context, "compiled", None)
+            table = getattr(getattr(compiled, "statement", None), "table", None)
+            table_name = getattr(table, "name", None)
+            if table_name == "press_releases":
+                counts.press_release_insert += 1
+            elif table_name == "press_release_fixed_categories":
+                counts.classification_insert += 1
 
     event.listen(engine, "before_cursor_execute", count_statement)
     try:

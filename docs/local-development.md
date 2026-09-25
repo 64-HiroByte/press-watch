@@ -191,6 +191,10 @@ cd ../..
 初回投入、書込みのない再実行、不足補完、不整合拒否、途中失敗の取消、既存ID・原本・分類結果の保持を別Sessionから確認します。
 確認後は、成功・失敗にかかわらずテストデータを外部キーに沿った順序で削除します。
 
+新規保存時の分類テストでも、CLI自身のcommit・rollbackを実際のDBへ反映します。
+原本と分類結果の同時保存、重複skipによる既存行の保持、未投入・不整合の拒否、分類結果の1,000組分割と途中失敗時の全体rollbackを別接続から確認します。
+ルール取得は新規行がある保存呼出しで2 SELECT、全件skipでは0回であることも確認します。
+
 テストデータはtmpfsに置かれ、成功時と失敗時のどちらでもテスト専用Compose projectを停止します。
 通常の開発DBが使う`127.0.0.1:5432`、`postgres17_data`、旧`postgres_data`、Supabaseには接続しません。
 `55432`が別のプロセスに使われている場合は、別ポートへ自動で切り替えずに起動を失敗させます。
@@ -459,6 +463,8 @@ Supabase への migration 適用手順は `docs/db-migrations.md` に整理し�
 手動取得・保存は API 側のコマンドとして実行します。scraper CLI は DB 保存前の取得確認と JSON スナップショット出力の入口として維持し、手動取得・保存コマンドはその JSON 結果を API 側の保存 service へ渡します。
 
 事前に Docker Compose の `db` が起動しており、Alembic migration が適用済みであることを確認します。ローカルホストから DB に接続するため、`DATABASE_URL` の host は `127.0.0.1` を指定します。
+新規保存時に固定カテゴリを分類するため、同じ対象DBへ「固定カテゴリの初期データを取り込む」のseed CLIを先に実行してください。
+保存コマンドはseedを自動実行せず、DBのカテゴリ定義・キーワードが同梱CSVと完全に一致することを確認します。
 
 保存済みHTMLを使って、実HTTP取得なしで取得・保存経路を確認する場合は次の形です。
 
@@ -485,6 +491,23 @@ cd ../..
 ```
 
 同じデータを再実行した場合、既存の `source_url` は保存せず `skipped_count` に数えます。
+新規行だけをタイトルで分類し、原本と分類結果を同じトランザクションで保存します。
+重複skipした既存行と分類結果は変更しません。
+キーワードに一致しない新規行は固定カテゴリなしで保存します。
+空入力・全件skipでは分類ルールを読み込まないため、ルールが未投入・不整合でも従来どおり成功します。
+
+新規行がある場合のルール検証失敗は`exception=FixedCategoryClassificationError`で診断し、原本も含めてrollbackします。
+`reason`の固定文言と対応は次のとおりです。
+
+| reason | 確認する内容 |
+| --- | --- |
+| `fixed category definitions are not ready` | カテゴリまたはキーワードが未投入。対象DBのseed実行を確認する |
+| `fixed category definitions do not match bundled CSV` | 定義の不足・余分・相違・参照不整合。DBと同梱CSVの組合せを確認する |
+| `fixed category CSV could not be loaded` | 同梱CSVの読込・検証失敗。配布ファイルの配置と内容を確認する |
+
+分類結果のINSERT失敗は、既存のDBエラー診断と同じ`reason=database operation failed`で出力します。
+CSVの入力値・読込パス・元例外の詳細・SQL・接続文字列をこれらの診断に含めません。
+
 DB設定を読み込めない場合は、scraperやDB Sessionを開始せず、`target=DATABASE_URL`、`exception=RuntimeError`、`reason=database configuration could not be loaded` としてstderrへ出力します。
 元の設定エラーの詳細はstderrへ出力しません。
 取得に失敗した場合は保存用DB Sessionを作成せず、保存処理の開始後に失敗した場合は rollback します。

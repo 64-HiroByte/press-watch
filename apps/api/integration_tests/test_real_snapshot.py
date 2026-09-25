@@ -22,6 +22,7 @@ from integration_tests.sql_statement_counter import count_save_sql_statements
 from press_watch_api.commands.fetch_and_save_env_press import ScraperCliRelease
 from press_watch_api.dependencies import get_db_session
 from press_watch_api.main import app
+from press_watch_api.services.fixed_category_seed import load_fixed_category_seed, seed_fixed_categories
 from press_watch_api.services.press_release_save import (
     PressReleaseSaveResult,
     save_press_releases,
@@ -64,6 +65,8 @@ class RealSnapshotPostgreSQLIntegrationTest(unittest.TestCase):
 
         with Session(self.engine) as session:
             self.assertEqual(_row_count(session), 0)
+            seed_fixed_categories(session, load_fixed_category_seed())
+            _commit_without_exposing_snapshot(session, phase="固定カテゴリ準備")
             started_at = perf_counter()
             with count_save_sql_statements(self.engine) as initial_sql_counts:
                 first_save_result = _save_without_exposing_snapshot(
@@ -257,10 +260,12 @@ class RealSnapshotPostgreSQLIntegrationTest(unittest.TestCase):
             flush=True,
         )
 
-        self.assertEqual(initial_sql_counts.select, 0)
-        self.assertEqual(initial_sql_counts.insert, 35)
+        self.assertEqual(initial_sql_counts.select, 2)
+        self.assertEqual(initial_sql_counts.press_release_insert, 35)
+        self.assertEqual(initial_sql_counts.insert, 35 + initial_sql_counts.classification_insert)
         self.assertEqual(duplicate_sql_counts.select, 0)
         self.assertEqual(duplicate_sql_counts.insert, 35)
+        self.assertEqual(duplicate_sql_counts.classification_insert, 0)
 
 
 def _row_count(session: Session) -> int:

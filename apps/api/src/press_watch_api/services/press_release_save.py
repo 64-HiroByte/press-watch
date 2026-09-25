@@ -7,12 +7,14 @@ from typing import Protocol
 from sqlalchemy.orm import Session
 
 from press_watch_api.models.press_release import PressRelease as PressReleaseModel
+from press_watch_api.repositories.fixed_category import create_press_release_fixed_categories
 from press_watch_api.repositories.press_release import (
     create_press_releases,
     get_latest_press_release_published_at,
     list_press_release_source_urls_published_from,
 )
 from press_watch_api.schemas.press_release import PressReleaseCreate
+from press_watch_api.services import fixed_category_classification as classification
 
 
 _SAVE_BATCH_SIZE = 1_000
@@ -95,10 +97,11 @@ def save_press_releases(
     releases: Iterable[ScrapedPressRelease],
     fetched_at: datetime | None = None,
 ) -> PressReleaseSaveResult:
-    """scraper 取得結果をDTO経由でrepositoryへ保存依頼
+    """scraper取得結果の原本と、新規行の固定カテゴリ分類を同じSessionへ保存
 
     repository と同じく commit / rollback は呼び出さず、
     呼び出し元のトランザクションに参加する。
+    分類ルールの検証は新規INSERT後に行うため、失敗時は呼び出し元で全体をrollbackする。
 
     Args:
         session: 保存に使うSQLAlchemyセッション
@@ -107,6 +110,9 @@ def save_press_releases(
 
     Returns:
         保存済みモデルと保存件数、重複skip件数を含む保存結果
+
+    Raises:
+        classification.FixedCategoryClassificationError: 新規行があり、分類ルールを利用できない場合
     """
 
     create_dtos = to_press_release_creates(
@@ -127,14 +133,27 @@ def save_press_releases(
         )
 
     saved_by_source_url: dict[str, PressReleaseModel] = {}
+    rules: classification.FixedCategoryRules | None = None
     for create_batch in batched(
         candidates_by_source_url.values(),
         _SAVE_BATCH_SIZE,
     ):
-        for saved_press_release in create_press_releases(
+        saved_batch = create_press_releases(
             session,
             create_batch,
-        ):
+        )
+        if not saved_batch:
+            continue
+        # 全件skipではルールを要求せず、新規が返った最初のバッチだけで取得する。
+        if rules is None:
+            rules = classification.load_fixed_category_rules(session)
+        classification_values = [
+            (saved.id, category_id)
+            for saved in saved_batch
+            for category_id in classification.classify_title(saved.title, rules)
+        ]
+        create_press_release_fixed_categories(session, classification_values)
+        for saved_press_release in saved_batch:
             saved_by_source_url[saved_press_release.source_url] = (
                 saved_press_release
             )

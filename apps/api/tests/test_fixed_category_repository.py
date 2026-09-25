@@ -2,6 +2,8 @@ import unittest
 from unittest.mock import Mock
 
 from sqlalchemy.orm import Session
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import SQLAlchemyError
 
 from press_watch_api.models.fixed_category import FixedCategory, FixedCategoryKeyword
 from press_watch_api.repositories import fixed_category as repository
@@ -61,6 +63,36 @@ class FixedCategoryRepositoryTest(unittest.TestCase):
         repository.create_fixed_category_keywords(self.session, [])
         self.session.add_all.assert_not_called()
         self.session.flush.assert_not_called()
+
+    def test_bulk_inserts_classifications_without_skipping_conflicts(self) -> None:
+        repository.create_press_release_fixed_categories(self.session, [(1009, 51), (1009, 92)])
+        self.session.execute.assert_called_once()
+        compiled = self.session.execute.call_args.args[0].compile(dialect=postgresql.dialect())
+        self.assertEqual(compiled.params, {
+            "press_release_id_m0": 1009, "fixed_category_id_m0": 51,
+            "press_release_id_m1": 1009, "fixed_category_id_m1": 92,
+        })
+        self.assertNotIn("ON CONFLICT", str(compiled))
+
+    def test_splits_classification_rows_at_1000(self) -> None:
+        repository.create_press_release_fixed_categories(self.session, [(index, 51) for index in range(1_001)])
+        self.assertEqual(self.session.execute.call_count, 2)
+        self.assertEqual([
+            len(call.args[0].compile(dialect=postgresql.dialect()).params)
+            for call in self.session.execute.call_args_list
+        ], [2_000, 2])
+
+    def test_empty_classifications_do_not_execute_sql(self) -> None:
+        repository.create_press_release_fixed_categories(self.session, [])
+        self.session.execute.assert_not_called()
+        self.session.flush.assert_not_called()
+
+    def test_classification_insert_failure_propagates(self) -> None:
+        error = SQLAlchemyError("fixed insert failure")
+        self.session.execute.side_effect = error
+        with self.assertRaises(SQLAlchemyError) as caught:
+            repository.create_press_release_fixed_categories(self.session, [(1009, 51)])
+        self.assertIs(caught.exception, error)
 
 
 if __name__ == "__main__":

@@ -1,20 +1,46 @@
-"""固定カテゴリ初期データのDB操作
+"""固定カテゴリ定義と分類結果のDB操作
 
-追加時はflushまで行い、commit・rollback・Sessionのcloseは呼び出し元に委ねる。
+commit・rollback・Sessionのcloseは呼び出し元に委ねる。
 """
 
 from collections.abc import Sequence
+from itertools import batched
 
-from sqlalchemy import select
+from sqlalchemy import insert, select
 from sqlalchemy.orm import Session
 
-from press_watch_api.models.fixed_category import FixedCategory, FixedCategoryKeyword
+from press_watch_api.models.fixed_category import (
+    FixedCategory,
+    FixedCategoryKeyword,
+    PressReleaseFixedCategory,
+)
+
+
+_CLASSIFICATION_BATCH_SIZE = 1_000
 
 
 def list_fixed_categories(session: Session) -> tuple[FixedCategory, ...]:
     """既存の固定カテゴリをすべて取得"""
 
     return tuple(session.scalars(select(FixedCategory)))
+
+
+def create_press_release_fixed_categories(
+    session: Session,
+    values: Sequence[tuple[int, int]],
+) -> None:
+    """新規報道発表IDと固定カテゴリIDの対応を1,000組ずつ一括保存
+
+    Args:
+        session: 呼び出し元が管理するSession
+        values: 重複のない（報道発表ID, 固定カテゴリID）の組
+    """
+
+    for batch in batched(values, _CLASSIFICATION_BATCH_SIZE):
+        session.execute(insert(PressReleaseFixedCategory).values([
+            {"press_release_id": release_id, "fixed_category_id": category_id}
+            for release_id, category_id in batch
+        ]))
 
 
 def list_fixed_category_keywords(session: Session) -> tuple[FixedCategoryKeyword, ...]:
