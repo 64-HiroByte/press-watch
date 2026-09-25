@@ -57,6 +57,8 @@ class FixedCategoryCsvTest(unittest.TestCase):
             (valid_categories, b"category_slug,keyword\n\nair,air\n"),
             (valid_categories, b"category_slug,keyword\n"),
             (valid_categories, b'category_slug,keyword\nair,"unterminated\n'),
+            (valid_categories, b'category_slug,keyword\nair,"quoted"tail\n'),
+            (b'slug,name,display_order\nair,"Air"tail,1\n', valid_keywords),
         )
         for categories, keywords in cases:
             with self.subTest(categories=categories, keywords=keywords):
@@ -82,6 +84,36 @@ class FixedCategoryCsvTest(unittest.TestCase):
                 with self.subTest(index=index, invalid=invalid):
                     with self.assertRaises(FixedCategoryCsvError):
                         parse_fixed_category_csv(*inputs)
+
+    def test_rejects_quotes_inside_unquoted_fields_in_either_file(self) -> None:
+        categories = b"slug,name,display_order\nair,Air,1\n"
+        keywords = b"category_slug,keyword\nair,air\n"
+        for name in ('A"ir', 'A"ir"', 'A""ir'):
+            with self.subTest(file="categories", name=name):
+                with self.assertRaises(FixedCategoryCsvError) as caught:
+                    parse_fixed_category_csv(
+                        f"slug,name,display_order\nair,{name},1\n".encode(), keywords,
+                    )
+                self.assertEqual(caught.exception.file_name, "fixed_categories.csv")
+                self.assertEqual(caught.exception.line, 2)
+                self.assertEqual(caught.exception.reason, "invalid CSV syntax")
+        for keyword in ('a"b', 'a"b"', 'a""b'):
+            with self.subTest(file="keywords", keyword=keyword):
+                with self.assertRaises(FixedCategoryCsvError) as caught:
+                    parse_fixed_category_csv(
+                        categories, f"category_slug,keyword\nair,valid\nair,{keyword}\n".encode(),
+                    )
+                self.assertEqual(caught.exception.file_name, "fixed_category_keywords.csv")
+                self.assertEqual(caught.exception.line, 3)
+                self.assertEqual(caught.exception.reason, "invalid CSV syntax")
+
+    def test_accepts_quoted_fields_with_commas_and_escaped_quotes(self) -> None:
+        data = parse_fixed_category_csv(
+            b'"slug","name","display_order"\n"air","Air, ""quoted""","1"\n',
+            b'"category_slug","keyword"\n"air","a,b""c"\nair,""""\n',
+        )
+        self.assertEqual(data.categories[0].name, 'Air, "quoted"')
+        self.assertEqual(data.keywords, (("air", 'a,b"c'), ("air", '"')))
 
     def test_rejects_invalid_category_values(self) -> None:
         for column, values in {

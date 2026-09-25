@@ -216,6 +216,7 @@ def _read_rows(
         decoded = raw.decode("utf-8")
     except UnicodeDecodeError:
         raise FixedCategoryCsvError(file_name, "invalid UTF-8") from None
+    _validate_csv_quotes(decoded, file_name)
     reader = csv.reader(io.StringIO(decoded), strict=True)
     rows: list[tuple[int, list[str]]] = []
     try:
@@ -238,6 +239,29 @@ def _read_rows(
     if not rows:
         raise FixedCategoryCsvError(file_name, "no data rows")
     return rows
+
+
+def _validate_csv_quotes(decoded: str, file_name: str) -> None:
+    """csv.readerのstrict指定だけでは拒否できない引用符配置を検証"""
+
+    state = "start"
+    line = 1
+    for character in decoded:
+        if state == "quoted":
+            if character == '"':
+                state = "after_quote"
+        elif character in ",\n":
+            state = "start"
+        elif character == '"':
+            if state == "unquoted":
+                raise FixedCategoryCsvError(file_name, "invalid CSV syntax", line=line)
+            state = "quoted"
+        else:
+            if state == "after_quote":
+                raise FixedCategoryCsvError(file_name, "invalid CSV syntax", line=line)
+            state = "unquoted"
+        if character == "\n":
+            line += 1
 
 
 def _validate_text(value: str, file_name: str, line: int, column: str) -> None:
