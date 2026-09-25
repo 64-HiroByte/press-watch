@@ -13,6 +13,7 @@ from sqlalchemy.exc import StatementError
 from sqlalchemy.orm import Session
 
 from press_watch_api.commands import fetch_and_save_env_press
+from press_watch_api.services import fixed_category_classification as classification
 from press_watch_api.commands.fetch_and_save_env_press import (
     CollectedPressReleases,
     ScraperCliRelease,
@@ -32,13 +33,19 @@ from api_test_constants import (
 class FetchAndSaveCommandTest(unittest.TestCase):
     """手動取得・保存コマンドのテスト"""
 
+    def setUp(self) -> None:
+        # CLIのトランザクション制御を確認し、定義照合は専用テストへ分ける。
+        self.rule_loader = self.enterContext(patch.object(
+            classification, "load_fixed_category_rules", return_value=((51, "大気"),),
+        ))
+
     def test_main_saves_scraper_releases_and_commits(self) -> None:
         """取得結果を保存serviceへ渡し、成功時にcommitすること"""
 
         session = Mock(spec=Session)
         session.scalars.return_value = (
-            Mock(source_url=SOURCE_URL_1),
-            Mock(source_url=SOURCE_URL_2),
+            Mock(id=1009, title="報道発表1", source_url=SOURCE_URL_1),
+            Mock(id=2017, title="報道発表2", source_url=SOURCE_URL_2),
         )
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -70,11 +77,41 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         session.add.assert_not_called()
         session.flush.assert_not_called()
 
+    def test_main_rolls_back_when_classification_rules_are_not_ready(self) -> None:
+        session = Mock(spec=Session)
+        session.scalars.return_value = (Mock(id=1009, title="大気", source_url=SOURCE_URL_1),)
+        self.rule_loader.side_effect = classification.FixedCategoryClassificationError(
+            "fixed category definitions are not ready",
+        )
+        stdout, stderr = io.StringIO(), io.StringIO()
+        code = _run_main_without_exposing_exception_chain(session, stdout, stderr)
+        self.assertEqual((code, stdout.getvalue()), (1, ""))
+        self.assertEqual(stderr.getvalue(), (
+            f"error: target={INDEX_URL} exception=FixedCategoryClassificationError "
+            "reason=fixed category definitions are not ready\n"
+        ))
+        session.commit.assert_not_called()
+        session.rollback.assert_called_once_with()
+        session.close.assert_called_once_with()
+
+    def test_main_rolls_back_classification_insert_failure_with_safe_diagnostic(self) -> None:
+        session = Mock(spec=Session)
+        session.scalars.return_value = (Mock(id=1009, title="大気", source_url=SOURCE_URL_1),)
+        session.execute.side_effect = _database_statement_error()
+        stdout, stderr = io.StringIO(), io.StringIO()
+        code = _run_main_without_exposing_exception_chain(session, stdout, stderr)
+        self.assertEqual((code, stdout.getvalue()), (1, ""))
+        session.execute.assert_called_once()
+        _assert_database_error_is_sanitized(stderr.getvalue())
+        session.commit.assert_not_called()
+        session.rollback.assert_called_once_with()
+        session.close.assert_called_once_with()
+
     def test_main_reports_skipped_count(self) -> None:
         """既存URLをskip件数としてstdout JSONへ出すこと"""
 
         session = Mock(spec=Session)
-        session.scalars.return_value = (Mock(source_url=SOURCE_URL_1),)
+        session.scalars.return_value = (Mock(id=1009, title="報道発表1", source_url=SOURCE_URL_1),)
         stdout = io.StringIO()
 
         exit_code = main(
@@ -541,8 +578,8 @@ class FetchAndSaveCommandTest(unittest.TestCase):
 
         session = Mock(spec=Session)
         session.scalars.return_value = (
-            Mock(source_url=SOURCE_URL_1),
-            Mock(source_url=SOURCE_URL_2),
+            Mock(id=1009, title="報道発表1", source_url=SOURCE_URL_1),
+            Mock(id=2017, title="報道発表2", source_url=SOURCE_URL_2),
         )
         stdout = Mock()
         stdout.write.side_effect = BrokenPipeError("output closed")
@@ -766,8 +803,8 @@ class FetchAndSaveCommandTest(unittest.TestCase):
 
         session = Mock(spec=Session)
         session.scalars.return_value = (
-            Mock(source_url=SOURCE_URL_1),
-            Mock(source_url=SOURCE_URL_2),
+            Mock(id=1009, title="報道発表1", source_url=SOURCE_URL_1),
+            Mock(id=2017, title="報道発表2", source_url=SOURCE_URL_2),
         )
         stdout = Mock()
         # argparseの色表示判定から実際のstdoutと同様に整数のfdを返す。

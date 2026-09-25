@@ -3,7 +3,7 @@ import json
 import unittest
 
 from alembic import command
-from sqlalchemy import BigInteger, Text, event, inspect, text
+from sqlalchemy import BigInteger, Text, delete, event, inspect, text
 from sqlalchemy.dialects.postgresql import ARRAY, INTEGER
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -22,6 +22,8 @@ from press_watch_api.repositories.press_release import (
 )
 from press_watch_api.schemas.press_release import PressReleaseCreate
 from press_watch_api.services.press_release_save import save_press_releases
+from press_watch_api.services.fixed_category_seed import load_fixed_category_seed, seed_fixed_categories
+from press_watch_api.models.fixed_category import FixedCategory, FixedCategoryKeyword
 
 
 _PREVIOUS_MIGRATION_HEAD = "9f2c7a4e1d63"
@@ -515,6 +517,7 @@ class PostgreSQLFoundationIntegrationTest(unittest.TestCase):
             _scraper_release(4, source_url=later_new_url),
         )
 
+        seed_fixed_categories(self.session, load_fixed_category_seed())
         result = save_press_releases(self.session, releases)
 
         self.assertEqual(result.saved_count, 2)
@@ -550,6 +553,7 @@ class PostgreSQLFoundationIntegrationTest(unittest.TestCase):
         )
         fetched_at = datetime(2026, 8, 29, 10, 0, tzinfo=UTC)
 
+        seed_fixed_categories(self.session, load_fixed_category_seed())
         result = save_press_releases(
             self.session, releases, fetched_at=fetched_at,
         )
@@ -584,10 +588,11 @@ class PostgreSQLFoundationIntegrationTest(unittest.TestCase):
     def test_save_service_uses_two_inserts_for_1001_releases(
         self,
     ) -> None:
-        """1,001件の初回と再投入を2回のINSERTだけで処理すること"""
+        """1,001件の原本を2回のINSERTで保存し、全件skipではルール取得も省くこと"""
 
         releases = tuple(_scraper_release(index) for index in range(1_001))
 
+        seed_fixed_categories(self.session, load_fixed_category_seed())
         with count_save_sql_statements(self.engine) as initial_counts:
             initial_result = save_press_releases(self.session, releases)
 
@@ -635,10 +640,13 @@ class PostgreSQLFoundationIntegrationTest(unittest.TestCase):
             flush=True,
         )
 
-        self.assertEqual(initial_counts.select, 0)
+        self.assertEqual(initial_counts.select, 2)
+        self.assertEqual(initial_counts.press_release_insert, 2)
+        self.assertEqual(initial_counts.classification_insert, 0)
         self.assertEqual(initial_counts.insert, 2)
         self.assertEqual(duplicate_counts.select, 0)
         self.assertEqual(duplicate_counts.insert, 2)
+        self.assertEqual(duplicate_counts.classification_insert, 0)
 
     def test_caller_rollback_removes_first_batch_after_second_insert_fails(
         self,
@@ -657,12 +665,17 @@ class PostgreSQLFoundationIntegrationTest(unittest.TestCase):
             _executemany: object,
         ) -> None:
             nonlocal insert_count
-            if statement.lstrip().upper().startswith("INSERT"):
+            compiled = getattr(_context, "compiled", None)
+            table = getattr(getattr(compiled, "statement", None), "table", None)
+            if statement.lstrip().upper().startswith("INSERT") and getattr(table, "name", None) == "press_releases":
                 insert_count += 1
                 if insert_count == 2:
                     raise RuntimeError("fixed second insert failure")
 
         try:
+            with Session(self.engine) as seed_session:
+                seed_fixed_categories(seed_session, load_fixed_category_seed())
+                seed_session.commit()
             event.listen(
                 self.engine,
                 "before_cursor_execute",
@@ -705,6 +718,8 @@ class PostgreSQLFoundationIntegrationTest(unittest.TestCase):
             # 回帰で中間commitされた場合も、専用テストDBへ行を残さない。
             with self.engine.begin() as cleanup_connection:
                 cleanup_connection.execute(text("delete from press_releases"))
+                cleanup_connection.execute(delete(FixedCategoryKeyword))
+                cleanup_connection.execute(delete(FixedCategory))
 
 
 class PostgreSQLMigrationCycleIntegrationTest(unittest.TestCase):

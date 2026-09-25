@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from press_watch_api.models.press_release import PressRelease
 from press_watch_api.schemas.press_release import PressReleaseCreate
+from press_watch_api.services import fixed_category_classification as classification
 from press_watch_api.services.press_release_save import (
     list_known_release_urls_for_crawl,
     save_press_releases,
@@ -165,6 +166,12 @@ class PressReleaseCreateSchemaTest(unittest.TestCase):
 
 class PressReleaseSaveServiceTest(unittest.TestCase):
     """scraper 取得結果からDB保存DTOへの変換テスト"""
+
+    def setUp(self) -> None:
+        # このクラスは原本保存の契約を確認し、ルール照合は専用テストへ分ける。
+        self.rule_loader = self.enterContext(patch.object(
+            classification, "load_fixed_category_rules", return_value=((51, "大気"),),
+        ))
 
     def test_to_press_release_create_maps_scraper_fields_to_save_dto(
         self,
@@ -342,10 +349,8 @@ class PressReleaseSaveServiceTest(unittest.TestCase):
 
         session = Mock(spec=Session)
         session.scalar.side_effect = [None, 1, 1, None]
-        saved_first = Mock(spec=PressRelease)
-        saved_first.source_url = SOURCE_URL_1
-        saved_later = Mock(spec=PressRelease)
-        saved_later.source_url = SOURCE_URL_3
+        saved_first = _saved_press_release(SOURCE_URL_1)
+        saved_later = _saved_press_release(SOURCE_URL_3)
         session.scalars.return_value = (saved_later, saved_first)
         releases = [
             _scraped_release(
@@ -455,6 +460,7 @@ class PressReleaseSaveServiceTest(unittest.TestCase):
 
         result = save_press_releases(session, [])
 
+        self.rule_loader.assert_not_called()
         self.assertEqual(result.saved_press_releases, ())
         self.assertEqual(result.saved_count, 0)
         self.assertEqual(result.skipped_count, 0)
@@ -477,6 +483,7 @@ class PressReleaseSaveServiceTest(unittest.TestCase):
         with self.assertRaises(ValidationError):
             save_press_releases(session, releases)
 
+        self.rule_loader.assert_not_called()
         session.scalar.assert_not_called()
         session.scalars.assert_not_called()
         session.add.assert_not_called()
@@ -606,6 +613,101 @@ class PressReleaseSaveServiceTest(unittest.TestCase):
         session.scalars.assert_not_called()
 
 
+class PressReleaseClassificationSaveTest(unittest.TestCase):
+    def test_rejects_unseeded_categories_for_new_release(self) -> None:
+        session = Mock(spec=Session)
+        session.scalars.return_value = (_saved_press_release(SOURCE_URL_1),)
+        with (
+            patch("press_watch_api.repositories.fixed_category.list_fixed_categories", return_value=()),
+            patch("press_watch_api.repositories.fixed_category.list_fixed_category_keywords", return_value=()),
+            self.assertRaisesRegex(classification.FixedCategoryClassificationError, "fixed category definitions are not ready"),
+        ):
+            save_press_releases(session, [_scraped_release(url=SOURCE_URL_1)])
+        session.commit.assert_not_called()
+        session.rollback.assert_not_called()
+
+    def test_classifies_only_returned_new_models_by_actual_ids(self) -> None:
+        session = Mock(spec=Session)
+        first = _saved_press_release(SOURCE_URL_1, title="大気汚染と土壌", release_id=1009)
+        later = _saved_press_release(SOURCE_URL_3, title="土壌", release_id=2017)
+        session.scalars.return_value = (later, first)
+        releases = [
+            _scraped_release(url=SOURCE_URL_1, title=first.title),
+            _scraped_release(url=SOURCE_URL_2, title="大気と土壌"),
+            _scraped_release(url=SOURCE_URL_1, title="後続の重複入力"),
+            _scraped_release(url=SOURCE_URL_3, title=later.title),
+        ]
+        rules = classification.prepare_fixed_category_rules(((51, "大気"), (51, "大気汚染"), (92, "土壌")))
+        with patch.object(classification, "load_fixed_category_rules", return_value=rules) as load:
+            result = save_press_releases(session, releases)
+        load.assert_called_once_with(session)
+        session.execute.assert_called_once()
+        params = session.execute.call_args.args[0].compile(dialect=postgresql.dialect()).params
+        self.assertEqual({
+            (params[f"press_release_id_m{i}"], params[f"fixed_category_id_m{i}"])
+            for i in range(len(params) // 2)
+        }, {(1009, 51), (1009, 92), (2017, 92)})
+        self.assertEqual(result.saved_press_releases, (first, later))
+        self.assertEqual((result.saved_count, result.skipped_count), (2, 2))
+        session.commit.assert_not_called()
+        session.rollback.assert_not_called()
+
+    def test_loads_rules_once_when_first_new_row_is_in_second_batch(self) -> None:
+        session = Mock(spec=Session)
+        releases = [_scraped_release(url=f"https://example.test/{i}", title="大気") for i in range(2_001)]
+        session.scalars.side_effect = (
+            (),
+            (_saved_press_release(releases[1_000].url, title="大気", release_id=1009),),
+            (_saved_press_release(releases[2_000].url, title="大気", release_id=2017),),
+        )
+
+        def load_rules(_session):
+            self.assertEqual(session.scalars.call_count, 2)
+            return ((51, "大気"),)
+
+        with patch.object(classification, "load_fixed_category_rules", side_effect=load_rules) as load:
+            result = save_press_releases(session, releases)
+        load.assert_called_once_with(session)
+        self.assertEqual(session.execute.call_count, 2)
+        self.assertEqual((result.saved_count, result.skipped_count), (2, 1_999))
+
+    def test_empty_and_all_skipped_inputs_never_load_rules_or_insert_classifications(self) -> None:
+        for releases in ([], [_scraped_release(), _scraped_release()]):
+            with self.subTest(count=len(releases)):
+                session = Mock(spec=Session)
+                session.scalars.return_value = ()
+                with patch.object(classification, "load_fixed_category_rules") as load:
+                    result = save_press_releases(session, releases)
+                load.assert_not_called()
+                session.execute.assert_not_called()
+                self.assertEqual((result.saved_count, result.skipped_count), (0, len(releases)))
+                self.assertEqual(session.scalars.call_count, bool(releases))
+
+    def test_does_not_classify_source_categories_or_modify_original_title(self) -> None:
+        session = Mock(spec=Session)
+        saved = _saved_press_release(SOURCE_URL_1, title="お知らせ ＡＢＣ")
+        session.scalars.return_value = (saved,)
+        with patch.object(classification, "load_fixed_category_rules", return_value=((51, "大気"),)):
+            save_press_releases(session, [_scraped_release(title=saved.title, source_categories=("大気",))])
+        session.execute.assert_not_called()
+        self.assertEqual(saved.title, "お知らせ ＡＢＣ")
+
+    def test_classification_failure_propagates_without_committing(self) -> None:
+        session = Mock(spec=Session)
+        session.scalars.return_value = (_saved_press_release(SOURCE_URL_1),)
+        error = RuntimeError("fixed classification failure")
+        with (
+            patch.object(classification, "load_fixed_category_rules", return_value=((51, "大気"),)),
+            patch.object(classification, "classify_title", side_effect=error),
+            self.assertRaises(RuntimeError) as caught,
+        ):
+            save_press_releases(session, [_scraped_release()])
+        self.assertIs(caught.exception, error)
+        session.execute.assert_not_called()
+        session.commit.assert_not_called()
+        session.rollback.assert_not_called()
+
+
 def _scraped_release(
     title: str = "報道発表",
     published_at: date = date(2026, 5, 26),
@@ -632,11 +734,13 @@ def _scraped_release(
     )
 
 
-def _saved_press_release(source_url: str) -> Mock:
+def _saved_press_release(source_url: str, *, title: str = "報道発表", release_id: int = 1009) -> Mock:
     """一括INSERTのRETURNING結果に相当するモデルMockを生成"""
 
     press_release = Mock(spec=PressRelease)
     press_release.source_url = source_url
+    press_release.title = title
+    press_release.id = release_id
     return press_release
 
 
