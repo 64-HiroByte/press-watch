@@ -22,6 +22,31 @@ from api_test_constants import ENV_PRESS_RELEASE_URL_1 as SOURCE_URL_1
 class PressReleaseRepositoryTest(unittest.TestCase):
     """報道発表repositoryのテスト"""
 
+    def test_lists_only_ids_and_titles_in_id_order_after_cursor(self) -> None:
+        for after_id in (None, 0, 1009):
+            with self.subTest(after_id=after_id):
+                session = Mock(spec=Session)
+                session.execute.return_value = [(2027, "大気"), (3031, "土壌")]
+                result = press_release_repository.list_press_release_titles_after_id(
+                    session, after_id=after_id, limit=1000,
+                )
+                self.assertEqual(result, ((2027, "大気"), (3031, "土壌")))
+                session.execute.assert_called_once()
+                statement = session.execute.call_args.args[0]
+                self.assertEqual([column.name for column in statement.selected_columns], ["id", "title"])
+                compiled = statement.compile(dialect=postgresql.dialect())
+                self.assertIn("ORDER BY press_releases.id", str(compiled))
+                self.assertIn(1000, compiled.params.values())
+                self.assertNotIn("OFFSET", str(compiled))
+                if after_id is None:
+                    self.assertNotIn("WHERE", str(compiled))
+                else:
+                    self.assertIn("WHERE press_releases.id >", str(compiled))
+                    self.assertIn(after_id, compiled.params.values())
+                session.commit.assert_not_called()
+                session.rollback.assert_not_called()
+                session.close.assert_not_called()
+
     def test_create_press_release_builds_model_from_create_dto(self) -> None:
         """保存DTOの値からPressReleaseモデルを組み立てること"""
 

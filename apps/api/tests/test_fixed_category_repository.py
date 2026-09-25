@@ -94,6 +94,27 @@ class FixedCategoryRepositoryTest(unittest.TestCase):
             repository.create_press_release_fixed_categories(self.session, [(1009, 51)])
         self.assertIs(caught.exception, error)
 
+    def test_deletes_only_requested_release_classifications(self) -> None:
+        repository.delete_press_release_fixed_categories(self.session, [1009, 2027])
+        self.session.execute.assert_called_once()
+        statement = self.session.execute.call_args.args[0]
+        compiled = statement.compile(dialect=postgresql.dialect())
+        self.assertEqual(statement.table.name, "press_release_fixed_categories")
+        self.assertTrue(statement.is_delete)
+        self.assertIn("WHERE press_release_fixed_categories.press_release_id IN", str(compiled))
+        self.assertEqual(list(compiled.params.values()), [[1009, 2027]])
+
+    def test_empty_deletion_does_not_execute_sql(self) -> None:
+        repository.delete_press_release_fixed_categories(self.session, [])
+        self.session.execute.assert_not_called()
+
+    def test_deletion_failure_propagates(self) -> None:
+        error = SQLAlchemyError("fixed delete failure")
+        self.session.execute.side_effect = error
+        with self.assertRaises(SQLAlchemyError) as caught:
+            repository.delete_press_release_fixed_categories(self.session, [1009])
+        self.assertIs(caught.exception, error)
+
 
 if __name__ == "__main__":
     unittest.main()
