@@ -32,6 +32,7 @@ class FixedCategorySeedIntegrationTest(unittest.TestCase):
 
     def setUp(self) -> None:
         self.sessions: list[Session] = []
+        # setUpやfixture作成の途中で失敗しても、生成済みSessionとテストデータを片付ける。
         self.addCleanup(self._clear_test_data)
         self.data = load_fixed_category_seed()
 
@@ -42,6 +43,8 @@ class FixedCategorySeedIntegrationTest(unittest.TestCase):
         return session
 
     def _clear_test_data(self) -> None:
+        """安全確認済みの専用DBで、参照元から順にテスト対象テーブルの全行を削除"""
+
         for session in self.sessions:
             session.close()
         with self.engine.begin() as connection:
@@ -49,11 +52,15 @@ class FixedCategorySeedIntegrationTest(unittest.TestCase):
                 connection.execute(delete(model))
 
     def _run(self) -> tuple[int, str, str]:
+        """CLI自身のcommit・rollbackを通し、終了コード・stdout・stderrを返す"""
+
         stdout, stderr = io.StringIO(), io.StringIO()
         code = main([], session_factory=self._session, stdout=stdout, stderr=stderr)
         return code, stdout.getvalue(), stderr.getvalue()
 
     def _snapshot(self) -> dict[str, tuple[tuple[object, ...], ...]]:
+        """別接続から確定済みの全列を主キー順で取得し、後始末前のDB状態を比較可能にする"""
+
         with self.engine.connect() as connection:
             return {
                 model.__tablename__: tuple(
@@ -65,6 +72,15 @@ class FixedCategorySeedIntegrationTest(unittest.TestCase):
             }
 
     def _create_existing_data(self, *, keywords: bool = True) -> int:
+        """seedで維持すべき既存カテゴリ・報道発表原本・分類結果をcommitして準備
+
+        Args:
+            keywords: Falseならキーワードを未登録とし、不足補完や登録失敗の検証に使用
+
+        Returns:
+            表示順とは異なる値に設定した既存カテゴリID
+        """
+
         definition = self.data.categories[0]
         with Session(self.engine) as session:
             category = FixedCategory(
@@ -90,6 +106,8 @@ class FixedCategorySeedIntegrationTest(unittest.TestCase):
         return 1009
 
     def _assert_matches_csv(self) -> None:
+        """CLIとは別のSessionから、確定済みのカテゴリ・キーワードがCSVと一致することを確認"""
+
         with Session(self.engine) as session:
             categories = session.scalars(select(FixedCategory)).all()
             self.assertEqual(
@@ -110,6 +128,8 @@ class FixedCategorySeedIntegrationTest(unittest.TestCase):
         self._assert_matches_csv()
 
     def test_repeated_seed_has_no_insert_update_or_delete(self) -> None:
+        """結果の行比較に加え、SQLも監視して同じ値を書き直す処理がないことを確認"""
+
         self._create_existing_data()
         self.assertEqual(self._run()[0], 0)
         before = self._snapshot()
@@ -187,6 +207,8 @@ class FixedCategorySeedIntegrationTest(unittest.TestCase):
                 self._clear_test_data()
 
     def test_keyword_insert_failure_rolls_back_new_categories_and_preserves_existing_rows(self) -> None:
+        """カテゴリのflush後にキーワードINSERTを失敗させ、先行した登録も取り消されることを確認"""
+
         self._create_existing_data(keywords=False)
         before = self._snapshot()
         category_inserts = 0

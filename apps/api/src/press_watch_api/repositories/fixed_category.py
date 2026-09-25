@@ -1,4 +1,7 @@
-"""固定カテゴリ初期データのDB操作"""
+"""固定カテゴリ初期データのDB操作
+
+追加時はflushまで行い、commit・rollback・Sessionのcloseは呼び出し元に委ねる。
+"""
 
 from collections.abc import Sequence
 
@@ -24,7 +27,15 @@ def create_fixed_categories(
     session: Session,
     values: Sequence[tuple[str, str, int]],
 ) -> tuple[FixedCategory, ...]:
-    """slug・表示名・表示順からカテゴリを追加し、採番済みモデルを返す"""
+    """slug・表示名・表示順からカテゴリを追加し、採番済みモデルを返す
+
+    Args:
+        session: 呼び出し元が管理するSession
+        values: （slug, 表示名, 表示順）の組
+
+    Returns:
+        入力順のカテゴリモデル。IDはflushで取得済みだが、登録は未commit
+    """
 
     categories = tuple(
         FixedCategory(slug=slug, name=name, display_order=order)
@@ -40,7 +51,12 @@ def create_fixed_category_keywords(
     session: Session,
     values: Sequence[tuple[int, str]],
 ) -> None:
-    """カテゴリIDとキーワードの対応を追加"""
+    """カテゴリIDとキーワードの対応を追加
+
+    Args:
+        session: 呼び出し元が管理するSession
+        values: （採番済みカテゴリID, キーワード）の組
+    """
 
     if values:
         session.add_all([

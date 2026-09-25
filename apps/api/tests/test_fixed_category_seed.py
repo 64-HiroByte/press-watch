@@ -8,12 +8,15 @@ from press_watch_api.services import fixed_category_seed as service
 
 
 class FixedCategorySeedTest(unittest.TestCase):
+    """repositoryをMockに置き換え、照合結果に応じた追加要求を確認"""
+
     def setUp(self) -> None:
         self.session = Mock(spec=Session)
         self.data = service.parse_fixed_category_csv(
             b"slug,name,display_order\nair,Air,10\nsoil,Soil,20\n",
             b"category_slug,keyword\nair,shared\nsoil,shared\n",
         )
+        # 表示順やCSV行番号をIDとして流用する実装を検出できる値にする。
         self.air = FixedCategory(id=51, slug="air", name="Air", display_order=10)
         self.soil = FixedCategory(id=92, slug="soil", name="Soil", display_order=20)
         self.repository = self.enterContext(patch.object(service, "repository"))
@@ -22,6 +25,8 @@ class FixedCategorySeedTest(unittest.TestCase):
         self.repository.create_fixed_categories.return_value = (self.air, self.soil)
 
     def tearDown(self) -> None:
+        """全ケースで、serviceが呼び出し元のSession管理を引き受けないことを確認"""
+
         self.session.commit.assert_not_called()
         self.session.rollback.assert_not_called()
         self.session.close.assert_not_called()

@@ -8,10 +8,14 @@ from press_watch_api.repositories import fixed_category as repository
 
 
 class FixedCategoryRepositoryTest(unittest.TestCase):
+    """MockのSessionでモデル生成・flushの呼出しを確認（実SQLは統合テストで検証）"""
+
     def setUp(self) -> None:
         self.session = Mock(spec=Session)
 
     def tearDown(self) -> None:
+        """全ケースで、repositoryがトランザクションの確定・取消やSession終了をしないことを確認"""
+
         self.session.commit.assert_not_called()
         self.session.rollback.assert_not_called()
         self.session.close.assert_not_called()
@@ -27,6 +31,8 @@ class FixedCategoryRepositoryTest(unittest.TestCase):
 
     def test_returns_categories_after_flush_assigns_ids(self) -> None:
         def assign_ids() -> None:
+            """flushによる採番を模擬し、返却時点のID確認に使用"""
+
             for index, category in enumerate(self.session.add_all.call_args.args[0], start=51):
                 category.id = index
 

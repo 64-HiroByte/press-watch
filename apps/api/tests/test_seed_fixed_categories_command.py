@@ -19,6 +19,8 @@ from press_watch_api.services.fixed_category_seed import (
 
 
 class SeedFixedCategoriesCommandTest(unittest.TestCase):
+    """DB接続をMockへ置き換え、CLIの終了コード・診断・Session管理を確認"""
+
     def setUp(self) -> None:
         self.session = Mock(spec=Session)
         self.factory = Mock(return_value=self.session)
@@ -122,17 +124,23 @@ class SeedFixedCategoriesCommandTest(unittest.TestCase):
                 self.assertEqual(command.main(["--unknown"], stdout=self.stdout, stderr=errors), 1)
 
     def assert_safe_diagnostic(self, value: str) -> None:
+        """テスト入力・例外へ埋めた識別文字列やtracebackが診断に混入していないことを確認"""
+
         self.assertNotEqual(value, "")
         for forbidden in ("PRIVATE_DB_DETAIL", "PRIVATE_SQL", "PRIVATE_CSV_VALUE", "Traceback"):
             self.assertNotIn(forbidden, value)
 
     def run_safely(self, **kwargs: object) -> int:
+        """mainの戻り値を返し、捕捉されなかった例外はテスト失敗として扱う"""
+
         try:
             return command.main([], **kwargs)
         except Exception:
             self.fail("例外がCLIの外へ漏れました")
 
     def test_invalid_keyword_csv_does_not_initialize_database(self) -> None:
+        """前半が正常でも、キーワードCSV後半の不正をDB初期化より前に検出"""
+
         with (
             patch.object(command, "load_fixed_category_seed") as load,
             patch.object(command, "get_session_factory") as get_factory,
@@ -192,6 +200,8 @@ class SeedFixedCategoriesCommandTest(unittest.TestCase):
                 session.close.assert_called_once_with()
 
     def test_repository_read_and_flush_failures_reach_cli_rollback(self) -> None:
+        """service・repositoryを実際に通し、MockのSessionで発生した例外の伝播先を確認"""
+
         for stage in ("read_categories", "read_keywords", "flush_categories", "flush_keywords"):
             with self.subTest(stage=stage):
                 session = Mock(spec=Session)
@@ -203,6 +213,11 @@ class SeedFixedCategoriesCommandTest(unittest.TestCase):
                 }[stage]
 
                 def flush() -> None:
+                    """カテゴリ→キーワードの順にflushを模擬し、指定段階で失敗
+
+                    カテゴリ登録が成功するケースではIDも割り当て、キーワード登録へ進める。
+                    """
+
                     if session.flush.call_count == 1:
                         if stage == "flush_categories":
                             raise _database_error()
@@ -288,6 +303,8 @@ class SeedFixedCategoriesCommandTest(unittest.TestCase):
         self.factory.assert_called_once_with()
 
     def test_real_stdout_broken_pipe_disables_exit_time_reflush(self) -> None:
+        """sys.stdoutとOS操作のMockでFD差替えの要求を確認（実際の終了はプロセステストで検証）"""
+
         for method in ("write", "flush"):
             with self.subTest(method=method):
                 session = Mock(spec=Session)
@@ -326,6 +343,8 @@ class SeedFixedCategoriesCommandTest(unittest.TestCase):
 
 
 class SeedFixedCategoriesProcessTest(unittest.TestCase):
+    """DB処理をMockにした子プロセスで、Python終了時のflushを含む終了結果を確認"""
+
     def test_closed_output_pipes_keep_execution_failure_exit_code(self) -> None:
         for stream, mode, argv in (
             ("stdout", "success", ["--help"]),
@@ -350,7 +369,18 @@ class SeedFixedCategoriesProcessTest(unittest.TestCase):
     def _run_with_unavailable_output(
         self, stream: str, mode: str, argv: list[str], *, close_descriptor: bool = False,
     ) -> subprocess.CompletedProcess[bytes]:
-        # DBはMockへ差し替え、実際のファイル記述子とPython終了時のflushを確認する。
+        """テスト実行元の標準出力を壊さず、子プロセスの出力障害を再現
+
+        Args:
+            stream: 障害を起こす標準ストリーム（stdoutまたはstderr）
+            mode: Mockのseed処理が成功するsuccess、または例外を投げるfailure
+            argv: 子プロセスのCLIへ渡す引数
+            close_descriptor: Trueなら標準FD自体を閉じる。Falseならパイプの読取側だけを閉じる
+
+        Returns:
+            Python終了処理後の終了コードと、障害対象ではないストリームの出力
+        """
+
         script = textwrap.dedent("""
             import os
             import sys
@@ -387,6 +417,8 @@ class SeedFixedCategoriesProcessTest(unittest.TestCase):
 
 
 def _database_error() -> StatementError:
+    """SQL・パラメーター・原因例外に、診断への混入を検出する識別文字列を埋めた例外"""
+
     return StatementError("PRIVATE_DB_DETAIL", "PRIVATE_SQL", {"value": "PRIVATE_DB_DETAIL"}, RuntimeError("PRIVATE_DB_DETAIL"))
 
 

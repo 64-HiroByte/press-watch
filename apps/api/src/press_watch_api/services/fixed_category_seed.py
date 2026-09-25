@@ -16,7 +16,16 @@ _KEYWORDS_FILE = "fixed_category_keywords.csv"
 
 
 class FixedCategoryCsvError(ValueError):
-    """固定カテゴリCSVの規約違反"""
+    """固定カテゴリCSVの規約違反
+
+    CLI診断へ渡すため、入力値や元例外の詳細を各属性へ含めない前提。
+
+    Attributes:
+        file_name: 同梱CSVの固定ファイル名
+        reason: 検証処理が選んだ固定の理由
+        line: 1始まりの物理行番号。位置を特定しない場合はNone
+        column: 規約で定義した列名。列を特定しない場合はNone
+    """
 
     def __init__(
         self,
@@ -44,7 +53,12 @@ class FixedCategoryDefinition:
 
 @dataclass(frozen=True)
 class FixedCategorySeedData:
-    """取込対象のカテゴリ定義とslug単位のキーワード対応"""
+    """取込対象のカテゴリ定義とslug単位のキーワード対応
+
+    Attributes:
+        categories: CSV行順のカテゴリ定義
+        keywords: CSV行順の（カテゴリslug, キーワード）組。DBのカテゴリIDは保持しない
+    """
 
     categories: tuple[FixedCategoryDefinition, ...]
     keywords: tuple[tuple[str, str], ...]
@@ -82,6 +96,7 @@ def seed_fixed_categories(
     expected_categories = {category.slug: category for category in data.categories}
     existing_categories = repository.list_fixed_categories(session)
     existing_keywords = repository.list_fixed_category_keywords(session)
+    # 後半のキーワードに不整合があっても書き込まないよう、両テーブルを先に照合する。
     for category in existing_categories:
         expected = expected_categories.get(category.slug)
         if expected is None or (category.name, category.display_order) != (
@@ -118,7 +133,10 @@ def seed_fixed_categories(
 
 
 def load_fixed_category_seed() -> FixedCategorySeedData:
-    """同梱CSVを読み込み、検証済みの初期データを返す"""
+    """パッケージ位置を基準に同梱CSVを読み込み、検証済みの初期データを返す
+
+    カレントディレクトリに依存せず、DB設定の読込みやSession生成も行わない。
+    """
 
     data_directory = Path(__file__).resolve().parents[1] / "data"
     return parse_fixed_category_csv(
@@ -159,6 +177,7 @@ def parse_fixed_category_csv(
             raise FixedCategoryCsvError(
                 _CATEGORIES_FILE, "invalid slug", line=line, column="slug",
             )
+        # 先頭の0を除いた桁数を先に調べ、巨大な値でint変換自体が失敗するのを防ぐ。
         digits = raw_order.lstrip("0")
         if (
             re.fullmatch(r"[0-9]+", raw_order) is None
@@ -206,6 +225,17 @@ def _read_rows(
     file_name: str,
     header: tuple[str, ...],
 ) -> list[tuple[int, list[str]]]:
+    """列固有の検証に先立ち、バイト列・CSV構造・文字列の共通規約を検証
+
+    Args:
+        raw: 改行変換をしていないCSVのバイト列
+        file_name: 診断に使う同梱CSVの固定ファイル名
+        header: 列順も含めた期待するヘッダー
+
+    Returns:
+        ヘッダーを除く各レコードの（開始物理行番号, 列値一覧）。行番号は1始まり
+    """
+
     if raw.startswith(b"\xef\xbb\xbf"):
         raise FixedCategoryCsvError(file_name, "UTF-8 BOM is not allowed")
     if b"\r" in raw:
@@ -242,7 +272,11 @@ def _read_rows(
 
 
 def _validate_csv_quotes(decoded: str, file_name: str) -> None:
-    """csv.readerのstrict指定だけでは拒否できない引用符配置を検証"""
+    """csv.readerのstrict指定だけでは拒否できない引用符配置を検証
+
+    未引用フィールド内の引用符や、閉じ引用符の直後に続く通常文字を拒否する。
+    閉じ忘れは後続のcsv.reader、引用内の改行は値の文字列検証で拒否する。
+    """
 
     state = "start"
     line = 1
@@ -255,6 +289,7 @@ def _validate_csv_quotes(decoded: str, file_name: str) -> None:
         elif character == '"':
             if state == "unquoted":
                 raise FixedCategoryCsvError(file_name, "invalid CSV syntax", line=line)
+            # after_quoteで再び引用符が来た場合は、二重引用符によるエスケープ。
             state = "quoted"
         else:
             if state == "after_quote":
@@ -265,6 +300,11 @@ def _validate_csv_quotes(decoded: str, file_name: str) -> None:
 
 
 def _validate_text(value: str, file_name: str, line: int, column: str) -> None:
+    """全列共通の文字列規約を、入力値を補正せずに検証
+
+    stripやNFKC変換は適合判定にだけ使い、違反時は位置と固定の理由で例外を送出する。
+    """
+
     reason: str | None = None
     if not value:
         reason = "empty value"

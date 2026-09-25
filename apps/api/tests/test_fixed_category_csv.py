@@ -10,7 +10,11 @@ from press_watch_api.services.fixed_category_seed import (
 
 
 class FixedCategoryCsvTest(unittest.TestCase):
+    """DBを使わず、CSVの取込規約と同梱データの整合性を確認"""
+
     def test_loads_bundled_data_independently_of_working_directory(self) -> None:
+        """同梱データの件数・カテゴリ構成を回帰確認（汎用検証の固定件数条件ではない）"""
+
         with tempfile.TemporaryDirectory() as directory, chdir(directory):
             data = load_fixed_category_seed()
         self.assertEqual(len(data.categories), 10)
@@ -30,6 +34,8 @@ class FixedCategoryCsvTest(unittest.TestCase):
             parse_fixed_category_csv(categories, keywords)
 
     def test_parses_categories_and_keyword_assignments(self) -> None:
+        """欠番・1以外の表示順開始値と、別カテゴリへの同一キーワード割当を許容"""
+
         data = parse_fixed_category_csv(
             "slug,name,display_order\nair,大気,10\nsoil,土壌,30\n".encode(),
             "category_slug,keyword\nair,PCB\nsoil,PCB\n".encode(),
@@ -116,6 +122,7 @@ class FixedCategoryCsvTest(unittest.TestCase):
         self.assertEqual(data.keywords, (("air", 'a,b"c'), ("air", '"')))
 
     def test_rejects_invalid_category_values(self) -> None:
+        # 巨大な数値も、int変換の例外ではなくCSV検証エラーとして扱うことを確認する。
         for column, values in {
             "slug": ("", " air", "air ", "Air", "1air", "air-2", "_air", "air_", "air__two", "ａｉｒ"),
             "name": ("", " 大気", "大気 ", "\tAir", "A\x00ir", "A\x7fir", "Ａｉｒ"),
@@ -140,6 +147,7 @@ class FixedCategoryCsvTest(unittest.TestCase):
                     parse_fixed_category_csv(categories, ("category_slug,keyword\n" + row + "\n").encode())
 
     def test_rejects_duplicate_category_fields_and_keyword_pairs(self) -> None:
+        # 表示順は文字列表記ではなく整数値で比較するため、1と01も重複になる。
         for second in ("air,Other,2", "soil,Air,2", "soil,Soil,01"):
             with self.subTest(second=second):
                 with self.assertRaises(FixedCategoryCsvError):

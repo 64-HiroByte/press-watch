@@ -27,10 +27,13 @@ def main(
 ) -> int:
     """固定カテゴリseedを実行し、終了コードを返す
 
+    両CSVの検証後にSessionを生成し、commit・rollback・closeをこの関数で管理する。
+    commit後に出力やcloseが失敗した場合も終了コードは1になるが、登録は確定済み。
+
     Args:
-        argv: プログラム名を除くCLI引数
-        session_factory: テストで差し替え可能なSession生成関数
-        stdout: 追加件数JSONの出力先
+        argv: プログラム名を除くCLI引数。省略時はプロセスの引数を使用
+        session_factory: この処理専用のSessionを生成する関数。省略時は既存のDB設定を使用
+        stdout: 追加件数JSONまたはヘルプの出力先
         stderr: 値や例外詳細を含まない診断の出力先
 
     Returns:
@@ -39,6 +42,7 @@ def main(
 
     output = stdout if stdout is not None else sys.stdout
     error_output = stderr if stderr is not None else sys.stderr
+    # ヘルプも自前で出力し、書込み・flushの失敗を終了コードへ反映する。
     parser = argparse.ArgumentParser(
         description="Seed bundled fixed categories.", add_help=False, exit_on_error=False,
     )
@@ -99,7 +103,11 @@ def main(
 
 
 def _redirect_stream_after_output_error(output: TextIO) -> None:
-    """実stdout・stderrの終了時再flushを破棄先へ切り替え"""
+    """実stdout・stderrの終了時再flushを破棄先へ切り替え
+
+    Python終了時のflush失敗による終了コードの上書きを防ぐため、標準ストリームの
+    FDを直接差し替える。呼び出し元が渡した独立した出力先は変更しない。
+    """
 
     if output is not sys.stdout and output is not sys.stderr:
         return
@@ -123,6 +131,18 @@ def _print_error(
     commit_succeeded: bool,
     error: Exception,
 ) -> bool:
+    """例外本文を使わず、処理段階と固定の理由を診断へ出力
+
+    Args:
+        output: 診断の出力先
+        operation: 失敗した処理段階
+        commit_succeeded: commitの正常終了を確認できたか。FalseでもDB未変更とは限らない
+        error: 種類の判別と、CSV検証の固定の理由・位置の取得に使う例外
+
+    Returns:
+        診断の書込みとflushが成功した場合はTrue。失敗時は例外を外へ伝えずFalse
+    """
+
     context = ""
     if operation == "load_csv" and isinstance(error, FixedCategoryCsvError):
         reason = error.reason
