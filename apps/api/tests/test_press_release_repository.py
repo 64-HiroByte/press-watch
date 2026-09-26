@@ -6,7 +6,9 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from press_watch_api.models.press_release import PressRelease
-from press_watch_api.repositories import press_release as press_release_repository
+from press_watch_api.repositories import (
+    press_release as repository,
+)
 from press_watch_api.repositories.press_release import (
     count_press_releases,
     create_press_release,
@@ -23,17 +25,24 @@ class PressReleaseRepositoryTest(unittest.TestCase):
     """報道発表repositoryのテスト"""
 
     def test_lists_only_ids_and_titles_in_id_order_after_cursor(self) -> None:
+        """初回・IDが0・通常の継続取得で、必要列と取得順・上限・検索条件を確認"""
+
         for after_id in (None, 0, 1009):
             with self.subTest(after_id=after_id):
                 session = Mock(spec=Session)
                 session.execute.return_value = [(2027, "大気"), (3031, "土壌")]
-                result = press_release_repository.list_press_release_titles_after_id(
-                    session, after_id=after_id, limit=1000,
+                result = repository.list_press_release_titles_after_id(
+                    session,
+                    after_id=after_id,
+                    limit=1000,
                 )
                 self.assertEqual(result, ((2027, "大気"), (3031, "土壌")))
                 session.execute.assert_called_once()
                 statement = session.execute.call_args.args[0]
-                self.assertEqual([column.name for column in statement.selected_columns], ["id", "title"])
+                self.assertEqual(
+                    [column.name for column in statement.selected_columns],
+                    ["id", "title"],
+                )
                 compiled = statement.compile(dialect=postgresql.dialect())
                 self.assertIn("ORDER BY press_releases.id", str(compiled))
                 self.assertIn(1000, compiled.params.values())
@@ -65,7 +74,9 @@ class PressReleaseRepositoryTest(unittest.TestCase):
             press_release.source_categories,
             ["総合政策", "自然環境"],
         )
-        self.assertIsNot(press_release.source_categories, dto.source_categories)
+        self.assertIsNot(
+            press_release.source_categories, dto.source_categories
+        )
         self.assertEqual(press_release.fetched_at, dto.fetched_at)
 
     def test_create_press_release_allows_null_source_categories(self) -> None:
@@ -130,7 +141,7 @@ class PressReleaseRepositoryTest(unittest.TestCase):
             fetched_at=datetime(2026, 5, 28, 11, 0, tzinfo=UTC),
         )
         create_press_releases = getattr(
-            press_release_repository,
+            repository,
             "create_press_releases",
             None,
         )
@@ -198,7 +209,7 @@ class PressReleaseRepositoryTest(unittest.TestCase):
 
         session = Mock(spec=Session)
         create_press_releases = getattr(
-            press_release_repository,
+            repository,
             "create_press_releases",
             None,
         )
@@ -246,9 +257,7 @@ class PressReleaseRepositoryTest(unittest.TestCase):
         self.assertFalse(exists)
         session.scalar.assert_called_once()
 
-    def test_has_press_release_with_source_url_leaves_transaction_control_to_caller(
-        self,
-    ) -> None:
+    def test_url_lookup_leaves_transaction_control_to_caller(self) -> None:
         """既存確認でもトランザクションの確定や取消を呼び出し元へ任せること"""
 
         session = Mock(spec=Session)

@@ -32,9 +32,11 @@ def delete_press_release_fixed_categories(
 
     if not release_ids:
         return
-    session.execute(delete(PressReleaseFixedCategory.__table__).where(
-        PressReleaseFixedCategory.press_release_id.in_(release_ids)
-    ))
+    session.execute(
+        delete(PressReleaseFixedCategory.__table__).where(
+            PressReleaseFixedCategory.press_release_id.in_(release_ids)
+        )
+    )
 
 
 def list_fixed_categories(session: Session) -> tuple[FixedCategory, ...]:
@@ -55,13 +57,22 @@ def create_press_release_fixed_categories(
     """
 
     for batch in batched(values, _CLASSIFICATION_BATCH_SIZE):
-        session.execute(insert(PressReleaseFixedCategory).values([
-            {"press_release_id": release_id, "fixed_category_id": category_id}
-            for release_id, category_id in batch
-        ]))
+        session.execute(
+            insert(PressReleaseFixedCategory).values(
+                [
+                    {
+                        "press_release_id": release_id,
+                        "fixed_category_id": category_id,
+                    }
+                    for release_id, category_id in batch
+                ]
+            )
+        )
 
 
-def list_fixed_category_keywords(session: Session) -> tuple[FixedCategoryKeyword, ...]:
+def list_fixed_category_keywords(
+    session: Session,
+) -> tuple[FixedCategoryKeyword, ...]:
     """既存のカテゴリ別キーワードをすべて取得"""
 
     return tuple(session.scalars(select(FixedCategoryKeyword)))
@@ -103,8 +114,12 @@ def create_fixed_category_keywords(
     """
 
     if values:
-        session.add_all([
-            FixedCategoryKeyword(fixed_category_id=category_id, keyword=keyword)
-            for category_id, keyword in values
-        ])
+        session.add_all(
+            [
+                FixedCategoryKeyword(
+                    fixed_category_id=category_id, keyword=keyword
+                )
+                for category_id, keyword in values
+            ]
+        )
         session.flush()

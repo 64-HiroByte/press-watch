@@ -10,8 +10,12 @@ from typing import TextIO
 from sqlalchemy.orm import Session
 
 from press_watch_api.db import get_session_factory
-from press_watch_api.services.fixed_category_classification import FixedCategoryClassificationError
-from press_watch_api.services.fixed_category_reclassification import reclassify_press_releases
+from press_watch_api.services.fixed_category_classification import (
+    FixedCategoryClassificationError,
+)
+from press_watch_api.services.fixed_category_reclassification import (
+    reclassify_press_releases,
+)
 
 
 def main(
@@ -39,14 +43,26 @@ def main(
     output = stdout if stdout is not None else sys.stdout
     error_output = stderr if stderr is not None else sys.stderr
     parser = argparse.ArgumentParser(
-        description="Reclassify all stored press releases using bundled fixed category rules.",
-        add_help=False, exit_on_error=False, allow_abbrev=False,
+        description=(
+            "Reclassify all stored press releases "
+            "using bundled fixed category rules."
+        ),
+        add_help=False,
+        exit_on_error=False,
+        allow_abbrev=False,
     )
-    parser.add_argument("-h", "--help", action="store_true", help="show this help message and exit")
+    parser.add_argument(
+        "-h",
+        "--help",
+        action="store_true",
+        help="show this help message and exit",
+    )
     try:
         args = parser.parse_args(argv)
     except argparse.ArgumentError as error:
-        return 2 if _print_error(error_output, "arguments", False, error) else 1
+        return (
+            2 if _print_error(error_output, "arguments", False, error) else 1
+        )
     except KeyboardInterrupt as error:
         _print_error(error_output, "arguments", False, error)
         return 1
@@ -65,7 +81,11 @@ def main(
     operation = "configure"
     exit_code = 0
     try:
-        factory = session_factory if session_factory is not None else get_session_factory()
+        factory = (
+            session_factory
+            if session_factory is not None
+            else get_session_factory()
+        )
         operation = "open_session"
         session = factory()
         operation = "reclassify"
@@ -74,11 +94,16 @@ def main(
         session.commit()
         commit_succeeded = True
         operation = "output"
-        output.write(json.dumps({
-            "processed_count": result.processed_count,
-            "matched_count": result.matched_count,
-            "classification_count": result.classification_count,
-        }) + "\n")
+        output.write(
+            json.dumps(
+                {
+                    "processed_count": result.processed_count,
+                    "matched_count": result.matched_count,
+                    "classification_count": result.classification_count,
+                }
+            )
+            + "\n"
+        )
         output.flush()
     except (Exception, KeyboardInterrupt) as error:
         exit_code = 1
@@ -89,14 +114,18 @@ def main(
             try:
                 session.rollback()
             except (Exception, KeyboardInterrupt) as cleanup_error:
-                _print_error(error_output, "rollback", commit_succeeded, cleanup_error)
+                _print_error(
+                    error_output, "rollback", commit_succeeded, cleanup_error
+                )
     finally:
         if session is not None:
             try:
                 session.close()
             except (Exception, KeyboardInterrupt) as cleanup_error:
                 exit_code = 1
-                _print_error(error_output, "close", commit_succeeded, cleanup_error)
+                _print_error(
+                    error_output, "close", commit_succeeded, cleanup_error
+                )
     return exit_code
 
 
@@ -142,7 +171,9 @@ def _print_error(
 
     if isinstance(error, KeyboardInterrupt):
         reason = "operation interrupted"
-    elif operation == "reclassify" and isinstance(error, FixedCategoryClassificationError):
+    elif operation == "reclassify" and isinstance(
+        error, FixedCategoryClassificationError
+    ):
         reason = "fixed category rules could not be loaded or verified"
     else:
         reason = {
@@ -155,8 +186,10 @@ def _print_error(
     try:
         print(
             f"error: operation={operation} "
-            f"commit_succeeded={str(commit_succeeded).lower()} reason={reason}",
-            file=output, flush=True,
+            f"commit_succeeded={str(commit_succeeded).lower()} "
+            f"reason={reason}",
+            file=output,
+            flush=True,
         )
     except (Exception, KeyboardInterrupt):
         _redirect_stream_after_output_error(output)

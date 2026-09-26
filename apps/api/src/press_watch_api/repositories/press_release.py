@@ -26,10 +26,16 @@ def list_press_release_titles_after_id(
         ID昇順の（報道発表ID, 原本タイトル）の組
     """
 
-    statement = select(PressRelease.id, PressRelease.title).order_by(PressRelease.id).limit(limit)
+    statement = (
+        select(PressRelease.id, PressRelease.title)
+        .order_by(PressRelease.id)
+        .limit(limit)
+    )
     if after_id is not None:
         statement = statement.where(PressRelease.id > after_id)
-    return tuple((release_id, title) for release_id, title in session.execute(statement))
+    return tuple(
+        (release_id, title) for release_id, title in session.execute(statement)
+    )
 
 
 def count_press_releases(
