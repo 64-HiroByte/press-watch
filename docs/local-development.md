@@ -145,6 +145,63 @@ CSVにないカテゴリ・キーワードや、同一slugの表示名・表示�
 意図した分類ルールの変更はseedの再実行で上書きせず、CSV変更・DB更新・再分類を扱う別の保守作業とします。
 seedは単独で実行し、同時実行による制約エラーでは先行処理の完了後に再実行してください。
 
+## 既存報道発表を固定カテゴリで再分類する
+
+固定カテゴリ用migrationが適用済みで、対象DBのカテゴリ・キーワードが同梱CSVと完全に一致することを前提とします。
+対象DBの`DATABASE_URL`を環境変数へ設定し、新規保存・別の再分類・原本や定義を変更する処理を停止してから実行します。
+同時実行の停止は運用側の責任であり、CLIによる検出や排他ロックはありません。
+開発DB・Supabaseへの適用と実データへの実行は、この実装の検証には含めていません。
+
+```bash
+cd apps/api
+PYTHONPATH=src uv run --locked python -m press_watch_api.commands.reclassify_fixed_categories
+cd ../..
+```
+
+引数なしで、未分類を含む保存済み報道発表の全件を再分類します。
+対象を限定する引数はなく、`-h`・`--help`だけを提供します。
+ヘルプ・引数不正ではCSV読込やDB初期化を行いません。
+CLIは`.env`読込、migration適用、自動seed、原本の再取得を行いません。
+
+既存のタイトル分類を再利用し、原本を保持したまま分類結果だけを削除・再作成します。
+対象0件でもルール検証を行い、定義が正しければすべての件数が0で成功します。
+処理全体を一つのトランザクションに含め、1,000件ずつ処理してもcommitは最後の1回だけです。
+新規保存時の重複skipは再分類を行わず、従来どおり既存行を保持します。
+
+成功時はcommit後にstdoutへJSONを出力します。
+次の例は、3件を判定し、2件が1カテゴリ以上に一致して、合計3組の分類結果になった場合です。
+
+```json
+{"processed_count": 3, "matched_count": 2, "classification_count": 3}
+```
+
+`processed_count`は判定した報道発表数、`matched_count`は1カテゴリ以上に一致した報道発表数、`classification_count`は置換後の報道発表・カテゴリの組数です。
+いずれも変更前との比較件数ではなく、未一致の報道発表数は`processed_count - matched_count`です。
+
+終了コードは成功・ヘルプが0、実行失敗・捕捉した中断が1、引数不正が2です。
+ヘルプや引数診断の出力失敗も1になります。
+stderrには`operation`、`commit_succeeded`、固定の理由を出し、引数値・原本・例外本文・SQL・パラメーター・接続文字列は含めません。
+
+| 主な診断 | 対応 |
+| --- | --- |
+| `operation=arguments` | 引数を確認する。対象指定は提供しない |
+| `operation=configure` | 対象DBの環境変数設定を確認する |
+| `fixed category rules could not be loaded or verified` | 同梱CSVと対象DBの定義・seed状況を確認する。CLIは不足や相違を修正しない |
+| `operation=reclassify` | DB接続・利用可能なスキーマなどを確認し、原因解消後に再実行する |
+| `reason=operation interrupted` | 中断された処理段階とcommit成功の確認状況を確認する |
+| `operation=output`・`operation=close` | 出力先・接続の問題を確認する。`commit_succeeded=true`なら変更は確定済み |
+
+commit前の取得・判定・削除・INSERT失敗では、先行バッチも含めて全体のrollbackを試みます。
+通常実行中の`KeyboardInterrupt`も捕捉し、固定診断を出して、commit成功を確認できていなければrollbackを試みます。
+Sessionが生成済みならcloseを試みます。
+rollback自体が失敗してもcloseを試み、終了処理の失敗は元の失敗に加えて固定診断へ出します。
+OSによる強制終了など、捕捉できない終了についてrollback呼出しまで保証するものではありません。
+
+`commit_succeeded=true`はcommitの正常終了を確認したことを示し、出力・close失敗時もrollbackしません。
+`commit_succeeded=false`は成功を確認できていないという意味であり、commit中の通信失敗・中断でDB未変更と断定するものではありません。
+原因を解消して再実行すると、途中位置から再開せず、全件を最初から処理します。
+同じ原本・ルールなら結果の集合と件数は同じになりますが、DELETE・INSERTは毎回行います。
+
 ## PostgreSQL 17 DB統合テストを実行する
 
 DB統合テストは既存のAPI unittestと別ディレクトリ、別コマンドで実行します。
@@ -194,6 +251,11 @@ cd ../..
 新規保存時の分類テストでも、CLI自身のcommit・rollbackを実際のDBへ反映します。
 原本と分類結果の同時保存、重複skipによる既存行の保持、未投入・不整合の拒否、分類結果の1,000組分割と途中失敗時の全体rollbackを別接続から確認します。
 ルール取得は新規行がある保存呼出しで2 SELECT、全件skipでは0回であることも確認します。
+
+再分類テストでは、CLIの全件置換・再実行、原本全列と定義の保持、0件でも行うルール検証を別接続から確認します。
+実際の外部キー違反と、後半バッチの取得・判定・削除失敗や中断で、削除済みの旧分類も含めて全体がrollbackされることを確認します。
+repositoryへ一部IDを渡すテストでは指定外IDの結果保持を確認し、全件対象のCLIテストとは区別します。
+再分類区間のSELECT・INSERT・DELETE・UPDATEを専用listenerで数え、SQL本文やパラメーターは保存しません。
 
 テストデータはtmpfsに置かれ、成功時と失敗時のどちらでもテスト専用Compose projectを停止します。
 通常の開発DBが使う`127.0.0.1:5432`、`postgres17_data`、旧`postgres_data`、Supabaseには接続しません。

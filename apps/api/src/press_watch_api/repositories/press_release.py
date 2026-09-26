@@ -9,6 +9,35 @@ from press_watch_api.models.press_release import PressRelease
 from press_watch_api.schemas.press_release import PressReleaseCreate
 
 
+def list_press_release_titles_after_id(
+    session: Session,
+    *,
+    after_id: int | None,
+    limit: int,
+) -> tuple[tuple[int, str], ...]:
+    """再分類用のIDとタイトルを、前回の最終IDに続けて取得
+
+    Args:
+        session: 呼び出し元が管理するSession
+        after_id: 前回取得した最終ID。初回はNone
+        limit: 取得する最大件数
+
+    Returns:
+        ID昇順の（報道発表ID, 原本タイトル）の組
+    """
+
+    statement = (
+        select(PressRelease.id, PressRelease.title)
+        .order_by(PressRelease.id)
+        .limit(limit)
+    )
+    if after_id is not None:
+        statement = statement.where(PressRelease.id > after_id)
+    return tuple(
+        (release_id, title) for release_id, title in session.execute(statement)
+    )
+
+
 def count_press_releases(
     session: Session,
     *,
