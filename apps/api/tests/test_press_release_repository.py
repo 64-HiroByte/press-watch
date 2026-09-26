@@ -156,7 +156,9 @@ class PressReleaseRepositoryTest(unittest.TestCase):
         self.assertEqual(result, (returned_first, returned_second))
         session.scalars.assert_called_once()
         statement = session.scalars.call_args.args[0]
-        compiled = statement.compile(dialect=postgresql.dialect())
+        compiled = statement.compile(
+            dialect=postgresql.dialect(paramstyle="numeric")
+        )
         compiled_sql = str(compiled)
         self.assertIn(
             "INSERT INTO press_releases "
@@ -181,21 +183,23 @@ class PressReleaseRepositoryTest(unittest.TestCase):
                 f"press_releases.{column_name}",
                 compiled_sql.partition("RETURNING")[2],
             )
-        self.assertEqual(len(compiled.params), 10)
-        for index, dto in enumerate((first_dto, second_dto)):
-            for column_name in (
-                "title",
-                "source_url",
-                "published_at",
-                "source_categories",
-                "fetched_at",
-            ):
-                self.assertTrue(
-                    compiled.params[f"{column_name}_m{index}"]
-                    == getattr(dto, column_name),
-                    f"INSERTの{index}行目の{column_name}がDTOと一致しません。",
+        # 自動生成されるパラメーター名を固定せず、明示5列の順で比較する。
+        bound_values = [compiled.params[name] for name in compiled.positiontup]
+        self.assertEqual(
+            bound_values,
+            [
+                getattr(dto, column_name)
+                for dto in (first_dto, second_dto)
+                for column_name in (
+                    "title",
+                    "source_url",
+                    "published_at",
+                    "source_categories",
+                    "fetched_at",
                 )
-        copied_categories = compiled.params["source_categories_m0"]
+            ],
+        )
+        copied_categories = bound_values[3]
         self.assertIsNot(copied_categories, first_dto.source_categories)
         session.add.assert_not_called()
         session.flush.assert_not_called()

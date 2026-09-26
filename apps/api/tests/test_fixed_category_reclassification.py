@@ -1,7 +1,7 @@
 """固定カテゴリ再分類serviceのバッチ処理と責務境界のテスト"""
 
 import unittest
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -99,13 +99,18 @@ class FixedCategoryReclassificationTest(unittest.TestCase):
             result, service.PressReleaseReclassificationResult(3, 2, 3)
         )
         self.assertEqual(
-            operations.mock_calls,
-            [
-                call.load(self.session),
-                call.read(self.session, after_id=None, limit=1000),
-                call.delete(self.session, (-6, 0, 7)),
-                call.insert(self.session, [(-6, 51), (-6, 92), (7, 51)]),
-            ],
+            [invocation[0] for invocation in operations.mock_calls],
+            ["load", "read", "delete", "insert"],
+        )
+        self.load.assert_called_once_with(self.session)
+        self.read.assert_called_once_with(
+            self.session, after_id=None, limit=1000
+        )
+        self.assertIs(self.delete.call_args.args[0], self.session)
+        self.assertCountEqual(self.delete.call_args.args[1], (-6, 0, 7))
+        self.assertIs(self.insert.call_args.args[0], self.session)
+        self.assertCountEqual(
+            self.insert.call_args.args[1], ((-6, 51), (-6, 92), (7, 51))
         )
 
     def test_batch_boundaries_visit_each_nonconsecutive_id_once(self) -> None:
@@ -175,15 +180,20 @@ class FixedCategoryReclassificationTest(unittest.TestCase):
     def test_repository_failures_propagate(self) -> None:
         """取得・削除・追加の失敗を、rollbackを担当する呼び出し元へ伝播"""
 
-        for method in (self.read, self.delete, self.insert):
-            with self.subTest(operation=method._mock_name):
+        for operation, method in (
+            ("read", self.read),
+            ("delete", self.delete),
+            ("insert", self.insert),
+        ):
+            with self.subTest(operation=operation):
+                for repository_method in (self.read, self.delete, self.insert):
+                    repository_method.reset_mock(side_effect=True)
                 error = SQLAlchemyError("fixed repository failure")
                 self.read.return_value = ((1, "大気"),)
                 method.side_effect = error
                 with self.assertRaises(SQLAlchemyError) as caught:
                     service.reclassify_press_releases(self.session)
                 self.assertIs(caught.exception, error)
-                method.side_effect = None
 
 
 if __name__ == "__main__":

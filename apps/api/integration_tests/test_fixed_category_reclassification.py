@@ -95,7 +95,6 @@ class FixedCategoryReclassificationIntegrationTest(unittest.TestCase):
     def _create_releases(
         self, titles: Sequence[str], *, old_category_id: int | None = None
     ) -> tuple[int, ...]:
-        # 非連番・0・負のIDで、初回に正のIDだけへ限定しないことも確認する。
         """再分類前の原本と、必要に応じて旧分類を確定
 
         Args:
@@ -106,6 +105,7 @@ class FixedCategoryReclassificationIntegrationTest(unittest.TestCase):
             作成した報道発表IDの組。タイトルと同じ順序
         """
 
+        # 非連番・0・負のIDで、初回に正のIDだけへ限定しないことも確認する。
         release_ids = tuple(index * 3 - 6 for index in range(len(titles)))
         with Session(self.engine) as session:
             session.add_all(
@@ -336,6 +336,7 @@ class FixedCategoryReclassificationIntegrationTest(unittest.TestCase):
 
         for titles in ((), ("大気",)):
             with self.subTest(count=len(titles)):
+                self._clear_test_data()
                 self._create_releases(titles)
                 before = self._snapshot()
                 with _count_sql(self.engine) as counts:
@@ -371,6 +372,7 @@ class FixedCategoryReclassificationIntegrationTest(unittest.TestCase):
 
         for variant in ("category", "missing_keyword", "extra_keyword"):
             with self.subTest(variant=variant):
+                self._clear_test_data()
                 ids = self._seed()
                 self._create_releases(("大気",), old_category_id=ids["noise"])
                 with Session(self.engine) as session:
@@ -408,7 +410,6 @@ class FixedCategoryReclassificationIntegrationTest(unittest.TestCase):
                         }
                     ),
                 )
-                self._clear_test_data()
 
     def test_batch_boundaries_and_repeat_execution_have_bounded_sql_counts(
         self,
@@ -417,6 +418,7 @@ class FixedCategoryReclassificationIntegrationTest(unittest.TestCase):
 
         for count in (1000, 1001):
             with self.subTest(count=count):
+                self._clear_test_data()
                 ids = self._seed()
                 release_ids = self._create_releases(
                     ("大気",) * count, old_category_id=ids["noise"]
@@ -457,7 +459,6 @@ class FixedCategoryReclassificationIntegrationTest(unittest.TestCase):
                             for release_id in release_ids
                         },
                     )
-                self._clear_test_data()
 
     def test_multiple_matches_split_inserts_and_unmatched_results_are_removed(
         self,
@@ -465,7 +466,7 @@ class FixedCategoryReclassificationIntegrationTest(unittest.TestCase):
         """対象取得の分割とは独立して結果INSERTを分割し、未一致の旧結果も削除"""
 
         ids = self._seed()
-        self._create_releases(
+        release_ids = self._create_releases(
             ("大気と土壌",) * 501 + ("新しいお知らせ",),
             old_category_id=ids["noise"],
         )
@@ -492,7 +493,14 @@ class FixedCategoryReclassificationIntegrationTest(unittest.TestCase):
                 }
             ),
         )
-        self.assertEqual(len(self._snapshot()[_RESULT_TABLE]), 1002)
+        self.assertEqual(
+            set(self._snapshot()[_RESULT_TABLE]),
+            {
+                (release_id, category_id)
+                for release_id in release_ids[:-1]
+                for category_id in (ids["air"], ids["soil"])
+            },
+        )
 
     def test_all_unmatched_releases_remove_old_results_without_inserts(
         self,
@@ -523,10 +531,11 @@ class FixedCategoryReclassificationIntegrationTest(unittest.TestCase):
 
         ids = self._seed()
         self._create_releases(
-            ("大気と土壌",) * 501, old_category_id=ids["noise"]
+            ("大気と土壌",) * 500 + ("外部キー違反対象",),
+            old_category_id=ids["noise"],
         )
         before = self._snapshot()
-        insert_count = 0
+        original_classify = classification.classify_title
         sqlstates: list[str | None] = []
 
         def record_database_error(context):
@@ -536,36 +545,27 @@ class FixedCategoryReclassificationIntegrationTest(unittest.TestCase):
                 getattr(context.original_exception, "sqlstate", None)
             )
 
-        def fail_second_insert(
-            _conn, _cursor, statement, parameters, context, _many
-        ):
-            nonlocal insert_count
-            if (
-                statement.lstrip().upper().startswith("INSERT")
-                and _table_name(context) == _RESULT_TABLE
-            ):
-                insert_count += 1
-                if insert_count == 2:
-                    # 先行INSERTとDELETEの後に、実際の外部キー違反を起こす。
-                    parameters = dict(parameters)
-                    parameters["fixed_category_id_m0"] = -1
-            return statement, parameters
+        def classify_with_invalid_category(
+            title: str, rules: classification.FixedCategoryRules
+        ) -> tuple[int, ...]:
+            """1000件の正常結果に続くINSERTで、実際の外部キー違反を発生させる"""
 
-        event.listen(
-            self.engine,
-            "before_cursor_execute",
-            fail_second_insert,
-            retval=True,
-        )
+            if title == "外部キー違反対象":
+                return (ids["air"], -1)
+            return original_classify(title, rules)
+
         event.listen(self.engine, "handle_error", record_database_error)
         try:
-            result = self._run_cli()
+            with patch.object(
+                classification,
+                "classify_title",
+                side_effect=classify_with_invalid_category,
+            ), _count_sql(self.engine) as counts:
+                result = self._run_cli()
         finally:
-            event.remove(
-                self.engine, "before_cursor_execute", fail_second_insert
-            )
             event.remove(self.engine, "handle_error", record_database_error)
-        self.assertEqual(insert_count, 2)
+        self.assertEqual(counts[("DELETE", _RESULT_TABLE)], 1)
+        self.assertEqual(counts[("INSERT", _RESULT_TABLE)], 2)
         self.assertEqual(sqlstates, ["23503"])
         self._assert_failure_preserves(before, result)
 

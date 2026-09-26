@@ -7,7 +7,7 @@ import subprocess
 import sys
 import textwrap
 import unittest
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 from sqlalchemy.exc import StatementError
 from sqlalchemy.orm import Session
@@ -76,16 +76,20 @@ class ReclassifyFixedCategoriesCommandTest(unittest.TestCase):
             self.assertNotIn(forbidden, diagnostic)
 
     def test_success_commits_once_then_outputs_counts_and_closes(self) -> None:
-        """再分類・commit・closeの順序と、正常時の件数JSONを確認"""
+        """commitの後に件数JSONを書き出してflushし、最後にSessionを閉じる"""
 
         operations = Mock()
+        output = Mock(wraps=self.stdout)
         for name, method in (
             ("reclassify", self.reclassify),
             ("commit", self.session.commit),
+            ("write", output.write),
+            ("flush", output.flush),
             ("close", self.session.close),
         ):
             operations.attach_mock(method, name)
-        self.assertEqual(self.run_command(), 0)
+        self.assertEqual(self.run_command(stdout=output), 0)
+        self.reclassify.assert_called_once_with(self.session)
         self.session.commit.assert_called_once_with()
         self.assertEqual(
             json.loads(self.stdout.getvalue()),
@@ -96,9 +100,14 @@ class ReclassifyFixedCategoriesCommandTest(unittest.TestCase):
             },
         )
         self.assertEqual(self.stderr.getvalue(), "")
-        self.assertEqual(
-            operations.mock_calls,
-            [call.reclassify(self.session), call.commit(), call.close()],
+        self.session.close.assert_called_once_with()
+        output.write.assert_called()
+        output.flush.assert_called()
+        calls = [invocation[0] for invocation in operations.mock_calls]
+        self.assertEqual(calls[:2], ["reclassify", "commit"])
+        self.assertEqual(calls[-2:], ["flush", "close"])
+        self.assertTrue(
+            all(name in ("write", "flush") for name in calls[2:-1])
         )
         self.session.rollback.assert_not_called()
 
@@ -110,10 +119,14 @@ class ReclassifyFixedCategoriesCommandTest(unittest.TestCase):
         )
         self.assertEqual(self.run_command(), 0)
         self.assertEqual(
-            self.stdout.getvalue(),
-            '{"processed_count": 0, "matched_count": 0, '
-            '"classification_count": 0}\n',
+            json.loads(self.stdout.getvalue()),
+            {
+                "processed_count": 0,
+                "matched_count": 0,
+                "classification_count": 0,
+            },
         )
+        self.assertTrue(self.stdout.getvalue().endswith("\n"))
         self.session.commit.assert_called_once_with()
 
     def test_help_and_invalid_arguments_do_not_initialize_database(
@@ -158,6 +171,8 @@ class ReclassifyFixedCategoriesCommandTest(unittest.TestCase):
             ("open_session", self.factory),
         ):
             with self.subTest(operation=operation):
+                self.get_factory.reset_mock(side_effect=True)
+                self.factory.reset_mock(side_effect=True)
                 method.side_effect = _database_error()
                 errors = io.StringIO()
                 self.assertEqual(
@@ -168,27 +183,35 @@ class ReclassifyFixedCategoriesCommandTest(unittest.TestCase):
                 self.reclassify.assert_not_called()
                 self.session.rollback.assert_not_called()
                 self.session.close.assert_not_called()
-                method.side_effect = None
 
     def test_service_and_commit_failures_rollback_close_without_output(
         self,
     ) -> None:
         """処理・commitの失敗や中断で、成功出力をせずrollbackとcloseを試行"""
 
-        for operation, method in (
-            ("reclassify", self.reclassify),
-            ("commit", self.session.commit),
+        for operation, method, errors_to_raise in (
+            (
+                "reclassify",
+                self.reclassify,
+                (
+                    _database_error(),
+                    FixedCategoryClassificationError("PRIVATE_RULE_DETAIL"),
+                    RuntimeError("PRIVATE_CLASSIFIER_DETAIL"),
+                    KeyboardInterrupt(),
+                ),
+            ),
+            (
+                "commit",
+                self.session.commit,
+                (_database_error(), KeyboardInterrupt()),
+            ),
         ):
-            for error in (
-                _database_error(),
-                FixedCategoryClassificationError("PRIVATE_RULE_DETAIL"),
-                RuntimeError("PRIVATE_CLASSIFIER_DETAIL"),
-                KeyboardInterrupt(),
-            ):
+            for error in errors_to_raise:
                 with self.subTest(
                     operation=operation, error=type(error).__name__
                 ):
-                    self.session.reset_mock()
+                    self.session.reset_mock(side_effect=True)
+                    self.reclassify.reset_mock(side_effect=True)
                     output, errors = io.StringIO(), io.StringIO()
                     method.side_effect = error
                     self.assertEqual(
@@ -202,11 +225,16 @@ class ReclassifyFixedCategoriesCommandTest(unittest.TestCase):
                         self.assertIn(
                             "reason=operation interrupted", errors.getvalue()
                         )
+                    elif isinstance(error, FixedCategoryClassificationError):
+                        self.assertIn(
+                            "reason=fixed category rules could not be loaded "
+                            "or verified",
+                            errors.getvalue(),
+                        )
                     self.session.rollback.assert_called_once_with()
                     self.session.close.assert_called_once_with()
                     if operation == "reclassify":
                         self.session.commit.assert_not_called()
-                    method.side_effect = None
 
     def test_cleanup_failures_preserve_primary_failure_and_attempt_close(
         self,

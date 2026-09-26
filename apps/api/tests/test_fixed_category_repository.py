@@ -101,16 +101,17 @@ class FixedCategoryRepositoryTest(unittest.TestCase):
         )
         self.session.execute.assert_called_once()
         compiled = self.session.execute.call_args.args[0].compile(
-            dialect=postgresql.dialect()
+            dialect=postgresql.dialect(paramstyle="numeric")
         )
+        self.assertIn(
+            "INSERT INTO press_release_fixed_categories "
+            "(press_release_id, fixed_category_id)",
+            str(compiled),
+        )
+        # 自動生成されるパラメーター名を固定せず、SQLの列順で値を確認する。
         self.assertEqual(
-            compiled.params,
-            {
-                "press_release_id_m0": 1009,
-                "fixed_category_id_m0": 51,
-                "press_release_id_m1": 1009,
-                "fixed_category_id_m1": 92,
-            },
+            [compiled.params[name] for name in compiled.positiontup],
+            [1009, 51, 1009, 92],
         )
         self.assertNotIn("ON CONFLICT", str(compiled))
 
