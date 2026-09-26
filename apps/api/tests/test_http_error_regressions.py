@@ -47,7 +47,7 @@ class HttpErrorRegressionTest(unittest.TestCase):
         path: str = "/press-releases",
         *,
         method: str = "GET",
-        params: dict[str, str | int] | None = None,
+        params: dict[str, str | int | list[str]] | None = None,
         raise_server_exceptions: bool = True,
     ) -> Response:
         response = None
@@ -203,6 +203,39 @@ class HttpErrorRegressionTest(unittest.TestCase):
                         "入力検証で拒否したリクエストではrepositoryを呼ばないこと",
                     )
                     self._assert_session_closed()
+
+    def test_fixed_category_validation_survives_close_failure(self) -> None:
+        cases = (
+            (["air", "Bad"], "string_pattern_mismatch", [1]),
+            (["x" * 101], "string_too_long", [0]),
+            (["air"] * 21, "too_long", []),
+        )
+        for values, error_type, index in cases:
+            with self.subTest(error_type=error_type):
+                self.session.reset_mock()
+                self.stderr.seek(0)
+                self.stderr.truncate(0)
+                self.session.close.side_effect = SQLAlchemyError(
+                    INTERNAL_MARKER
+                )
+
+                response = self._request(params={"fixed_category": values})
+
+                self.assertEqual(response.status_code, 422)
+                payload = self._json(response)
+                self.assertEqual(set(payload), {"detail"})
+                self.assertEqual(len(payload["detail"]), 1)
+                self.assertEqual(
+                    payload["detail"][0]["loc"],
+                    ["query", "fixed_category", *index],
+                )
+                self.assertEqual(payload["detail"][0]["type"], error_type)
+                self.count.assert_not_called()
+                self.list_releases.assert_not_called()
+                self._assert_session_closed()
+                self.assertEqual(
+                    self.stderr.getvalue(), "database_cleanup_failed\n"
+                )
 
     def test_liveness_and_http_errors_do_not_initialize_database(self) -> None:
         self.get_session_factory.side_effect = RuntimeError(INTERNAL_MARKER)

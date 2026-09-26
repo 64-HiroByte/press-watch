@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import AfterValidator, Field
 from sqlalchemy.orm import Session
 
 from press_watch_api.dependencies import get_db_session
@@ -24,6 +25,17 @@ MIN_PAGE_SIZE = 10
 MAX_PAGE_SIZE = 100
 MAX_TITLE_QUERY_LENGTH = 100
 TITLE_QUERY_PATTERN = r"^[^\x00]*$"
+MAX_FIXED_CATEGORY_COUNT = 20
+MAX_FIXED_CATEGORY_LENGTH = 100
+FIXED_CATEGORY_QUERY_PATTERN = r"^(?:[a-z][a-z0-9]*(?:_[a-z0-9]+)*)?$"
+
+# 長さは元の入力、slug形式は前後空白の除去後に検証する。
+_FixedCategoryQueryValue = Annotated[
+    str,
+    Field(max_length=MAX_FIXED_CATEGORY_LENGTH),
+    AfterValidator(str.strip),
+    Field(pattern=FIXED_CATEGORY_QUERY_PATTERN),
+]
 
 
 router = APIRouter(prefix="/press-releases", tags=["press-releases"])
@@ -74,14 +86,31 @@ def read_press_releases(
             pattern=TITLE_QUERY_PATTERN,
         ),
     ] = None,
+    fixed_category: Annotated[
+        list[_FixedCategoryQueryValue] | None,
+        Query(
+            max_length=MAX_FIXED_CATEGORY_COUNT,
+            description=(
+                "固定カテゴリのslug。同名クエリの繰り返しでOR指定する。"
+                "指定数は空要素・重複の除去前に20件まで、"
+                "各値は前後空白の除去前に100文字まで。"
+                "前後空白を除去した非空の値は"
+                "[a-z][a-z0-9]*(?:_[a-z0-9]+)*に完全一致させる。"
+                "空要素と重複は除外し、未指定・全要素空は絞り込まない。"
+                "形式不正・上限超過は422、未定義slugは一致なしとして扱う。"
+                "qとの組み合わせはAND条件。"
+            ),
+        ),
+    ] = None,
 ) -> PressReleaseListResponse:
-    """保存済み報道発表を任意のタイトル検索条件でページ単位に取得
+    """保存済み報道発表をタイトルと固定カテゴリで絞り込み、ページ単位で取得
 
     Args:
         session: 一覧取得に使うリクエスト単位のDB Session
         page: 1から始まるページ番号
         page_size: 1ページに含める最大件数
         q: タイトルの部分一致検索に使う文字列
+        fixed_category: OR条件で絞り込む固定カテゴリのslug
 
     Returns:
         報道発表一覧とページ情報
@@ -90,11 +119,15 @@ def read_press_releases(
     title_query = q.strip() if q is not None else None
     if not title_query:
         title_query = None
+    fixed_category_slugs = tuple(dict.fromkeys(
+        value for value in fixed_category or () if value
+    ))
 
     offset = (page - 1) * page_size
     total_items = count_press_releases(
         session,
         title_query=title_query,
+        fixed_category_slugs=fixed_category_slugs,
     )
     total_pages = (
         (total_items + page_size - 1) // page_size
@@ -110,6 +143,7 @@ def read_press_releases(
             limit=page_size,
             offset=offset,
             title_query=title_query,
+            fixed_category_slugs=fixed_category_slugs,
         )
 
     return PressReleaseListResponse(
