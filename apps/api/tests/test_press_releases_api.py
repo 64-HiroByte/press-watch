@@ -12,6 +12,8 @@ from press_watch_api.models.press_release import PressRelease
 from api_test_constants import (
     ENV_PRESS_RELEASE_URL_1 as SOURCE_URL_1,
     ENV_PRESS_RELEASE_URL_2 as SOURCE_URL_2,
+    EXPECTED_MAX_FIXED_CATEGORY_COUNT,
+    EXPECTED_MAX_FIXED_CATEGORY_LENGTH,
 )
 
 EXPECTED_DEFAULT_PAGE_SIZE = 50
@@ -71,15 +73,24 @@ class PressReleaseListApiTest(unittest.TestCase):
             ([], ()),
             (["", " ", "　\t\n"], ()),
             ([" air ", "　soil　", "", "air"], ("air", "soil")),
-            (["air"] * 20, ("air",)),
+            (["air"] * EXPECTED_MAX_FIXED_CATEGORY_COUNT, ("air",)),
             (
-                [f"category_{index}" for index in range(20)],
-                tuple(f"category_{index}" for index in range(20)),
+                [
+                    f"category_{index}"
+                    for index in range(EXPECTED_MAX_FIXED_CATEGORY_COUNT)
+                ],
+                tuple(
+                    f"category_{index}"
+                    for index in range(EXPECTED_MAX_FIXED_CATEGORY_COUNT)
+                ),
             ),
-            ([""] * 20, ()),
-            (["a" * 100], ("a" * 100,)),
-            ([" " * 99 + "a"], ("a",)),
-            ([" " * 100], ()),
+            ([""] * EXPECTED_MAX_FIXED_CATEGORY_COUNT, ()),
+            (
+                ["a" * EXPECTED_MAX_FIXED_CATEGORY_LENGTH],
+                ("a" * EXPECTED_MAX_FIXED_CATEGORY_LENGTH,),
+            ),
+            ([" " * (EXPECTED_MAX_FIXED_CATEGORY_LENGTH - 1) + "a"], ("a",)),
+            ([" " * EXPECTED_MAX_FIXED_CATEGORY_LENGTH], ()),
             (["air2", "tap_water", "unknown"],
              ("air2", "tap_water", "unknown")),
         )
@@ -124,6 +135,8 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_mock: Mock,
         list_mock: Mock,
     ) -> None:
+        """形式不正と除去前の上限超過を、DB照会前に422で拒否すること"""
+
         count_mock.return_value = 0
         cases = [
             ([value], "string_pattern_mismatch", 0)
@@ -134,11 +147,26 @@ class PressReleaseListApiTest(unittest.TestCase):
         ]
         cases.extend([
             (["air", "bad!"], "string_pattern_mismatch", 1),
-            (["a" * 101], "string_too_long", 0),
-            ([" " * 100 + "a"], "string_too_long", 0),
-            ([" " * 101], "string_too_long", 0),
-            (["air"] * 21, "too_long", None),
-            ([""] * 21, "too_long", None),
+            (
+                ["a" * (EXPECTED_MAX_FIXED_CATEGORY_LENGTH + 1)],
+                "string_too_long", 0,
+            ),
+            (
+                [" " * EXPECTED_MAX_FIXED_CATEGORY_LENGTH + "a"],
+                "string_too_long", 0,
+            ),
+            (
+                [" " * (EXPECTED_MAX_FIXED_CATEGORY_LENGTH + 1)],
+                "string_too_long", 0,
+            ),
+            (
+                ["air"] * (EXPECTED_MAX_FIXED_CATEGORY_COUNT + 1),
+                "too_long", None,
+            ),
+            (
+                [""] * (EXPECTED_MAX_FIXED_CATEGORY_COUNT + 1),
+                "too_long", None,
+            ),
         ])
         for values, error_type, index in cases:
             with self.subTest(values=values):
@@ -166,6 +194,8 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_mock: Mock,
         list_mock: Mock,
     ) -> None:
+        """絞り込み後の0件と超過ページでは一覧照会を省略すること"""
+
         for total, page, total_pages in ((0, 1, 0), (20, 3, 2)):
             with self.subTest(total=total, page=page):
                 count_mock.return_value = total
@@ -190,6 +220,8 @@ class PressReleaseListApiTest(unittest.TestCase):
     def test_fixed_category_array_limits_are_registered_in_openapi(
         self,
     ) -> None:
+        """任意の配列クエリと指定数・文字数上限をOpenAPIへ示すこと"""
+
         parameters = app.openapi()["paths"]["/press-releases"]["get"][
             "parameters"
         ]
@@ -202,9 +234,14 @@ class PressReleaseListApiTest(unittest.TestCase):
             item for item in parameter["schema"]["anyOf"]
             if item.get("type") == "array"
         )
-        self.assertEqual(schema.get("maxItems"), 20)
+        self.assertEqual(
+            schema.get("maxItems"), EXPECTED_MAX_FIXED_CATEGORY_COUNT
+        )
         self.assertEqual(schema["items"]["type"], "string")
-        self.assertEqual(schema["items"].get("maxLength"), 100)
+        self.assertEqual(
+            schema["items"].get("maxLength"),
+            EXPECTED_MAX_FIXED_CATEGORY_LENGTH,
+        )
 
     @patch("press_watch_api.routers.press_releases.count_press_releases")
     def test_count_database_error_returns_safe_json_response(

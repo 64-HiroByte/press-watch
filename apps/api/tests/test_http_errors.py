@@ -162,6 +162,8 @@ class DatabaseErrorHttpTest(unittest.TestCase):
     def test_fixed_category_preserves_database_errors_and_safe_diagnostics(
         self,
     ) -> None:
+        """カテゴリ指定時もDB障害の応答と詳細を含めない診断を維持"""
+
         params = {"fixed_category": ["air", "soil"], "q": "climate"}
         for stage in ("factory", "session", "count", "list", "close"):
             for error, status in (
@@ -191,6 +193,8 @@ class DatabaseErrorHttpTest(unittest.TestCase):
     def test_fixed_category_initialization_error_precedes_validation(
         self,
     ) -> None:
+        """不正カテゴリの入力検証よりDB初期化失敗の応答が優先"""
+
         self.get_session_factory.side_effect = RuntimeError(INTERNAL_MARKER)
 
         response = self._get_response(params={"fixed_category": "Air"})

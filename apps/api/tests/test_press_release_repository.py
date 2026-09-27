@@ -370,6 +370,8 @@ class PressReleaseRepositoryTest(unittest.TestCase):
     def test_empty_fixed_categories_do_not_reference_category_tables(
         self,
     ) -> None:
+        """カテゴリ未指定の件数・一覧取得は分類テーブルを参照しないこと"""
+
         session = Mock(spec=Session)
         session.scalar.return_value = 0
         session.scalars.return_value = []

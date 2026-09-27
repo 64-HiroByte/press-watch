@@ -10,6 +10,10 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from api_test_constants import (
+    EXPECTED_MAX_FIXED_CATEGORY_COUNT,
+    EXPECTED_MAX_FIXED_CATEGORY_LENGTH,
+)
 from press_watch_api.main import app
 
 
@@ -50,6 +54,18 @@ class HttpErrorRegressionTest(unittest.TestCase):
         params: dict[str, str | int | list[str]] | None = None,
         raise_server_exceptions: bool = True,
     ) -> Response:
+        """応答を取得し、予期しない例外の詳細をテスト出力へ漏らさず失敗
+
+        Args:
+            path: テスト対象のAPIパス
+            method: HTTPメソッド
+            params: クエリ値、リストは同名クエリの繰り返し
+            raise_server_exceptions: サーバー例外をTestClientから再送出する設定
+
+        Returns:
+            HTTP応答、取得できない場合は詳細を含まないメッセージでテスト失敗
+        """
+
         response = None
         try:
             response = TestClient(
@@ -205,10 +221,18 @@ class HttpErrorRegressionTest(unittest.TestCase):
                     self._assert_session_closed()
 
     def test_fixed_category_validation_survives_close_failure(self) -> None:
+        """Session終了失敗でもカテゴリ入力の422・位置・種別を維持"""
+
         cases = (
             (["air", "Bad"], "string_pattern_mismatch", [1]),
-            (["x" * 101], "string_too_long", [0]),
-            (["air"] * 21, "too_long", []),
+            (
+                ["x" * (EXPECTED_MAX_FIXED_CATEGORY_LENGTH + 1)],
+                "string_too_long", [0],
+            ),
+            (
+                ["air"] * (EXPECTED_MAX_FIXED_CATEGORY_COUNT + 1),
+                "too_long", [],
+            ),
         )
         for values, error_type, index in cases:
             with self.subTest(error_type=error_type):
