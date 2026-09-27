@@ -144,12 +144,12 @@ Phase 3 初期では扱わないもの:
 - [x] `main` ブランチの保護設定を追加する
   - Phase ブランチから `main` へ CI workflow を取り込んだ後に実施済み
   - Ruleset `protect-main` で PR 経由のマージ、必須 status check `API unittest`、force push 防止、削除防止を設定済み
-- [ ] Phase 6 のフロントエンド実装へ着手する前に、API・scraper のテスト構成を見直す
-  - [ ] CLI テストを実装済みの責務に合わせて分割する
-  - [ ] API 側のコマンド実行、transaction 管理、scraper プロセス境界を整理する
-  - [ ] scraper 側の基本実行、月別巡回、出力・エラー処理を整理する
-  - [ ] 共通 helper は重複するものだけテスト支援モジュールへ移す
-  - [ ] 分割前後のテスト ID と件数を比較し、テストの欠落がないことを確認する
+- [x] Phase 6 のフロントエンド実装へ着手する前に、API・scraper のテスト構成を見直す
+  - [x] CLI テストを実装済みの責務に合わせて分割する
+  - [x] API 側のコマンド実行、transaction 管理、scraper プロセス境界を整理する
+  - [x] scraper 側の基本実行、月別巡回、出力・エラー処理を整理する
+  - [x] 共通 helper は重複するものだけテスト支援モジュールへ移す
+  - [x] 分割前後のテスト ID と件数を比較し、テストの欠落がないことを確認する
 
 今回の最小 CI では、自動デプロイ、Docker Compose 全体起動、フロントエンド CI、secret を使う処理、CD 全般は扱わない。
 Markdown のみの変更では `git diff --check` による空白確認だけを実行し、API unittest はスキップする。
