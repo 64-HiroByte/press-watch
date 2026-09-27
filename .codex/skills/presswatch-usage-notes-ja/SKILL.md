@@ -26,6 +26,7 @@ API・メソッド・decorator・コマンドごとに、必要な情報だけ�
 
 ## 確認
 
+一時的なGit進行状況の除外と記録後の確認は、[presswatch-notes-jaの「記録対象の区別」](../presswatch-notes-ja/SKILL.md#記録対象の区別)だけを参照する。
 追記箇所の重複、現在のコードとの矛盾、`notes/README.md`の分類との整合を確認する。
 共有すべき仕様・手順は`docs/`を正本とし、notesのGit管理状態は変えない。
 Markdownの書式と検証は`presswatch-markdown-style-ja`に従う。
