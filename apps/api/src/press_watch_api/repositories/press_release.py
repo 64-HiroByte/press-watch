@@ -51,13 +51,16 @@ def count_press_releases(
 ) -> int:
     """タイトルと固定カテゴリの条件に一致する報道発表の件数を取得
 
+    カテゴリは保存済み分類へOR条件で照合し、タイトル条件とはANDで組み合わせる。
+    入力の検証・空白処理は呼び出し元に委ね、DB例外はそのまま伝える。
+
     Args:
         session: 件数取得に使うSQLAlchemyセッション
-        title_query: タイトルの部分一致検索に使う文字列
+        title_query: 前処理済みのタイトル検索語。Noneの場合は検索しない
         fixed_category_slugs: OR条件で照合するslug。空の場合は絞り込まない
 
     Returns:
-        検索条件に一致する報道発表の総件数
+        複数カテゴリに一致した行も1件として数えた総件数。一致なしは0
     """
 
     statement = (
@@ -82,15 +85,19 @@ def list_press_releases(
 ) -> tuple[PressRelease, ...]:
     """タイトルと固定カテゴリの条件に一致する報道発表を新着順で一覧取得
 
+    カテゴリは保存済み分類へOR条件で照合し、タイトル条件とはANDで組み合わせる。
+    入力の検証・空白処理は呼び出し元に委ね、DB例外はそのまま伝える。
+
     Args:
         session: 一覧取得に使うSQLAlchemyセッション
         limit: 取得する最大件数
         offset: 先頭から読み飛ばす件数
-        title_query: タイトルの部分一致検索に使う文字列
+        title_query: 前処理済みのタイトル検索語。Noneの場合は検索しない
         fixed_category_slugs: OR条件で照合するslug。空の場合は絞り込まない
 
     Returns:
-        公開日とIDの降順で取得した報道発表
+        公開日とIDの降順に並ぶ、重複のない報道発表
+        一致なし、またはoffsetが一致件数以上の場合は空のタプル
     """
 
     statement = (
@@ -114,7 +121,16 @@ def _press_release_filter_conditions(
     title_query: str | None,
     fixed_category_slugs: tuple[str, ...],
 ) -> tuple[ColumnElement[bool], ...]:
-    """件数と一覧に共通する、報道発表単位の絞り込み条件を生成"""
+    """件数と一覧に共通する、報道発表単位の絞り込み条件を生成
+
+    Args:
+        title_query: Noneでない場合に文字として部分一致させる検索語
+        fixed_category_slugs: 保存済み分類へOR条件で照合するslug列
+
+    Returns:
+        呼び出し元のwhereへAND条件として渡すSQL式のタプル
+        両条件が未指定の場合は空のタプル
+    """
 
     conditions: list[ColumnElement[bool]] = []
     if title_query is not None:
