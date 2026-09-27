@@ -1,3 +1,5 @@
+"""scraper CLIの巡回state保存、再開、検証、削除を検証"""
+
 from contextlib import redirect_stderr
 import io
 import json
@@ -10,7 +12,7 @@ from urllib.error import URLError
 from press_watch_scraper import __main__ as cli
 from press_watch_scraper import env_press
 
-from test_cli import (
+from cli_test_support import (
     EXISTING_OUTPUT_JSON,
     EXAMPLE_APRIL_ARCHIVE_URL,
     EXAMPLE_INDEX_URL,
@@ -285,7 +287,7 @@ class ScraperCrawlStateCliTest(unittest.TestCase):
         )
 
     def test_main_verbose_distinguishes_reused_and_fetched_pages(self) -> None:
-        """再開時の保存HTML再利用と実HTTP取得を別の進捗で示すこと"""
+        """再開時の保存HTML再利用とページ取得を別の進捗で示すこと"""
 
         html_by_url = _archive_html_by_url()
 
@@ -339,7 +341,7 @@ class ScraperCrawlStateCliTest(unittest.TestCase):
         )
 
     def test_main_reparses_saved_html_after_parse_failure(self) -> None:
-        """解析失敗後に実HTTPなしで保存済みHTMLを再解析すること"""
+        """解析失敗後にページを再取得せず、保存済みHTMLを再解析すること"""
 
         html_by_url = _archive_html_by_url()
         first_fetched_urls: list[str] = []
@@ -537,7 +539,7 @@ class ScraperCrawlStateCliTest(unittest.TestCase):
         self.assertEqual(repaired_html, html_by_url[EXAMPLE_APRIL_ARCHIVE_URL])
 
     def test_main_recreates_final_json_from_completed_state(self) -> None:
-        """完了stateから実HTTPなしで同じ最終JSONを再生成すること"""
+        """完了stateからページを再取得せず、同じ最終JSONを再生成すること"""
 
         html_by_url = _archive_html_by_url()
 
