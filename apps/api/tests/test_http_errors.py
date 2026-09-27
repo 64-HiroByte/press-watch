@@ -159,6 +159,50 @@ class DatabaseErrorHttpTest(unittest.TestCase):
                     self.session.commit.assert_not_called()
                     self.session.rollback.assert_not_called()
 
+    def test_fixed_category_preserves_database_errors_and_safe_diagnostics(
+        self,
+    ) -> None:
+        """カテゴリ指定時もDB障害の応答と詳細を含めない診断を維持"""
+
+        params = {"fixed_category": ["air", "soil"], "q": "climate"}
+        for stage in ("factory", "session", "count", "list", "close"):
+            for error, status in (
+                (SQLAlchemyTimeoutError(INTERNAL_MARKER), 503),
+                (ProgrammingError(
+                    INTERNAL_MARKER, {}, RuntimeError(INTERNAL_MARKER)
+                ), 500),
+            ):
+                with self.subTest(stage=stage, status=status):
+                    self.session.reset_mock()
+                    self.stderr.seek(0)
+                    self.stderr.truncate(0)
+                    self._set_failure(stage, error)
+
+                    response = self._get_response(params=params)
+
+                    self._assert_error_response(response, status)
+                    self.assertEqual(
+                        self.stderr.getvalue(), "database_error\n"
+                    )
+                    self.assertEqual(self.stdout.getvalue(), "")
+                    self.session.commit.assert_not_called()
+                    self.session.rollback.assert_not_called()
+                    if stage in ("count", "list", "close"):
+                        self.session.close.assert_called_once_with()
+
+    def test_fixed_category_initialization_error_precedes_validation(
+        self,
+    ) -> None:
+        """不正カテゴリの入力検証よりDB初期化失敗の応答が優先"""
+
+        self.get_session_factory.side_effect = RuntimeError(INTERNAL_MARKER)
+
+        response = self._get_response(params={"fixed_category": "Air"})
+
+        self._assert_error_response(response, 500)
+        self.count.assert_not_called()
+        self.list_releases.assert_not_called()
+
     def test_initialization_failures_return_safe_errors_without_queries(self) -> None:
         cases = (
             ("configuration", RuntimeError(INTERNAL_MARKER), 500),

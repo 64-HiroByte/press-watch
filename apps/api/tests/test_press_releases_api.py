@@ -12,6 +12,8 @@ from press_watch_api.models.press_release import PressRelease
 from api_test_constants import (
     ENV_PRESS_RELEASE_URL_1 as SOURCE_URL_1,
     ENV_PRESS_RELEASE_URL_2 as SOURCE_URL_2,
+    EXPECTED_MAX_FIXED_CATEGORY_COUNT,
+    EXPECTED_MAX_FIXED_CATEGORY_LENGTH,
 )
 
 EXPECTED_DEFAULT_PAGE_SIZE = 50
@@ -34,6 +36,213 @@ class PressReleaseListApiTest(unittest.TestCase):
         self.addCleanup(app.dependency_overrides.clear)
         self.client = TestClient(app)
 
+    @patch("press_watch_api.routers.press_releases.list_press_releases")
+    @patch("press_watch_api.routers.press_releases.count_press_releases")
+    def test_list_passes_fixed_category_slugs_to_count_and_list(
+        self,
+        count_mock: Mock,
+        list_mock: Mock,
+    ) -> None:
+        """同じカテゴリ条件を件数と一覧へ渡すこと"""
+
+        count_mock.return_value = 1
+        list_mock.return_value = ()
+        response = self.client.get(
+            "/press-releases",
+            params=[("fixed_category", "air"), ("fixed_category", "soil")],
+        )
+
+        self.assertEqual(response.status_code, 200)
+        for operation in (count_mock, list_mock):
+            self.assertEqual(operation.call_count, 1)
+            self.assertEqual(
+                operation.call_args.kwargs.get("fixed_category_slugs"),
+                ("air", "soil"),
+            )
+
+    @patch("press_watch_api.routers.press_releases.list_press_releases")
+    @patch("press_watch_api.routers.press_releases.count_press_releases")
+    def test_fixed_category_normalization_preserves_search_and_pagination(
+        self,
+        count_mock: Mock,
+        list_mock: Mock,
+    ) -> None:
+        """空白・空要素・重複を整理し、検索とページ条件を併用すること"""
+
+        cases = (
+            ([], ()),
+            (["", " ", "　\t\n"], ()),
+            ([" air ", "　soil　", "", "air"], ("air", "soil")),
+            (["air"] * EXPECTED_MAX_FIXED_CATEGORY_COUNT, ("air",)),
+            (
+                [
+                    f"category_{index}"
+                    for index in range(EXPECTED_MAX_FIXED_CATEGORY_COUNT)
+                ],
+                tuple(
+                    f"category_{index}"
+                    for index in range(EXPECTED_MAX_FIXED_CATEGORY_COUNT)
+                ),
+            ),
+            ([""] * EXPECTED_MAX_FIXED_CATEGORY_COUNT, ()),
+            (
+                ["a" * EXPECTED_MAX_FIXED_CATEGORY_LENGTH],
+                ("a" * EXPECTED_MAX_FIXED_CATEGORY_LENGTH,),
+            ),
+            ([" " * (EXPECTED_MAX_FIXED_CATEGORY_LENGTH - 1) + "a"], ("a",)),
+            ([" " * EXPECTED_MAX_FIXED_CATEGORY_LENGTH], ()),
+            (["air2", "tap_water", "unknown"],
+             ("air2", "tap_water", "unknown")),
+        )
+        for values, expected in cases:
+            with self.subTest(values=values):
+                count_mock.reset_mock()
+                list_mock.reset_mock()
+                count_mock.return_value = 11
+                list_mock.return_value = ()
+                params = [("fixed_category", value) for value in values]
+                params.extend([
+                    ("q", " 水質50%_/ "),
+                    ("page", "2"),
+                    ("page_size", "10"),
+                ])
+
+                response = self.client.get("/press-releases", params=params)
+
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["pagination"], {
+                    "page": 2,
+                    "page_size": 10,
+                    "total_items": 11,
+                    "total_pages": 2,
+                })
+                for operation in (count_mock, list_mock):
+                    self.assertEqual(operation.call_count, 1)
+                    self.assertEqual(
+                        operation.call_args.kwargs["fixed_category_slugs"],
+                        expected,
+                    )
+                    self.assertEqual(
+                        operation.call_args.kwargs["title_query"], "水質50%_/"
+                    )
+                self.assertEqual(list_mock.call_args.kwargs["limit"], 10)
+                self.assertEqual(list_mock.call_args.kwargs["offset"], 10)
+
+    @patch("press_watch_api.routers.press_releases.list_press_releases")
+    @patch("press_watch_api.routers.press_releases.count_press_releases")
+    def test_fixed_category_rejects_invalid_input_before_repository(
+        self,
+        count_mock: Mock,
+        list_mock: Mock,
+    ) -> None:
+        """形式不正と除去前の上限超過を、DB照会前に422で拒否すること"""
+
+        count_mock.return_value = 0
+        cases = [
+            ([value], "string_pattern_mismatch", 0)
+            for value in (
+                "Air", "ＡＩＲ", "大気", "air,soil", "air soil",
+                "_air", "air_", "air__soil", "1air", "air-soil", "air\x00",
+            )
+        ]
+        cases.extend([
+            (["air", "bad!"], "string_pattern_mismatch", 1),
+            (
+                ["a" * (EXPECTED_MAX_FIXED_CATEGORY_LENGTH + 1)],
+                "string_too_long", 0,
+            ),
+            (
+                [" " * EXPECTED_MAX_FIXED_CATEGORY_LENGTH + "a"],
+                "string_too_long", 0,
+            ),
+            (
+                [" " * (EXPECTED_MAX_FIXED_CATEGORY_LENGTH + 1)],
+                "string_too_long", 0,
+            ),
+            (
+                ["air"] * (EXPECTED_MAX_FIXED_CATEGORY_COUNT + 1),
+                "too_long", None,
+            ),
+            (
+                [""] * (EXPECTED_MAX_FIXED_CATEGORY_COUNT + 1),
+                "too_long", None,
+            ),
+        ])
+        for values, error_type, index in cases:
+            with self.subTest(values=values):
+                response = self.client.get(
+                    "/press-releases",
+                    params=[("fixed_category", value) for value in values],
+                )
+
+                self.assertEqual(response.status_code, 422)
+                errors = response.json()["detail"]
+                location = ["query", "fixed_category"]
+                if index is not None:
+                    location.append(index)
+                self.assertTrue(any(
+                    error["type"] == error_type and error["loc"] == location
+                    for error in errors
+                ))
+        count_mock.assert_not_called()
+        list_mock.assert_not_called()
+
+    @patch("press_watch_api.routers.press_releases.list_press_releases")
+    @patch("press_watch_api.routers.press_releases.count_press_releases")
+    def test_fixed_category_empty_and_exceeded_pages_skip_list_query(
+        self,
+        count_mock: Mock,
+        list_mock: Mock,
+    ) -> None:
+        """絞り込み後の0件と超過ページでは一覧照会を省略すること"""
+
+        for total, page, total_pages in ((0, 1, 0), (20, 3, 2)):
+            with self.subTest(total=total, page=page):
+                count_mock.return_value = total
+                response = self.client.get("/press-releases", params={
+                    "fixed_category": "unknown",
+                    "page": page,
+                    "page_size": 10,
+                })
+
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json(), {
+                    "items": [],
+                    "pagination": {
+                        "page": page,
+                        "page_size": 10,
+                        "total_items": total,
+                        "total_pages": total_pages,
+                    },
+                })
+        list_mock.assert_not_called()
+
+    def test_fixed_category_array_limits_are_registered_in_openapi(
+        self,
+    ) -> None:
+        """任意の配列クエリと指定数・文字数上限をOpenAPIへ示すこと"""
+
+        parameters = app.openapi()["paths"]["/press-releases"]["get"][
+            "parameters"
+        ]
+        parameter = next(
+            item for item in parameters if item["name"] == "fixed_category"
+        )
+        self.assertEqual(parameter["in"], "query")
+        self.assertFalse(parameter["required"])
+        schema = next(
+            item for item in parameter["schema"]["anyOf"]
+            if item.get("type") == "array"
+        )
+        self.assertEqual(
+            schema.get("maxItems"), EXPECTED_MAX_FIXED_CATEGORY_COUNT
+        )
+        self.assertEqual(schema["items"]["type"], "string")
+        self.assertEqual(
+            schema["items"].get("maxLength"),
+            EXPECTED_MAX_FIXED_CATEGORY_LENGTH,
+        )
+
     @patch("press_watch_api.routers.press_releases.count_press_releases")
     def test_count_database_error_returns_safe_json_response(
         self,
@@ -52,6 +261,7 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock.assert_called_once_with(
             self.session,
             title_query=None,
+            fixed_category_slugs=(),
         )
         self.assertTrue(
             response.status_code == 500,
@@ -130,12 +340,14 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock.assert_called_once_with(
             self.session,
             title_query=None,
+            fixed_category_slugs=(),
         )
         list_press_releases_mock.assert_called_once_with(
             self.session,
             limit=EXPECTED_DEFAULT_PAGE_SIZE,
             offset=0,
             title_query=None,
+            fixed_category_slugs=(),
         )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
@@ -170,6 +382,7 @@ class PressReleaseListApiTest(unittest.TestCase):
             limit=page_size,
             offset=expected_offset,
             title_query=None,
+            fixed_category_slugs=(),
         )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
@@ -307,6 +520,7 @@ class PressReleaseListApiTest(unittest.TestCase):
             limit=page_size,
             offset=expected_offset,
             title_query=None,
+            fixed_category_slugs=(),
         )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
@@ -339,6 +553,7 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock.assert_called_once_with(
             self.session,
             title_query=None,
+            fixed_category_slugs=(),
         )
         list_press_releases_mock.assert_not_called()
 
@@ -376,6 +591,7 @@ class PressReleaseListApiTest(unittest.TestCase):
             limit=EXPECTED_MAX_PAGE_SIZE,
             offset=0,
             title_query=None,
+            fixed_category_slugs=(),
         )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
@@ -416,12 +632,14 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock.assert_called_once_with(
             self.session,
             title_query=None,
+            fixed_category_slugs=(),
         )
         list_press_releases_mock.assert_called_once_with(
             self.session,
             limit=EXPECTED_MIN_PAGE_SIZE,
             offset=0,
             title_query=None,
+            fixed_category_slugs=(),
         )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
@@ -458,12 +676,14 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock.assert_called_once_with(
             self.session,
             title_query="水質50%_/",
+            fixed_category_slugs=(),
         )
         list_press_releases_mock.assert_called_once_with(
             self.session,
             limit=EXPECTED_MIN_PAGE_SIZE,
             offset=EXPECTED_MIN_PAGE_SIZE,
             title_query="水質50%_/",
+            fixed_category_slugs=(),
         )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
@@ -496,12 +716,14 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock.assert_called_once_with(
             self.session,
             title_query="水質",
+            fixed_category_slugs=(),
         )
         list_press_releases_mock.assert_called_once_with(
             self.session,
             limit=EXPECTED_DEFAULT_PAGE_SIZE,
             offset=0,
             title_query="水質",
+            fixed_category_slugs=(),
         )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
@@ -526,6 +748,7 @@ class PressReleaseListApiTest(unittest.TestCase):
                 count_press_releases_mock.assert_called_once_with(
                     self.session,
                     title_query=None,
+                    fixed_category_slugs=(),
                 )
                 list_press_releases_mock.assert_not_called()
 
@@ -553,6 +776,7 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock.assert_called_once_with(
             self.session,
             title_query=title_query,
+            fixed_category_slugs=(),
         )
         list_press_releases_mock.assert_not_called()
 
@@ -616,6 +840,7 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock.assert_called_once_with(
             self.session,
             title_query="該当しない語",
+            fixed_category_slugs=(),
         )
         list_press_releases_mock.assert_not_called()
 
@@ -645,6 +870,7 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock.assert_called_once_with(
             self.session,
             title_query="水質",
+            fixed_category_slugs=(),
         )
         list_press_releases_mock.assert_not_called()
 

@@ -10,6 +10,10 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from api_test_constants import (
+    EXPECTED_MAX_FIXED_CATEGORY_COUNT,
+    EXPECTED_MAX_FIXED_CATEGORY_LENGTH,
+)
 from press_watch_api.main import app
 
 
@@ -47,9 +51,21 @@ class HttpErrorRegressionTest(unittest.TestCase):
         path: str = "/press-releases",
         *,
         method: str = "GET",
-        params: dict[str, str | int] | None = None,
+        params: dict[str, str | int | list[str]] | None = None,
         raise_server_exceptions: bool = True,
     ) -> Response:
+        """応答を取得し、予期しない例外の詳細をテスト出力へ漏らさず失敗
+
+        Args:
+            path: テスト対象のAPIパス
+            method: HTTPメソッド
+            params: クエリ値、リストは同名クエリの繰り返し
+            raise_server_exceptions: サーバー例外をTestClientから再送出する設定
+
+        Returns:
+            HTTP応答、取得できない場合は詳細を含まないメッセージでテスト失敗
+        """
+
         response = None
         try:
             response = TestClient(
@@ -203,6 +219,47 @@ class HttpErrorRegressionTest(unittest.TestCase):
                         "入力検証で拒否したリクエストではrepositoryを呼ばないこと",
                     )
                     self._assert_session_closed()
+
+    def test_fixed_category_validation_survives_close_failure(self) -> None:
+        """Session終了失敗でもカテゴリ入力の422・位置・種別を維持"""
+
+        cases = (
+            (["air", "Bad"], "string_pattern_mismatch", [1]),
+            (
+                ["x" * (EXPECTED_MAX_FIXED_CATEGORY_LENGTH + 1)],
+                "string_too_long", [0],
+            ),
+            (
+                ["air"] * (EXPECTED_MAX_FIXED_CATEGORY_COUNT + 1),
+                "too_long", [],
+            ),
+        )
+        for values, error_type, index in cases:
+            with self.subTest(error_type=error_type):
+                self.session.reset_mock()
+                self.stderr.seek(0)
+                self.stderr.truncate(0)
+                self.session.close.side_effect = SQLAlchemyError(
+                    INTERNAL_MARKER
+                )
+
+                response = self._request(params={"fixed_category": values})
+
+                self.assertEqual(response.status_code, 422)
+                payload = self._json(response)
+                self.assertEqual(set(payload), {"detail"})
+                self.assertEqual(len(payload["detail"]), 1)
+                self.assertEqual(
+                    payload["detail"][0]["loc"],
+                    ["query", "fixed_category", *index],
+                )
+                self.assertEqual(payload["detail"][0]["type"], error_type)
+                self.count.assert_not_called()
+                self.list_releases.assert_not_called()
+                self._assert_session_closed()
+                self.assertEqual(
+                    self.stderr.getvalue(), "database_cleanup_failed\n"
+                )
 
     def test_liveness_and_http_errors_do_not_initialize_database(self) -> None:
         self.get_session_factory.side_effect = RuntimeError(INTERNAL_MARKER)

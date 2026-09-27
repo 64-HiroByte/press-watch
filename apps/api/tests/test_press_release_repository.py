@@ -316,6 +316,76 @@ class PressReleaseRepositoryTest(unittest.TestCase):
         )
         self.assertIn(published_from, statement.compile().params.values())
 
+    def test_fixed_category_filters_count_and_list_with_bound_slugs(
+        self,
+    ) -> None:
+        """保存済み分類への条件と任意のタイトル条件を両照会へ適用すること"""
+
+        for title_query in (None, "水質50%_/"):
+            with self.subTest(title_query=title_query):
+                session = Mock(spec=Session)
+                session.scalar.return_value = 1
+                session.scalars.return_value = []
+                kwargs = {
+                    "title_query": title_query,
+                    "fixed_category_slugs": ("air", "soil"),
+                }
+
+                self.assertEqual(count_press_releases(session, **kwargs), 1)
+                self.assertEqual(
+                    list_press_releases(
+                        session, limit=10, offset=20, **kwargs
+                    ),
+                    (),
+                )
+
+                session.scalar.assert_called_once()
+                session.scalars.assert_called_once()
+                for operation in (session.scalar, session.scalars):
+                    statement = operation.call_args.args[0]
+                    compiled = statement.compile(
+                        dialect=postgresql.dialect()
+                    )
+                    sql = str(compiled)
+                    self.assertIn("EXISTS", sql)
+                    self.assertIn("fixed_categories.slug IN", sql)
+                    self.assertIn(
+                        "press_release_fixed_categories.press_release_id"
+                        " = press_releases.id",
+                        sql,
+                    )
+                    self.assertIn(["air", "soil"], compiled.params.values())
+                    self.assertNotIn("'air'", sql)
+                    self.assertNotIn("'soil'", sql)
+                    self.assertNotIn("fixed_category_keywords", sql)
+                    if title_query is not None:
+                        self.assertIn("ILIKE", sql)
+                        self.assertIn(
+                            "水質50/%/_//", compiled.params.values()
+                        )
+                session.commit.assert_not_called()
+                session.rollback.assert_not_called()
+                session.close.assert_not_called()
+
+    def test_empty_fixed_categories_do_not_reference_category_tables(
+        self,
+    ) -> None:
+        """カテゴリ未指定の件数・一覧取得は分類テーブルを参照しないこと"""
+
+        session = Mock(spec=Session)
+        session.scalar.return_value = 0
+        session.scalars.return_value = []
+
+        count_press_releases(session, fixed_category_slugs=())
+        list_press_releases(
+            session, limit=10, offset=0, fixed_category_slugs=()
+        )
+
+        for operation in (session.scalar, session.scalars):
+            sql = str(operation.call_args.args[0])
+            self.assertNotIn("fixed_categories", sql)
+            self.assertNotIn("fixed_category_keywords", sql)
+
     def test_count_press_releases_returns_total_items(self) -> None:
         """保存済み報道発表の総件数を返すこと"""
 
