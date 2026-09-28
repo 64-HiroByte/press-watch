@@ -234,6 +234,9 @@ PRの必須レビュー数は0で、CODEOWNER承認・最終pushの承認・会�
 指定レビュアーは空で、マージ方式は`merge`・`squash`・`rebase`を許可しています。
 最新baseへの追従義務（`strict_required_status_checks_policy`）とブランチ作成時のチェック免除（`do_not_enforce_on_create`）は、ともに`false`です。
 最新化を必須にしていないため、baseが更新された後の組み合わせまで常に検証する保証はありません。
+Phase 5のmain統合前には、PRのhead SHAに加え、CIがcheckoutしたマージ結果のSHAとその親コミットを確認し、最新のmain・Phaseの組み合わせを検証できていることを確かめます。
+一致しない場合は統合を止め、現在の組み合わせを検証する方法と必要な追加承認を確認します。
+[既存runの再実行](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)は元のSHAとrefを使用するため、base更新後の組み合わせを確認した証拠にはなりません。
 
 現在の`main`のworkflowにはDB統合ジョブがないため、DBチェックを先に必須化すると、そのジョブを含まないmain向けPRはマージできません。
 Phase 5のmain統合時に、統合PRでDBチェックが報告されることと既存PRへの影響を確認し、別途承認してから必須化します。
@@ -848,11 +851,16 @@ scraper CLI の `--output` は、成功時の取得結果を後から確認す�
 
 API 側の取得・保存コマンドは、処理の終了状態を次のように区別します。
 
-- DBへのcommitとstdoutへの結果JSON出力が両方成功した場合は、終了コード `0` を返します。
+- DBへのcommit、stdoutへの結果JSON出力、保存用Sessionのcloseがすべて成功した場合は、終了コード `0` を返します。
 - DB設定の読み込み、取得、保存、またはcommitに失敗した場合は、成功時のJSONをstdoutへ出さず、stderrと終了コード `1` で失敗を伝えます。
-  保存用Sessionを作成済みで、commitが完了していない場合は rollback します。
-- DBへのcommit後にstdoutへの結果JSON出力だけが失敗した場合は、DBへ保存済みであることを `database commit succeeded but result output failed` としてstderrへ出し、終了コード `1` を返します。この場合は rollback できず、再実行すると保存済みデータが重複としてskipされる可能性があります。
+  保存用Sessionを作成済みで、commitが完了していない場合は rollback を試みます。
+- DBへのcommit後にstdoutへの結果JSON出力が失敗した場合は、DBへ保存済みであることを `database commit succeeded but result output failed` としてstderrへ出し、終了コード `1` を返します。
+  この場合は rollback できず、再実行すると保存済みデータが重複としてskipされる可能性があります。
+- rollbackまたはcloseに失敗した場合は、元のエラーがあればその診断を残し、終了処理の失敗とcommit呼び出しの完了有無をstderrへ出して、終了コード `1` を返します。
+  commitとJSON出力の成功後にcloseだけが失敗した場合も、DBへ保存済みでJSONは出力されていますが、終了コードは `1` です。
 - 引数の組み合わせや値が不正な場合は、取得処理やDB処理を開始せず、argparseがstderrへ理由を出して終了コード `2` で終了します。
+
+保存用Sessionを作成した場合は、処理の成否やrollbackの失敗にかかわらずcloseを試みます。
 
 実行ID、開始・終了時刻、所要時間、成功・失敗状態、失敗段階、履歴検索、保持期間は、MVP後に永続的な実行ログを検討する際に必要性を判断します。
 
