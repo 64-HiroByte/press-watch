@@ -34,7 +34,7 @@ description: PressWatchで確定した計画に基づく実装・文書変更を
 | 対象 | 参照するスキル |
 | --- | --- |
 | 製品の観測可能な振る舞いの追加・変更 | [presswatch-tdd-ja](../presswatch-tdd-ja/SKILL.md) |
-| Python Docstring | [python-docstring-ja](../python-docstring-ja/SKILL.md) |
+| Pythonの追加・分割・移動時の説明確認、Docstringの追加・修正 | [python-docstring-ja](../python-docstring-ja/SKILL.md) |
 | 行・ブロック・テストコメント | [comment-style-ja](../comment-style-ja/SKILL.md) |
 | Markdown | [presswatch-markdown-style-ja](../presswatch-markdown-style-ja/SKILL.md) |
 | スキルの作成・更新 | [presswatch-skill-maintenance-ja](../presswatch-skill-maintenance-ja/SKILL.md) |
