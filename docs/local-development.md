@@ -848,11 +848,16 @@ scraper CLI の `--output` は、成功時の取得結果を後から確認す�
 
 API 側の取得・保存コマンドは、処理の終了状態を次のように区別します。
 
-- DBへのcommitとstdoutへの結果JSON出力が両方成功した場合は、終了コード `0` を返します。
+- DBへのcommit、stdoutへの結果JSON出力、保存用Sessionのcloseがすべて成功した場合は、終了コード `0` を返します。
 - DB設定の読み込み、取得、保存、またはcommitに失敗した場合は、成功時のJSONをstdoutへ出さず、stderrと終了コード `1` で失敗を伝えます。
-  保存用Sessionを作成済みで、commitが完了していない場合は rollback します。
-- DBへのcommit後にstdoutへの結果JSON出力だけが失敗した場合は、DBへ保存済みであることを `database commit succeeded but result output failed` としてstderrへ出し、終了コード `1` を返します。この場合は rollback できず、再実行すると保存済みデータが重複としてskipされる可能性があります。
+  保存用Sessionを作成済みで、commitが完了していない場合は rollback を試みます。
+- DBへのcommit後にstdoutへの結果JSON出力が失敗した場合は、DBへ保存済みであることを `database commit succeeded but result output failed` としてstderrへ出し、終了コード `1` を返します。
+  この場合は rollback できず、再実行すると保存済みデータが重複としてskipされる可能性があります。
+- rollbackまたはcloseに失敗した場合は、元のエラーがあればその診断を残し、終了処理の失敗とcommit呼び出しの完了有無をstderrへ出して、終了コード `1` を返します。
+  commitとJSON出力の成功後にcloseだけが失敗した場合も、DBへ保存済みでJSONは出力されていますが、終了コードは `1` です。
 - 引数の組み合わせや値が不正な場合は、取得処理やDB処理を開始せず、argparseがstderrへ理由を出して終了コード `2` で終了します。
+
+保存用Sessionを作成した場合は、処理の成否やrollbackの失敗にかかわらずcloseを試みます。
 
 実行ID、開始・終了時刻、所要時間、成功・失敗状態、失敗段階、履歴検索、保持期間は、MVP後に永続的な実行ログを検討する際に必要性を判断します。
 
