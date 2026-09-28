@@ -245,9 +245,12 @@ CI見直しの完了とPhase 5全体の完了・main統合は区別します。
 - 実行経路は[PR #87のCI](https://github.com/64-HiroByte/press-watch/actions/runs/36388456975)で、API・scraper・DB統合のテストstepの実行と成功を確認済みです。
   前タスクで確認した件数は、API 256件成功、scraper 138件成功、DB統合64件中63件成功・1件skipです。
   DB統合のskipは通常CIで意図した実データスナップショット検証です。
-- 文書専用PRでの省略経路と、適用した3つの必須チェックとの対応は未確認です。
-  設定結果を記録する文書専用PRで、空白確認・変更判定の実行、API・scraperの省略stepの成功とPythonセットアップ・テストstepの省略、DBジョブ全体のskipとPostgreSQLサービスの非起動を確認します。
-  最新のPRに対応するチェックで必須条件を満たすことを確認し、下書き状態によるマージ制約とは区別します。
+- 文書専用変更の省略経路は[PR #88のCI](https://github.com/64-HiroByte/press-watch/actions/runs/36410395503)（先端`eb5225d`）で確認済みです。
+  空白確認・変更判定は成功し、API・scraperは省略stepが成功、Python・uvのセットアップとテストstepはskipでした。
+  DB統合はジョブ全体がskipし、runner未割当・stepなしのためPostgreSQLサービスも起動していません。
+  `gh pr checks 88 --required`で3ジョブが必須として認識され、API・scraperの成功とDB統合のskipでチェック条件を満たすことを確認しました。
+  下書き状態によるマージ制約と、必須チェックの成否を分けて確認しました。
+  以後の追記コミットでも、push後に最終的なPR先端に対応するチェックを確認します。
 - フロントエンド専用変更の判定は、前タスクのローカル検証を再利用します。
   今回実CIで直接確認する範囲は文書専用変更です。
 
