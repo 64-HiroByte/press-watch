@@ -1,6 +1,6 @@
 ---
 name: python-docstring-ja
-description: PressWatchのPython Docstringを追加・修正するときに使う。
+description: PressWatchのPython追加・分割・移動時に必要なDocstringを確認するとき、またはDocstringを追加・修正するときに使う。
 ---
 
 # PressWatch Docstring JA
@@ -10,6 +10,10 @@ description: PressWatchのPython Docstringを追加・修正するときに使�
 公開関数・クラス・dataclassなど、利用側が責務や非自明な契約を理解する必要がある対象を優先する。
 内部関数・テスト・helperは、名前・型ヒント・周辺コードだけでは意図や前提が分かりにくい場合に書く。
 コードの読み上げになる説明は省略してよい。
+
+Pythonを追加・分割・移動した場合は、変更対象で必要なDocstringが欠けていないか、移動後の責務や使い方と説明が一致するかを確認する。
+既存の説明を移すだけで済ませず、引数・戻り値・副作用など、利用側に必要な契約の変化を実装と照合する。
+全関数・全テストへの一律追加や、無関係な既存Docstringの書き換えは行わない。
 
 ## 形式
 
@@ -38,4 +42,6 @@ def _parse_heading_date(value: str) -> date | None:
 テスト名だけで保証範囲が分かる場合はDocstringを省略し、必要なら実際に保証する振る舞いを短く書く。
 テストメソッドには`Args`・`Returns`を付けない。
 helperでは、呼び出し側から引数や戻り値の意味が分かりにくい場合にこれらを付ける。
+patch対象やcleanupの担当・実行時期など、helperを正しく使うための非自明な前提を確認し、必要なものを説明する。
 可変長引数や展開を使うhelperは、何を渡すか迷う場合に短い呼び出し例を添えてよい。
+呼び出し例を追加・維持する場合は、現在のシグネチャや呼び出し方と照合する。

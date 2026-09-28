@@ -10,13 +10,21 @@ description: PressWatchで確定した計画に基づく実装・文書変更を
 [AGENTS.md](../../../AGENTS.md)、存在する場合は`task.md`、確定した計画を照合し、今回の対象・除外事項・承認範囲を確認する。
 `git status --short --branch`で現在の状態を確認し、既存差分を保つ。
 新タスク開始・引き継ぎは[presswatch-task-handoff-ja](../presswatch-task-handoff-ja/SKILL.md)、ブランチを扱う場合は[phase-branch-workflow-ja](../phase-branch-workflow-ja/SKILL.md)に従う。
-既に確認した資料や承認は、今回の状況に変更がなければ利用し、同じ確認を繰り返さない。
 
 設計が未確定、または複数案の比較が必要なら、編集前にPlanモードを提案し、該当する実装は比較・合意後に進める。
 調査・計画だけの依頼では編集しない。
 計画への合意やスキルの呼び出しを、編集・ブランチ作成・公開・DB接続などの一括承認と扱わない。
 現在のタスクで明示承認された同じ操作には再承認を求めず、段階別の承認は`AGENTS.md`、`task.md`、現在のユーザー指示に従う。
 前タスクの承認は自動で引き継がない。
+
+## 調査と資料の再利用
+
+確認済みで変更のない資料は再利用し、同じ全文を読み直さない。
+更新や確認漏れが疑われる場合は必要な箇所を再確認し、ユーザーが全文確認を求めた資料や必要な全差分の確認は省略しない。
+
+検索対象を関連するファイル・節・ツールへ絞り、結果やログは判断に必要な範囲を出力する。
+共通ナビゲーション、無関係な一覧、同じ出力の重複を避け、情報が足りない場合に範囲を広げる。
+失敗原因や影響範囲を判断するために必要な出力は残す。
 
 ## 変更に応じた手順
 
@@ -26,7 +34,7 @@ description: PressWatchで確定した計画に基づく実装・文書変更を
 | 対象 | 参照するスキル |
 | --- | --- |
 | 製品の観測可能な振る舞いの追加・変更 | [presswatch-tdd-ja](../presswatch-tdd-ja/SKILL.md) |
-| Python Docstring | [python-docstring-ja](../python-docstring-ja/SKILL.md) |
+| Pythonの追加・分割・移動時の説明確認、Docstringの追加・修正 | [python-docstring-ja](../python-docstring-ja/SKILL.md) |
 | 行・ブロック・テストコメント | [comment-style-ja](../comment-style-ja/SKILL.md) |
 | Markdown | [presswatch-markdown-style-ja](../presswatch-markdown-style-ja/SKILL.md) |
 | スキルの作成・更新 | [presswatch-skill-maintenance-ja](../presswatch-skill-maintenance-ja/SKILL.md) |
