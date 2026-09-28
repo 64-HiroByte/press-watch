@@ -1,7 +1,5 @@
 """スクレイパーパッケージをCLIとして実行する入口"""
 
-from __future__ import annotations
-
 import argparse
 from dataclasses import asdict
 import json
@@ -9,8 +7,9 @@ import os
 from pathlib import Path
 import re
 import sys
-from time import sleep
+from time import monotonic, sleep
 
+from .crawl_state import CrawlState, cleanup_crawl_state
 from .env_press import (
     CHARSET,
     PRESS_INDEX_URL,
@@ -18,6 +17,7 @@ from .env_press import (
     CrawlStopReason,
     PressRelease,
     REQUEST_INTERVAL_SECONDS,
+    _RequestRateLimiter,
     crawl_press_releases,
     fetch_press_page_html,
     parse_archive_month_links,
@@ -43,7 +43,6 @@ def main() -> int:
     )
     parser.add_argument(
         '--url',
-        default=PRESS_INDEX_URL,
         help='HTTP(S) press list page URL to fetch.',
     )
     parser.add_argument(
@@ -67,6 +66,26 @@ def main() -> int:
         help='Read known press release URLs from this newline-delimited file.',
     )
     parser.add_argument(
+        '--crawl-state-dir',
+        type=Path,
+        help='Store local archive crawl state in this directory.',
+    )
+    parser.add_argument(
+        '--resume',
+        action='store_true',
+        help='Resume from an existing crawl state manifest.',
+    )
+    parser.add_argument(
+        '--refetch-invalid-pages',
+        action='store_true',
+        help='Refetch invalid saved pages during an explicit resume.',
+    )
+    parser.add_argument(
+        '--cleanup-crawl-state',
+        type=Path,
+        help='Remove a validated completed local crawl state.',
+    )
+    parser.add_argument(
         '--output',
         type=Path,
         help='Write the same JSON snapshot as stdout to this path.',
@@ -82,6 +101,7 @@ def main() -> int:
         help='Do not write the JSON snapshot to stdout.',
     )
     args = parser.parse_args()
+    url_was_explicitly_provided = args.url is not None
 
     archive_month_limit = args.archive_month_limit
     if archive_month_limit is not None and archive_month_limit < 0:
@@ -106,12 +126,73 @@ def main() -> int:
             '--known-release-urls-file requires '
             '--archive-month-limit greater than 0 or --all-archive-months.'
         )
+    if args.resume and args.crawl_state_dir is None:
+        parser.error('--resume requires --crawl-state-dir.')
+    if args.refetch_invalid_pages and not args.resume:
+        parser.error('--refetch-invalid-pages requires --resume.')
+    if (
+        args.crawl_state_dir is not None
+        and args.known_release_urls_file is not None
+    ):
+        parser.error(
+            '--known-release-urls-file cannot be used with '
+            '--crawl-state-dir.'
+        )
+    if args.crawl_state_dir is not None and args.from_file is not None:
+        parser.error('--from-file cannot be used with --crawl-state-dir.')
+    if args.crawl_state_dir is not None and not (
+        args.all_archive_months or has_archive_month_limit
+    ):
+        parser.error(
+            '--crawl-state-dir requires --archive-month-limit greater than 0 '
+            'or --all-archive-months.'
+        )
+    if args.cleanup_crawl_state is not None and any(
+        (
+            args.from_file is not None,
+            url_was_explicitly_provided,
+            archive_month_limit is not None,
+            args.all_archive_months,
+            args.known_release_urls_file is not None,
+            args.crawl_state_dir is not None,
+            args.resume,
+            args.refetch_invalid_pages,
+            args.output is not None,
+            args.no_stdout_json,
+        )
+    ):
+        parser.error(
+            '--cleanup-crawl-state cannot be combined with crawl or output '
+            'options.'
+        )
+    if args.url is None:
+        args.url = PRESS_INDEX_URL
     if args.no_stdout_json and args.output is None:
         parser.error('--no-stdout-json requires --output.')
+    if (
+        args.crawl_state_dir is not None
+        and args.output is not None
+        and _is_path_within(args.output, args.crawl_state_dir)
+    ):
+        parser.error('--output must be outside --crawl-state-dir.')
 
     error_target = (
         str(args.from_file) if args.from_file is not None else args.url
     )
+
+    if args.cleanup_crawl_state is not None:
+        error_target = str(args.cleanup_crawl_state)
+        try:
+            cleanup_crawl_state(args.cleanup_crawl_state)
+        except Exception as exc:
+            _print_runtime_error(error_target, exc)
+            return 1
+        print(
+            'deleted crawl state: '
+            f'{_one_line(str(args.cleanup_crawl_state))}',
+            file=sys.stderr,
+        )
+        return 0
 
     # 成功時だけJSONをstdoutへ出す。途中で失敗した場合は、
     # 途中結果を出さずにstderrと終了コードで失敗を伝える。
@@ -141,26 +222,57 @@ def main() -> int:
         if args.all_archive_months or archive_month_limit_value > 0:
             source_url = args.url
 
-            def fetcher(url: str) -> str:
+            def progress(message: str) -> None:
+                _print_progress(args.verbose, message)
+
+            rate_limiter = _RequestRateLimiter(
+                interval_seconds=REQUEST_INTERVAL_SECONDS,
+                clock=monotonic,
+                sleeper=sleep,
+                progress=progress,
+            )
+
+            def network_fetcher(url: str) -> str:
                 nonlocal error_target
 
                 # 取得に失敗したとき、stderrへそのURLを表示できるようにする。
                 error_target = url
-                if url == args.url:
-                    _print_progress(args.verbose, f'fetching index: {url}')
-                else:
-                    _print_progress(
-                        args.verbose,
-                        f'fetching archive page: {url}',
-                    )
-                return fetch_press_page_html(url)
-
-            def sleeper(seconds: float) -> None:
-                _print_progress(
-                    args.verbose,
-                    f'waiting {seconds:g}s before fetching archive page',
+                return fetch_press_page_html(
+                    url,
+                    rate_limiter=rate_limiter,
                 )
-                sleep(seconds)
+
+            crawl_state: CrawlState | None = None
+            if args.crawl_state_dir is not None:
+                error_target = str(args.crawl_state_dir)
+                if args.resume:
+                    crawl_state = CrawlState.resume(
+                        args.crawl_state_dir,
+                        start_url=args.url,
+                        archive_month_limit=archive_month_limit_value,
+                        all_archive_months=args.all_archive_months,
+                        refetch_invalid_pages=args.refetch_invalid_pages,
+                    )
+                else:
+                    crawl_state = CrawlState.create(
+                        args.crawl_state_dir,
+                        start_url=args.url,
+                        archive_month_limit=archive_month_limit_value,
+                        all_archive_months=args.all_archive_months,
+                    )
+                error_target = args.url
+
+            def fetcher(url: str) -> str:
+                nonlocal error_target
+
+                error_target = url
+                if crawl_state is None:
+                    return network_fetcher(url)
+                return crawl_state.load_or_fetch(
+                    url,
+                    network_fetcher,
+                    progress=progress,
+                )
 
             crawl_result = crawl_press_releases(
                 start_url=args.url,
@@ -169,8 +281,12 @@ def main() -> int:
                 fetcher=fetcher,
                 known_release_urls=known_release_urls,
                 request_interval_seconds=REQUEST_INTERVAL_SECONDS,
-                sleeper=sleeper,
+                sleeper=sleep,
+                progress=progress,
+                observer=crawl_state,
             )
+            if crawl_state is not None:
+                crawl_state.mark_complete(crawl_result.stop_reason)
             releases = crawl_result.releases
             archive_month_links = crawl_result.archive_month_links
             fetched_page_urls = crawl_result.fetched_page_urls
@@ -188,8 +304,19 @@ def main() -> int:
             fetched_page_urls: list[str] = []
             stop_reason = None
         else:
-            _print_progress(args.verbose, f'fetching page: {args.url}')
-            html = fetch_press_page_html(args.url)
+            def progress(message: str) -> None:
+                _print_progress(args.verbose, message)
+
+            rate_limiter = _RequestRateLimiter(
+                interval_seconds=REQUEST_INTERVAL_SECONDS,
+                clock=monotonic,
+                sleeper=sleep,
+                progress=progress,
+            )
+            html = fetch_press_page_html(
+                args.url,
+                rate_limiter=rate_limiter,
+            )
             source_url = args.url
             base_url = args.url
             releases = parse_press_releases(html, base_url=base_url)
@@ -288,6 +415,25 @@ def _validate_output_path(path: Path) -> None:
         )
 
 
+def _is_path_within(path: Path, directory: Path) -> bool:
+    """パスが指定ディレクトリ自身または配下を指すか判定
+
+    Args:
+        path: 判定するパス
+        directory: 基準となるディレクトリ
+
+    Returns:
+        同一パスまたは配下ならTrue
+    """
+
+    resolved_path = path.resolve(strict=False)
+    resolved_directory = directory.resolve(strict=False)
+    return (
+        resolved_path == resolved_directory
+        or resolved_directory in resolved_path.parents
+    )
+
+
 def _read_known_release_urls(path: Path) -> tuple[str, ...]:
     """既知URLファイルから報道発表詳細ページURLを読み込む
 
@@ -316,7 +462,7 @@ def _print_progress(enabled: bool, message: str) -> None:
     """
 
     if enabled:
-        print(_one_line(message), file=sys.stderr)
+        print(_one_line(message), file=sys.stderr, flush=True)
 
 
 def _write_stdout_json(json_text: str) -> None:

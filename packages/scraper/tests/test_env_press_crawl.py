@@ -1,5 +1,6 @@
 from collections.abc import Callable, Collection
 import unittest
+from unittest.mock import patch
 from urllib.error import URLError
 
 from press_watch_scraper.env_press import (
@@ -298,6 +299,39 @@ def _crawl_press_releases_for_test(
 class EnvPressCrawlerTest(unittest.TestCase):
     """環境省報道発表の月別ページ巡回処理のテスト"""
 
+    def test_default_fetcher_shares_limiter_across_all_pages(self) -> None:
+        """起点ページと月別ページのHTTP要求制御を共有すること"""
+
+        html_by_url = _archive_html_by_url()
+        rate_limiters: list[object | None] = []
+
+        def fetch_page(
+            url: str,
+            *,
+            rate_limiter: object | None = None,
+        ) -> str:
+            rate_limiters.append(rate_limiter)
+            return html_by_url[url]
+
+        with patch(
+            'press_watch_scraper.env_press.fetch_press_page_html',
+            side_effect=fetch_page,
+        ):
+            crawl_press_releases(
+                start_url=START_URL,
+                archive_month_limit=2,
+                sleeper=_no_sleep,
+            )
+
+        self.assertEqual(len(rate_limiters), 3)
+        self.assertIsNotNone(rate_limiters[0])
+        self.assertTrue(
+            all(
+                limiter is rate_limiters[0]
+                for limiter in rate_limiters[1:]
+            )
+        )
+
     # 月別リンクを選び、月別ページから発表を取得する。
     def test_crawl_press_releases_fetches_archive_month_pages(self) -> None:
         """月別ページを指定件数だけ巡回して発表を取得すること"""
@@ -402,8 +436,8 @@ class EnvPressCrawlerTest(unittest.TestCase):
             ARCHIVE_MONTH_LINKS_EXHAUSTED,
         )
 
-    def test_crawl_press_releases_waits_between_page_fetches(self) -> None:
-        """月別ページ取得の前に既定秒数だけ待機すること"""
+    def test_crawl_does_not_wait_around_injected_fetcher(self) -> None:
+        """巡回処理では注入されたfetcherの前後に待機を加えないこと"""
 
         html_by_url = _archive_html_by_url()
         events: list[str] = []
@@ -427,9 +461,7 @@ class EnvPressCrawlerTest(unittest.TestCase):
             events,
             [
                 f'fetch:{START_URL}',
-                f'sleep:{REQUEST_INTERVAL_SECONDS}',
                 f'fetch:{MAY_ARCHIVE_URL}',
-                f'sleep:{REQUEST_INTERVAL_SECONDS}',
                 f'fetch:{APRIL_ARCHIVE_URL}',
             ],
         )

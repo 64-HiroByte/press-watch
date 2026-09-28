@@ -1,8 +1,7 @@
 """環境省報道発表を手動で取得しDBへ保存するCLI入口"""
 
-from __future__ import annotations
-
 import argparse
+from collections import deque
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -13,11 +12,14 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 from typing import Protocol
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from press_watch_api.config import DATABASE_URL_ENV
+from press_watch_api.db import get_session_factory
 from press_watch_api.services.press_release_save import (
     list_known_release_urls_for_crawl,
     save_press_releases,
@@ -32,8 +34,11 @@ DEFAULT_KNOWN_RELEASE_MONTHS = 3
 DATABASE_CONFIGURATION_FAILED_REASON = (
     "database configuration could not be loaded"
 )
+DATABASE_OPERATION_FAILED_REASON = "database operation failed"
 CREDENTIALS_IN_URL_RE = re.compile(r"(?i)(https?://)[^/@\s]+@")
 MAX_DIAGNOSTIC_VALUE_LENGTH = 1000
+PROCESS_TERMINATE_TIMEOUT_SECONDS = 5.0
+SCRAPER_STDERR_TAIL_LINES = 50
 SCRAPER_ENV_KEYS = (
     "HOME",
     "PATH",
@@ -57,7 +62,7 @@ class SessionFactory(Protocol):
     """DBセッションを生成する関数
 
     テストではMockセッションを返す関数に差し替え、通常実行では
-    `press_watch_api.db.SessionLocal` を使う。
+    `press_watch_api.db.get_session_factory()` の返り値を使う。
     """
 
     def __call__(self) -> Session:
@@ -206,6 +211,7 @@ def main(
 
     session: Session | None = None
     committed = False
+    exit_code = 0
     try:
         if session_factory is None:
             try:
@@ -240,10 +246,14 @@ def main(
         session.commit()
         committed = True
         _write_json(output, result.to_json_dict())
-        return 0
     except Exception as exc:
+        exit_code = 1
+        rollback_error: Exception | None = None
         if session is not None and not committed:
-            session.rollback()
+            try:
+                session.rollback()
+            except Exception as cleanup_error:
+                rollback_error = cleanup_error
         if committed:
             _print_post_commit_output_error(
                 error_output,
@@ -252,10 +262,29 @@ def main(
             )
         else:
             _print_runtime_error(error_output, error_target, exc)
-        return 1
+        if rollback_error is not None:
+            _print_session_cleanup_error(
+                error_output,
+                error_target,
+                rollback_error,
+                operation="rollback",
+                committed=committed,
+            )
     finally:
         if session is not None:
-            session.close()
+            try:
+                session.close()
+            except Exception as exc:
+                exit_code = 1
+                _print_session_cleanup_error(
+                    error_output,
+                    error_target,
+                    exc,
+                    operation="close",
+                    committed=committed,
+                )
+
+    return exit_code
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -315,9 +344,7 @@ def _load_session_factory() -> SessionFactory:
         DB接続設定を反映したSQLAlchemyセッション生成関数
     """
 
-    from press_watch_api.db import SessionLocal
-
-    return SessionLocal
+    return get_session_factory()
 
 
 def _load_known_release_urls(
@@ -381,20 +408,19 @@ def _collect_releases_from_scraper_cli(
             args,
             known_release_urls_file=known_release_urls_file,
         )
-        completed = subprocess.run(
+        completed = _run_scraper_process(
             command,
             cwd=scraper_dir,
             env=env,
-            text=True,
-            capture_output=True,
-            check=False,
+            stderr=stderr,
+            forward_stderr=args.verbose,
         )
     finally:
         if known_release_urls_file is not None:
             known_release_urls_file.unlink(missing_ok=True)
 
     if completed.returncode != 0:
-        reason = _one_line(completed.stderr) or (
+        reason = _one_line_tail(completed.stderr) or (
             f"exit code {completed.returncode}"
         )
         raise RuntimeError(
@@ -402,10 +428,143 @@ def _collect_releases_from_scraper_cli(
             f"exit_code={completed.returncode} stderr={reason}"
         )
 
-    if args.verbose and completed.stderr:
-        stderr.write(completed.stderr)
-
     return _parse_scraper_snapshot(completed.stdout)
+
+
+def _run_scraper_process(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    stderr: object,
+    forward_stderr: bool,
+) -> subprocess.CompletedProcess[str]:
+    """scraper子プロセスのstdoutとstderrを同時に読み取る
+
+    Args:
+        command: scraper CLIを実行するコマンド引数列
+        cwd: scraper子プロセスの作業ディレクトリ
+        env: scraper子プロセスへ渡す環境変数
+        stderr: verbose進捗の転送先
+        forward_stderr: stderrを実行中に転送するかどうか
+
+    Returns:
+        終了コード、stdout、stderrを保持する子プロセス実行結果
+    """
+
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=1,
+    )
+    if process.stdout is None or process.stderr is None:
+        raise RuntimeError("scraper process pipes could not be opened")
+
+    captured_stdout: list[str] = []
+    captured_stderr: deque[str] = deque(
+        maxlen=SCRAPER_STDERR_TAIL_LINES,
+    )
+    stdout_errors: list[Exception] = []
+    forwarding_errors: list[Exception] = []
+
+    def read_stdout() -> None:
+        try:
+            captured_stdout.append(process.stdout.read())
+        except Exception as exc:
+            stdout_errors.append(exc)
+        finally:
+            process.stdout.close()
+
+    def read_stderr() -> None:
+        try:
+            for raw_line in process.stderr:
+                line = _one_line(raw_line)
+                captured_stderr.append(line)
+                if forward_stderr:
+                    stderr.write(f"{line}\n")
+                    flush = getattr(stderr, "flush", None)
+                    if flush is not None:
+                        flush()
+        except Exception as exc:
+            forwarding_errors.append(exc)
+        finally:
+            process.stderr.close()
+
+    stdout_thread = threading.Thread(
+        target=read_stdout,
+        name="scraper-stdout-reader",
+    )
+    stderr_thread = threading.Thread(
+        target=read_stderr,
+        name="scraper-stderr-reader",
+    )
+    stdout_thread.start()
+    stderr_thread.start()
+    process_error: BaseException | None = None
+    returncode = 1
+    try:
+        while True:
+            if stdout_errors or forwarding_errors:
+                _stop_process(process)
+                break
+            try:
+                returncode = process.wait(timeout=0.1)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+    except BaseException as exc:
+        process_error = exc
+        _stop_process(process)
+    finally:
+        stdout_thread.join()
+        stderr_thread.join()
+
+    if forwarding_errors:
+        raise RuntimeError("scraper progress output failed") from (
+            forwarding_errors[0]
+        )
+    if stdout_errors:
+        raise RuntimeError("scraper stdout read failed") from (
+            stdout_errors[0]
+        )
+    if process_error is not None:
+        raise process_error
+
+    stdout_text = "".join(captured_stdout)
+    stderr_text = "\n".join(captured_stderr)
+    if captured_stderr:
+        stderr_text += "\n"
+    return subprocess.CompletedProcess(
+        command,
+        returncode,
+        stdout_text,
+        stderr_text,
+    )
+
+
+def _stop_process(process: subprocess.Popen[str]) -> None:
+    """子プロセスをterminateし、必要ならkillして回収
+
+    Args:
+        process: 終了・回収する子プロセス
+    """
+
+    try:
+        process.terminate()
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=PROCESS_TERMINATE_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+        process.wait()
 
 
 def _scraper_command(
@@ -420,7 +579,7 @@ def _scraper_command(
         known_release_urls_file: scraper CLIへ渡す既知URLファイル
 
     Returns:
-        `subprocess.run()` に渡すコマンド引数列
+        scraper子プロセスへ渡すコマンド引数列
     """
 
     command = [
@@ -662,14 +821,19 @@ def _print_runtime_error(
         exc: stderrへ種類と理由を出す例外
     """
 
-    print(
+    reason = (
+        DATABASE_OPERATION_FAILED_REASON
+        if isinstance(exc, SQLAlchemyError)
+        else _one_line(str(exc)) or "no detail"
+    )
+    _write_error_line(
+        output,
         (
             "error: "
             f"target={_one_line(target)} "
             f"exception={type(exc).__name__} "
-            f"reason={_one_line(str(exc)) or 'no detail'}"
+            f"reason={reason}"
         ),
-        file=output,
     )
 
 
@@ -687,15 +851,55 @@ def _print_post_commit_output_error(
     """
 
     reason = _one_line(str(exc)) or "no detail"
-    print(
+    _write_error_line(
+        output,
         (
             "error: "
             f"target={_one_line(target)} "
             f"exception={type(exc).__name__} "
             f"reason={POST_COMMIT_OUTPUT_FAILED_REASON}: {reason}"
         ),
-        file=output,
     )
+
+
+def _print_session_cleanup_error(
+    output: object,
+    target: str,
+    exc: Exception,
+    *,
+    operation: str,
+    committed: bool,
+) -> None:
+    """終了処理の失敗を、DB例外の詳細を含めず報告
+
+    Args:
+        output: 診断を書き込む出力先
+        target: 取得対象URLまたはファイルパス
+        exc: rollbackまたはcloseで発生した例外
+        operation: 失敗した終了処理の名前
+        committed: commit呼び出しが正常終了したか
+    """
+
+    _write_error_line(
+        output,
+        (
+            "error: "
+            f"target={_one_line(target)} operation={operation} "
+            f"committed={str(committed).lower()} "
+            f"exception={type(exc).__name__} "
+            f"reason={DATABASE_OPERATION_FAILED_REASON}"
+        ),
+    )
+
+
+def _write_error_line(output: object, message: str) -> None:
+    """失敗時の診断を出力し、書込失敗による例外連鎖の露出を防止"""
+
+    try:
+        print(message, file=output)
+    except Exception:
+        # 診断を書けなくても、呼び出し元は終了コード1で失敗を通知する。
+        return
 
 
 def _one_line(value: str) -> str:
@@ -708,20 +912,52 @@ def _one_line(value: str) -> str:
         連続空白を1つにまとめた1行文字列
     """
 
-    redacted_value = CREDENTIALS_IN_URL_RE.sub(
-        r"\1[redacted]@",
-        value,
-    )
-    one_line_value = " ".join(redacted_value.split())
-    one_line_value = "".join(
-        character if character.isprintable() else repr(character)[1:-1]
-        for character in one_line_value
-    )
+    one_line_value = _normalize_diagnostic(value)
     if len(one_line_value) > MAX_DIAGNOSTIC_VALUE_LENGTH:
         return (
             f"{one_line_value[:MAX_DIAGNOSTIC_VALUE_LENGTH - 3]}..."
         )
     return one_line_value
+
+
+def _one_line_tail(value: str) -> str:
+    """stderr末尾を残して1行・最大長へ正規化
+
+    Args:
+        value: 子プロセスのstderr文字列
+
+    Returns:
+        末尾の失敗理由を保持した1行文字列
+    """
+
+    one_line_value = _normalize_diagnostic(value)
+    if len(one_line_value) > MAX_DIAGNOSTIC_VALUE_LENGTH:
+        return (
+            "..."
+            f"{one_line_value[-(MAX_DIAGNOSTIC_VALUE_LENGTH - 3):]}"
+        )
+    return one_line_value
+
+
+def _normalize_diagnostic(value: str) -> str:
+    """診断値を伏字・表示可能な1行へ変換
+
+    Args:
+        value: stderrへ埋め込む文字列
+
+    Returns:
+        URL認証情報と制御文字を除いた1行文字列
+    """
+
+    redacted_value = CREDENTIALS_IN_URL_RE.sub(
+        r"\1[redacted]@",
+        value,
+    )
+    one_line_value = " ".join(redacted_value.split())
+    return "".join(
+        character if character.isprintable() else repr(character)[1:-1]
+        for character in one_line_value
+    )
 
 
 if __name__ == "__main__":

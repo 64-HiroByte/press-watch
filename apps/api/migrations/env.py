@@ -4,8 +4,8 @@ from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
+import press_watch_api.models  # noqa: F401
 from press_watch_api.config import load_settings
-from press_watch_api.models import PressRelease  # noqa: F401
 from press_watch_api.models.base import Base
 
 # this is the Alembic Config object, which provides

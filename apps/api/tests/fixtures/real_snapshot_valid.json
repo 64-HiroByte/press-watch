@@ -1,0 +1,32 @@
+{
+  "archive_month_link_count": 1,
+  "archive_month_links": [
+    {
+      "month": 8,
+      "url": "https://www.env.go.jp/press/archive/2026/08/",
+      "year": 2026
+    }
+  ],
+  "count": 2,
+  "fetched_page_urls": [
+    "https://www.env.go.jp/press/archive/2026/08/"
+  ],
+  "items": [
+    {
+      "published_at": "2026-08-29",
+      "source_categories": [
+        "総合政策"
+      ],
+      "title": "報道発表1",
+      "url": "https://www.env.go.jp/press/100001.html"
+    },
+    {
+      "published_at": "2026-08-28",
+      "source_categories": [],
+      "title": "報道発表2",
+      "url": "https://www.env.go.jp/press/100002.html"
+    }
+  ],
+  "source_url": "https://www.env.go.jp/press/index.html",
+  "stop_reason": "archive_month_links_exhausted"
+}

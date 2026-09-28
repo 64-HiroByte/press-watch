@@ -1,54 +1,29 @@
 ---
 name: presswatch-skill-maintenance-ja
-description: PressWatch の .codex/skills 配下でスキルを新規作成・更新・検証するときに使う。skill-creator と併用し、quick_validate.py はローカル Python へ依存を入れず uv run --with pyyaml で実行する運用を固定するためのスキル。
+description: PressWatchの.codex/skills配下でスキルを作成・更新・検証するときに使う。
 ---
 
 # PressWatch Skill Maintenance JA
 
-## 目的
+設計とfrontmatterは`skill-creator`に従い、PressWatch固有のスキルは`.codex/skills/`に置く。
+検証用のPyYAMLは`uv run --with pyyaml`で一時的に用意し、プロジェクト依存や別のPython環境へ追加しない。
 
-PressWatch のローカルスキルを作成・更新するときの検証手順を揃える。
+## 検証
 
-特に `quick_validate.py` の実行で `PyYAML` 不足に毎回引っかからないよう、ローカル Python ではなく `uv run --with pyyaml` を使う。
+利用可能スキル一覧の`skill-creator`のロケータからディレクトリを解決し、`scripts/quick_validate.py`の存在を確認する。
+ロケータを取得できない場合はパスを推測せず、構造検証が未実施であることと理由を報告する。
+ユーザー名や特定マシンのインストール先をスキルへ固定しない。
 
-## 基本方針
-
-- スキルの設計・記述は `skill-creator` に従う
-- スキルは小さく保ち、既存スキルを肥大化させない
-- PressWatch 固有の運用は `.codex/skills/` 配下に置く
-- 検証用依存は PressWatch 本体の依存へ追加しない
-- ローカル Python へ `PyYAML` を直接インストールしない
-
-## 検証コマンド
-
-スキル作成・更新後は、対象スキルに対して次を実行する。
+変更したスキルと、影響を受ける参照元を検証する。
 
 ```bash
-uv run --with pyyaml python /Users/hiro/.codex/skills/.system/skill-creator/scripts/quick_validate.py .codex/skills/<skill-name>
+skill_creator_dir="/absolute/path/resolved/from/skill-locator"
+target_skill_dir=".codex/skills/presswatch-notes-ja"
+uv run --with pyyaml python "$skill_creator_dir/scripts/quick_validate.py" "$target_skill_dir"
 ```
 
-例:
+ネットワーク・キャッシュの権限制約で失敗した場合は、同じコマンドを必要な権限で再実行する。
+構造エラーはfrontmatter、命名、未完了の雛形を確認して直す。
 
-```bash
-uv run --with pyyaml python /Users/hiro/.codex/skills/.system/skill-creator/scripts/quick_validate.py .codex/skills/presswatch-notes-ja
-```
-
-`uv run --with pyyaml` は、この検証実行にだけ `PyYAML` を用意する。
-PressWatch の `pyproject.toml` やローカル Python 環境を汚さない。
-
-## 検証が失敗したとき
-
-- frontmatter の `name` / `description` をまず確認する
-- `name` は小文字英数字とハイフンだけにする
-- `description` は、そのスキルを使うタイミングが分かる文にする
-- `SKILL.md` 以外の README や補助ドキュメントを安易に増やさない
-
-ネットワークやキャッシュ権限で `uv run --with pyyaml` が失敗した場合は、必要に応じて権限昇格で同じコマンドを再実行する。
-その場合も、PressWatch 本体の依存関係には追加しない。
-
-## 完了前チェック
-
-- `quick_validate.py` を `uv run --with pyyaml` 経由で実行したか
-- `git diff --check` を実行したか
-- 新スキルの責務が既存スキルと重なりすぎていないか
-- 既存スキルには参照だけを足し、詳細手順を重複させていないか
+バリデータだけでは適用判断を保証できないため、代表的な依頼と対象外の依頼で、適用条件・責務・参照関係も見直す。
+Markdownの書式と空白検証は`presswatch-markdown-style-ja`に従う。

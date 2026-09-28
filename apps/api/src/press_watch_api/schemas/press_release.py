@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import UTC, date, datetime
 import re
 from urllib.parse import urlsplit
@@ -105,6 +103,37 @@ class PressReleaseCreate(BaseModel):
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("fetched_at must be timezone aware")
         return value.astimezone(UTC)
+
+
+class PressReleaseListItem(BaseModel):
+    """報道発表一覧で公開する1件分の情報"""
+
+    model_config = ConfigDict(from_attributes=True, frozen=True)
+
+    title: str
+    source_url: str
+    published_at: date
+    source_categories: list[str] | None
+
+
+class PressReleasePagination(BaseModel):
+    """報道発表一覧のページ情報"""
+
+    model_config = ConfigDict(frozen=True)
+
+    page: int
+    page_size: int
+    total_items: int
+    total_pages: int
+
+
+class PressReleaseListResponse(BaseModel):
+    """報道発表一覧APIのレスポンス"""
+
+    model_config = ConfigDict(frozen=True)
+
+    items: list[PressReleaseListItem]
+    pagination: PressReleasePagination
 
 
 def _invalid_http_url_reason(value: str) -> str | None:

@@ -1,14 +1,19 @@
-from __future__ import annotations
-
 from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from datetime import date
+import http.client
 import re
-from time import sleep
-from typing import Any, Literal, NoReturn
+from time import monotonic, sleep
+from typing import Any, Literal, NoReturn, Protocol
 from urllib.error import HTTPError
 from urllib.parse import urljoin, urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import (
+    HTTPHandler,
+    HTTPRedirectHandler,
+    HTTPSHandler,
+    Request,
+    build_opener,
+)
 
 from bs4 import BeautifulSoup
 from bs4.element import AttributeValueList, Tag
@@ -71,6 +76,134 @@ UrlValidationReason = Literal[
     'invalid_percent_escape',
     'invalid_host_or_port',
 ]
+
+
+class _RequestRateLimiter:
+    """HTTP要求の開始間隔を制御する内部rate limiter"""
+
+    def __init__(
+        self,
+        interval_seconds: float = REQUEST_INTERVAL_SECONDS,
+        *,
+        clock: Callable[[], float] = monotonic,
+        sleeper: Callable[[float], None] = sleep,
+        progress: Callable[[str], None] | None = None,
+    ) -> None:
+        """要求間隔と時刻・待機処理を保持
+
+        Args:
+            interval_seconds: 連続する要求開始の最小間隔
+            clock: 経過時間の計測に使う単調増加時計
+            sleeper: 不足時間の待機に使う関数
+            progress: 待機と要求開始を通知する関数
+
+        Raises:
+            ValueError: 要求間隔が0秒以下の場合
+        """
+
+        if interval_seconds <= 0:
+            raise ValueError(
+                'interval_seconds must be greater than 0'
+            )
+        self._interval_seconds = interval_seconds
+        self._clock = clock
+        self._sleeper = sleeper
+        self._progress = progress
+        self._first_request_started_at: float | None = None
+        self._last_request_started_at: float | None = None
+        self._request_count = 0
+
+    def wait(self, target_url: str = '') -> None:
+        """次のHTTP要求を開始できるまで待機
+
+        Args:
+            target_url: 次に要求を送るURL
+        """
+
+        request_number = self._request_count + 1
+        while self._last_request_started_at is not None:
+            elapsed_seconds = self._clock() - self._last_request_started_at
+            remaining_seconds = self._interval_seconds - elapsed_seconds
+            if remaining_seconds <= 0:
+                break
+            self._notify_progress(
+                f'waiting {remaining_seconds:g}s before request '
+                f'{request_number}: {target_url}'
+            )
+            self._sleeper(remaining_seconds)
+
+        progress_time = self._clock()
+        first_request_started_at = (
+            self._first_request_started_at
+            if self._first_request_started_at is not None
+            else progress_time
+        )
+        elapsed_since_first = progress_time - first_request_started_at
+        self._notify_progress(
+            f'request {request_number} started at '
+            f'+{elapsed_since_first:.3f}s: {target_url}'
+        )
+        request_started_at = self._clock()
+        if self._first_request_started_at is None:
+            self._first_request_started_at = request_started_at
+        self._last_request_started_at = request_started_at
+        self._request_count = request_number
+
+    def _notify_progress(self, message: str) -> None:
+        """設定されている場合だけ進捗を通知
+
+        Args:
+            message: 待機または要求開始の進捗メッセージ
+        """
+
+        if self._progress is not None:
+            self._progress(message)
+
+
+class _RateLimitedHTTPHandler(HTTPHandler):
+    """HTTP送信直前に共有rate limiterを通すhandler"""
+
+    def __init__(self, rate_limiter: _RequestRateLimiter) -> None:
+        super().__init__()
+        self._rate_limiter = rate_limiter
+
+    def http_open(self, req: Request) -> Any:
+        """HTTP要求を送信
+
+        Args:
+            req: 送信対象のHTTP Request
+
+        Returns:
+            HTTPレスポンス
+        """
+
+        self._rate_limiter.wait(req.full_url)
+        return self.do_open(http.client.HTTPConnection, req)
+
+
+class _RateLimitedHTTPSHandler(HTTPSHandler):
+    """HTTPS送信直前に共有rate limiterを通すhandler"""
+
+    def __init__(self, rate_limiter: _RequestRateLimiter) -> None:
+        super().__init__()
+        self._rate_limiter = rate_limiter
+
+    def https_open(self, req: Request) -> Any:
+        """HTTPS要求を送信
+
+        Args:
+            req: 送信対象のHTTPS Request
+
+        Returns:
+            HTTPSレスポンス
+        """
+
+        self._rate_limiter.wait(req.full_url)
+        return self.do_open(
+            http.client.HTTPSConnection,
+            req,
+            context=self._context,
+        )
 
 
 class _InvalidUrlError(ValueError):
@@ -239,15 +372,62 @@ class PressReleaseCrawlResult:
     stop_reason: CrawlStopReason
 
 
+class CrawlStateObserver(Protocol):
+    """月別巡回のページ計画と解析状態を受け取るobserver"""
+
+    def register_archive_pages(
+        self,
+        archive_links: tuple[ArchiveMonthLink, ...],
+    ) -> None:
+        """巡回対象の月別ページを登録
+
+        Args:
+            archive_links: 実際に巡回する年月降順の月別リンク
+        """
+
+        ...
+
+    def mark_parsing(self, url: str) -> None:
+        """ページ解析開始を記録
+
+        Args:
+            url: 解析を開始するページURL
+        """
+
+        ...
+
+    def mark_parsed(self, url: str) -> None:
+        """ページ解析成功を記録
+
+        Args:
+            url: 解析に成功したページURL
+        """
+
+        ...
+
+    def mark_parse_failed(self, url: str, exc: Exception) -> None:
+        """ページ解析失敗を記録
+
+        Args:
+            url: 解析に失敗したページURL
+            exc: 解析処理が送出した例外
+        """
+
+        ...
+
+
 def fetch_press_page_html(
     url: str = PRESS_INDEX_URL,
     timeout: float = 20.0,
+    *,
+    rate_limiter: _RequestRateLimiter | None = None,
 ) -> str:
     """報道発表ページのHTMLを取得
 
     Args:
         url: 取得対象のURL
         timeout: HTTPリクエストのタイムアウト秒数
+        rate_limiter: 同じ取得処理内で共有する要求間隔制御
 
     Returns:
         レスポンスの文字コードに従ってデコードしたHTML
@@ -269,7 +449,12 @@ def fetch_press_page_html(
         validated_url,
         headers={USER_AGENT_HEADER: USER_AGENT},
     )
-    with _open_same_origin_url(request, timeout) as response:
+    rate_limiter = rate_limiter or _RequestRateLimiter()
+    with _open_same_origin_url(
+        request,
+        timeout,
+        rate_limiter=rate_limiter,
+    ) as response:
         charset = response.headers.get_content_charset() or CHARSET
         return response.read().decode(charset, errors='replace')
 
@@ -278,10 +463,12 @@ def crawl_press_releases(
     start_url: str = PRESS_INDEX_URL,
     archive_month_limit: int = 0,
     all_archive_months: bool = False,
-    fetcher: Callable[[str], str] = fetch_press_page_html,
+    fetcher: Callable[[str], str] | None = None,
     known_release_urls: Collection[str] | None = None,
     request_interval_seconds: float = REQUEST_INTERVAL_SECONDS,
     sleeper: Callable[[float], None] = sleep,
+    progress: Callable[[str], None] | None = None,
+    observer: CrawlStateObserver | None = None,
 ) -> PressReleaseCrawlResult:
     """月別アーカイブページを巡回して報道発表を取得
 
@@ -291,8 +478,10 @@ def crawl_press_releases(
         all_archive_months: 月別リンク候補をすべて巡回するかどうか
         fetcher: URLを受け取りHTMLを返す取得関数
         known_release_urls: 取得済みとして扱う報道発表詳細ページURL
-        request_interval_seconds: ページ取得の間に空ける秒数
-        sleeper: 待機処理を行う関数
+        request_interval_seconds: HTTP要求開始の最小間隔
+        sleeper: 不足する要求間隔の待機に使う関数
+        progress: 月別ページの処理状況を通知する関数
+        observer: ページ計画と解析状態を通知するobserver
 
     Returns:
         月別アーカイブページから取得した報道発表と巡回情報
@@ -313,19 +502,42 @@ def crawl_press_releases(
         raise ValueError(
             'request_interval_seconds must be greater than 0'
         )
+    if fetcher is None:
+        rate_limiter = _RequestRateLimiter(
+            interval_seconds=request_interval_seconds,
+            sleeper=sleeper,
+            progress=progress,
+        )
+
+        def fetcher(url: str) -> str:
+            return fetch_press_page_html(
+                url,
+                rate_limiter=rate_limiter,
+            )
 
     # 月別巡回では、index.htmlからは月別リンクだけを拾う。
     # 報道発表データは各月別ページから取得する。
     index_html = fetcher(start_url)
-    archive_month_links = parse_archive_month_links(
-        index_html,
-        base_url=start_url,
-    )
+    if observer is not None:
+        observer.mark_parsing(start_url)
+    try:
+        archive_month_links = parse_archive_month_links(
+            index_html,
+            base_url=start_url,
+        )
+    except Exception as exc:
+        if observer is not None:
+            observer.mark_parse_failed(start_url, exc)
+        raise
+    if observer is not None:
+        observer.mark_parsed(start_url)
     unique_archive_links = _unique_archive_month_links(archive_month_links)
     selected_archive_links = _select_archive_month_links(
         archive_month_links,
         limit=None if all_archive_months else archive_month_limit,
     )
+    if observer is not None:
+        observer.register_archive_pages(tuple(selected_archive_links))
 
     releases: list[PressRelease] = []
     fetched_page_urls: list[str] = []
@@ -334,13 +546,20 @@ def crawl_press_releases(
     seen_release_urls: set[str] = set(known_urls)
     stop_reason: CrawlStopReason | None = None
 
-    for archive_link in selected_archive_links:
-        # 環境省サイトへ連続アクセスしないよう、ページ取得の間隔を空ける。
-        sleeper(request_interval_seconds)
-
+    archive_page_count = len(selected_archive_links)
+    for page_number, archive_link in enumerate(
+        selected_archive_links,
+        start=1,
+    ):
+        if progress is not None:
+            progress(
+                f'archive page {page_number}/{archive_page_count}: '
+                f'{archive_link.url}'
+            )
         page_releases = _fetch_archive_page_releases(
             archive_link,
             fetcher,
+            observer=observer,
         )
         fetched_page_urls.append(archive_link.url)
 
@@ -498,19 +717,32 @@ def parse_archive_month_links(
 def _fetch_archive_page_releases(
     archive_link: ArchiveMonthLink,
     fetcher: Callable[[str], str],
+    *,
+    observer: CrawlStateObserver | None = None,
 ) -> list[PressRelease]:
     """月別ページを取得して報道発表を抽出
 
     Args:
         archive_link: 取得対象の月別リンク
         fetcher: URLを受け取りHTMLを返す取得関数
+        observer: ページ解析状態を通知するobserver
 
     Returns:
         月別ページから抽出した報道発表
     """
 
     html = fetcher(archive_link.url)
-    return parse_press_releases(html, base_url=archive_link.url)
+    if observer is not None:
+        observer.mark_parsing(archive_link.url)
+    try:
+        releases = parse_press_releases(html, base_url=archive_link.url)
+    except Exception as exc:
+        if observer is not None:
+            observer.mark_parse_failed(archive_link.url, exc)
+        raise
+    if observer is not None:
+        observer.mark_parsed(archive_link.url)
+    return releases
 
 
 def _contains_only_known_releases(
@@ -764,18 +996,25 @@ def _url_origin(url: str) -> tuple[str, str, int] | None:
 def _open_same_origin_url(
     request: Request,
     timeout: float,
+    *,
+    rate_limiter: _RequestRateLimiter,
 ) -> Any:
     """同一オリジンのリダイレクトだけを許可してURLを開く
 
     Args:
         request: 取得対象のHTTP Request
         timeout: HTTPリクエストのタイムアウト秒数
+        rate_limiter: 初回要求とredirect先で共有する要求間隔制御
 
     Returns:
         context managerとして利用できるHTTPレスポンス
     """
 
-    opener = build_opener(_SameOriginRedirectHandler())
+    opener = build_opener(
+        _SameOriginRedirectHandler(),
+        _RateLimitedHTTPHandler(rate_limiter),
+        _RateLimitedHTTPSHandler(rate_limiter),
+    )
     return opener.open(request, timeout=timeout)
 
 
