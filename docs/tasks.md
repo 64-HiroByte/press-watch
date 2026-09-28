@@ -143,7 +143,7 @@ Phase 3 初期では扱わないもの:
   - [x] GitHub 上の PR Checks で `API tests` が通ることを確認する
 - [x] `main` ブランチの保護設定を追加する
   - Phase ブランチから `main` へ CI workflow を取り込んだ後に実施済み
-  - Ruleset `protect-main` で PR 経由のマージ、必須 status check `API unittest`、force push 防止、削除防止を設定済み
+  - Ruleset `protect-main` で PR 経由のマージ、必須 status check `API unittest`・`Scraper unittest`、force push 防止、削除防止を設定済み
 - [x] Phase 6 のフロントエンド実装へ着手する前に、API・scraper のテスト構成を見直す
   - [x] CLI テストを実装済みの責務に合わせて分割する
   - [x] API 側のコマンド実行、transaction 管理、scraper プロセス境界を整理する
@@ -240,14 +240,17 @@ Phase 5 では、保存済みの報道発表をフロントエンドから利用
   - [x] PostgreSQL 17 を使う DB 統合テストを既存の unittest と分けて追加する
   - [ ] Markdown・フロントエンド専用変更の省略と、Python・共有設定変更の実行を確認する
     - 変更判定、失敗・出力欠落時の条件、削除・改名を含むローカル検証は確認済み。
-    - 実行経路はworkflow変更のタスクPRで確認し、省略経路はworkflow導入後のPhaseブランチをbaseにした別の文書・フロントエンド専用PRで確認する。
-      同じPRへの文書コミット追加では省略経路を確認できない。
-      実CIで両方の確認が終わるまで、チェックは未完了のままとする。
-  - [ ] `phase-5/api`でPR経由とAPI・scraper・DB統合の3チェックを必須にする
-  - [ ] `main`の必須チェックにscraperを追加する
+    - 実行経路は[PR #87のCI](https://github.com/64-HiroByte/press-watch/actions/runs/36388456975)で、API・scraper・DB統合のテストstepの実行と成功を確認済み。
+    - 省略経路と適用した必須チェックとの対応は未確認で、設定結果を記録する文書専用PRで確認する。
+      フロントエンド専用変更の判定は既存のローカル検証を再利用し、今回実CIで直接確認するのは文書専用変更とする。
+      確認条件と証拠は[CIの確認状況](local-development.md#実行経路と省略経路の確認状況)を参照する。
+  - [x] `phase-5/api`でPR経由とAPI・scraper・DB統合の3チェックを必須にする
+    - 2026年9月28日に`protect-phase-5-api`を適用し、対象条件・必須チェック・提供元・例外設定を再取得して確認済み。
+  - [x] `main`の必須チェックにscraperを追加する
+    - 2026年9月28日に`protect-main`を更新し、scraper必須化以外の既存設定が維持されていることを再取得して確認済み。
   - [ ] Phase 5のmain統合時に、`main`の必須チェックへDB統合を追加する
     - `main`のworkflowにDB統合ジョブがない間は先に必須化せず、統合PRのチェックと既存PRへの影響を確認して別途設定する。
-    - GitHub設定の適用条件・必須チェック・例外設定を再取得して確認するまで、このCI見直し全体は完了扱いにしない。
+    - mainのDB必須化と、その適用条件・必須チェック・例外設定の再確認が完了するまで、このCI見直し全体は完了扱いにしない。
 - [x] ヘルスチェックAPIを作成する
 - [x] 報道発表一覧取得APIを作成する
 - [x] 一覧取得APIで新着順表示に対応する

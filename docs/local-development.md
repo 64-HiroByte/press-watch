@@ -214,23 +214,42 @@ workflow変更を含むPRに文書だけのコミットを追加しても、Pyth
 ### 必須チェックの段階適用
 
 テストの実行と、失敗時にマージを止めるGitHub rulesetの設定は別に管理します。
-集約ジョブは追加せず、既存のジョブ名を個別に必須チェックへ指定する方針です。
+集約ジョブは追加せず、既存のジョブ名を個別に必須チェックへ指定しています。
 
-| 対象・適用時期 | 必須チェックの設定方針 |
-| --- | --- |
-| 今回の`main` | `API unittest`・`Scraper unittest` |
-| 今回の`phase-5/api` | `API unittest`・`Scraper unittest`・`PostgreSQL integration` |
-| Phase 5のmain統合時 | `main`に`PostgreSQL integration`を追加 |
+| 対象・適用時期 | 必須チェック | 適用状況 |
+| --- | --- | --- |
+| `main` | `API unittest`・`Scraper unittest` | [protect-main](https://github.com/64-HiroByte/press-watch/rules/17208440)で適用済み |
+| `phase-5/api` | `API unittest`・`Scraper unittest`・`PostgreSQL integration` | [protect-phase-5-api](https://github.com/64-HiroByte/press-watch/rules/24108046)で適用済み |
+| Phase 5のmain統合時 | `main`に`PostgreSQL integration`を追加 | 未適用 |
 
-2026年9月28日の調査時点では、`main`の`protect-main`で必須なのは`API unittest`だけで、`phase-5/api`には保護ルールがありません。
-上表は適用方針であり、設定済みを表しません。
-`phase-5/api`にはPR経由と3チェックを要求する専用rulesetを設定し、`main`の削除禁止ルールを流用しません。
+2026年9月28日に設定を適用し、rulesetと各ブランチに適用されるルールを再取得して、対象条件・必須チェック・提供元・例外設定を確認しました。
+`protect-main`の対象はデフォルトブランチ（`~DEFAULT_BRANCH`、現在は`main`）で、scraper必須化以外の既存設定は維持しています。
+`protect-phase-5-api`は`refs/heads/phase-5/api`だけを対象とし、PR経由と3チェックを要求します。
+削除禁止とforce push禁止は`main`の既存設定を維持し、Phase専用rulesetには追加していません。
 将来のPhaseブランチへの適用は、各Phaseの開始時に確認します。
+
+両rulesetは`active`で、対象の除外とbypass actorは空です。
+すべての必須チェックの提供元はGitHub Actions（`integration_id: 15368`）です。
+PRの必須レビュー数は0で、CODEOWNER承認・最終pushの承認・会話解決の要求と、古い承認の取り消しは無効です。
+指定レビュアーは空で、マージ方式は`merge`・`squash`・`rebase`を許可しています。
+最新baseへの追従義務（`strict_required_status_checks_policy`）とブランチ作成時のチェック免除（`do_not_enforce_on_create`）は、ともに`false`です。
+最新化を必須にしていないため、baseが更新された後の組み合わせまで常に検証する保証はありません。
 
 現在の`main`のworkflowにはDB統合ジョブがないため、DBチェックを先に必須化すると、そのジョブを含まないmain向けPRはマージできません。
 Phase 5のmain統合時に、統合PRでDBチェックが報告されることと既存PRへの影響を確認し、別途承認してから必須化します。
-設定変更後は適用先・必須チェック・例外設定を再取得し、未実施の設定は[タスク一覧](tasks.md#読み取りapi)に残します。
+未実施の設定と検証は[タスク一覧](tasks.md#読み取りapi)に残しています。
 CI見直しの完了とPhase 5全体の完了・main統合は区別します。
+
+### 実行経路と省略経路の確認状況
+
+- 実行経路は[PR #87のCI](https://github.com/64-HiroByte/press-watch/actions/runs/36388456975)で、API・scraper・DB統合のテストstepの実行と成功を確認済みです。
+  前タスクで確認した件数は、API 256件成功、scraper 138件成功、DB統合64件中63件成功・1件skipです。
+  DB統合のskipは通常CIで意図した実データスナップショット検証です。
+- 文書専用PRでの省略経路と、適用した3つの必須チェックとの対応は未確認です。
+  設定結果を記録する文書専用PRで、空白確認・変更判定の実行、API・scraperの省略stepの成功とPythonセットアップ・テストstepの省略、DBジョブ全体のskipとPostgreSQLサービスの非起動を確認します。
+  最新のPRに対応するチェックで必須条件を満たすことを確認し、下書き状態によるマージ制約とは区別します。
+- フロントエンド専用変更の判定は、前タスクのローカル検証を再利用します。
+  今回実CIで直接確認する範囲は文書専用変更です。
 
 ## 固定カテゴリの初期データを取り込む
 
