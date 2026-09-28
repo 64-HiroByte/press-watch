@@ -142,8 +142,8 @@ Phase 3 初期では扱わないもの:
   - [x] ローカルで API unittest と `git diff --check` が通ることを確認する
   - [x] GitHub 上の PR Checks で `API tests` が通ることを確認する
 - [x] `main` ブランチの保護設定を追加する
-  - Phase ブランチから `main` へ CI workflow を取り込んだ後に実施済み
-  - Ruleset `protect-main` で PR 経由のマージ、必須 status check `API unittest`・`Scraper unittest`、force push 防止、削除防止を設定済み
+  - 初期の保護設定は、Phase ブランチから `main` へ CI workflow を取り込んだ後に実施済み
+  - Ruleset `protect-main` で PR 経由のマージ、必須 status check `API unittest`・`Scraper unittest`・`PostgreSQL integration`、force push 防止、削除防止を設定済み
 - [x] Phase 6 のフロントエンド実装へ着手する前に、API・scraper のテスト構成を見直す
   - [x] CLI テストを実装済みの責務に合わせて分割する
   - [x] API 側のコマンド実行、transaction 管理、scraper プロセス境界を整理する
@@ -235,7 +235,7 @@ Phase 5 では、保存済みの報道発表をフロントエンドから利用
 
 ### 読み取りAPI
 
-- [ ] API 実装範囲の拡大に合わせて CI の API 確認範囲を見直す
+- [x] API 実装範囲の拡大に合わせて CI の API 確認範囲を見直す
   - [x] API 一覧取得、検索、ページネーションのテストを CI で確認できる状態にする
   - [x] PostgreSQL 17 を使う DB 統合テストを既存の unittest と分けて追加する
   - [x] Markdown・フロントエンド専用変更の省略と、Python・共有設定変更の実行を確認する
@@ -249,9 +249,10 @@ Phase 5 では、保存済みの報道発表をフロントエンドから利用
     - 2026年9月28日に`protect-phase-5-api`を適用し、対象条件・必須チェック・提供元・例外設定を再取得して確認済み。
   - [x] `main`の必須チェックにscraperを追加する
     - 2026年9月28日に`protect-main`を更新し、scraper必須化以外の既存設定が維持されていることを再取得して確認済み。
-  - [ ] Phase 5のmain統合時に、`main`の必須チェックへDB統合を追加する
-    - `main`のworkflowにDB統合ジョブがない間は先に必須化せず、統合PRのチェックと既存PRへの影響を確認して別途設定する。
-    - mainのDB必須化と、その適用条件・必須チェック・例外設定の再確認が完了するまで、このCI見直し全体は完了扱いにしない。
+  - [x] Phase 5のmain統合時に、`main`の必須チェックへDB統合を追加する
+    - 2026年9月29日に、main向け統合PRの実CIと他PRへの影響を確認して`protect-main`へDB統合を追加し、設定とブランチ適用ルールの再取得比較で、追加以外の既存設定が維持されていることを確認した。
+    - 統合PRの3チェックの必須認識・成功も確認済みで、確認時のSHAとCI実行URLは[CIの確認状況](local-development.md#実行経路と省略経路の確認状況)に記録する。
+    - 設定確認時点ではmainへのworkflow取り込みは[統合PR #91](https://github.com/64-HiroByte/press-watch/pull/91)のマージ待ちであり、文書反映後の最終CI確認とmain統合は別に行う。
 - [x] ヘルスチェックAPIを作成する
 - [x] 報道発表一覧取得APIを作成する
 - [x] 一覧取得APIで新着順表示に対応する
@@ -319,6 +320,12 @@ Phase 5 では、保存済みの報道発表をフロントエンドから利用
   - 入力境界・検索併用・未分類と未定義・定義未投入・ページ境界・DB非更新を確認し、専用コンテナとnetworkの停止も確認した。
   - 変更したPythonの行をPEP 8に照らして検査し、計画・OpenAPI・Docsとの整合とテストの検証範囲をレビューした。
     開発DB・Supabaseへの適用と実データの検証は含めていない。
+
+### Phase完了前の文書点検
+
+- [x] Phase 5の完了前に、READMEと関連docsの手順・要件・未対応範囲を現状に合わせて点検・更新する
+  - 累積差分の静的監査とPR #89・#90の説明修正を再利用し、mainのDB必須化の適用結果と統合PRのCI確認結果を反映した。
+  - 固定カテゴリの開発DB・Supabaseへのmigration・seed適用と実データ再分類は未確認で、今回のmain統合には含めない。
 
 ---
 

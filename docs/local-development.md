@@ -218,12 +218,13 @@ workflow変更を含むPRに文書だけのコミットを追加しても、Pyth
 
 | 対象・適用時期 | 必須チェック | 適用状況 |
 | --- | --- | --- |
-| `main` | `API unittest`・`Scraper unittest` | [protect-main](https://github.com/64-HiroByte/press-watch/rules/17208440)で適用済み |
+| `main` | `API unittest`・`Scraper unittest`・`PostgreSQL integration` | [protect-main](https://github.com/64-HiroByte/press-watch/rules/17208440)で適用済み |
 | `phase-5/api` | `API unittest`・`Scraper unittest`・`PostgreSQL integration` | [protect-phase-5-api](https://github.com/64-HiroByte/press-watch/rules/24108046)で適用済み |
-| Phase 5のmain統合時 | `main`に`PostgreSQL integration`を追加 | 未適用 |
 
-2026年9月28日に設定を適用し、rulesetと各ブランチに適用されるルールを再取得して、対象条件・必須チェック・提供元・例外設定を確認しました。
-`protect-main`の対象はデフォルトブランチ（`~DEFAULT_BRANCH`、現在は`main`）で、scraper必須化以外の既存設定は維持しています。
+2026年9月28日にmainのscraper必須化とPhaseの3チェック必須化を適用しました。
+2026年9月29日に[統合PR #91](https://github.com/64-HiroByte/press-watch/pull/91)でDBテストの報告・実行・成功と、他にmain向けのopen PRがないことを確認し、mainへDB統合の必須チェックを追加しました。
+変更直前のrulesetを保存し、変更後にrulesetと各ブランチの適用ルールを再取得して、対象条件・必須チェック・提供元・例外設定を確認しました。
+`protect-main`の対象はデフォルトブランチ（`~DEFAULT_BRANCH`、現在は`main`）で、DBチェック追加以外の既存設定は維持しています。
 `protect-phase-5-api`は`refs/heads/phase-5/api`だけを対象とし、PR経由と3チェックを要求します。
 削除禁止とforce push禁止は`main`の既存設定を維持し、Phase専用rulesetには追加していません。
 将来のPhaseブランチへの適用は、各Phaseの開始時に確認します。
@@ -238,13 +239,19 @@ Phase 5のmain統合前には、PRのhead SHAに加え、CIがcheckoutしたマ�
 一致しない場合は統合を止め、現在の組み合わせを検証する方法と必要な追加承認を確認します。
 [既存runの再実行](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)は元のSHAとrefを使用するため、base更新後の組み合わせを確認した証拠にはなりません。
 
-現在の`main`のworkflowにはDB統合ジョブがないため、DBチェックを先に必須化すると、そのジョブを含まないmain向けPRはマージできません。
-Phase 5のmain統合時に、統合PRでDBチェックが報告されることと既存PRへの影響を確認し、別途承認してから必須化します。
-未実施の設定と検証は[タスク一覧](tasks.md#読み取りapi)に残しています。
+2026年9月29日の設定確認時点では、mainへのDB統合workflowの取り込みは統合PR #91のマージ待ちでした。
+DB統合ジョブを含まないmain向けPRは必須チェックが未報告になるため、設定変更前に既存PRへの影響を確認しています。
+文書反映後の最新先端に対する製品テストと検証対象の照合は、main統合前の最終確認として行います。
+設定結果と統合待ちの状態は[タスク一覧](tasks.md#読み取りapi)に記録しています。
 CI見直しの完了とPhase 5全体の完了・main統合は区別します。
 
 ### 実行経路と省略経路の確認状況
 
+- main向け[統合PR #91のCI](https://github.com/64-HiroByte/press-watch/actions/runs/36440452446)を2026年9月29日に確認しました。
+  対象のPhase先端は`780937b1f9dcb5123ebecf01f5dd8f8ad4a15fa1`で、API 256件成功、scraper 138件成功、DB統合64件中63件成功・1件skipを実ログから確認しました。
+  各テストstepは実行されて成功し、DBのskipは通常CIの対象外である実データスナップショット検証です。
+  全ジョブがcheckoutしたマージ結果は`23833c1fc4ed8e26bd7604adb87e21de59a61a34`で、親コミットはmainの`b9ed483b17b9c496d36090d8693cd14303a0be4f`と上記のPhase先端に一致しました。
+  設定変更後に`gh pr checks 91 --required`で3種類が必須として認識され、この統合PRのCIが3種類とも成功していることを確認しました。
 - 実行経路は[PR #87のCI](https://github.com/64-HiroByte/press-watch/actions/runs/36388456975)で、API・scraper・DB統合のテストstepの実行と成功を確認済みです。
   前タスクで確認した件数は、API 256件成功、scraper 138件成功、DB統合64件中63件成功・1件skipです。
   DB統合のskipは通常CIで意図した実データスナップショット検証です。
