@@ -135,6 +135,50 @@ PYTHONPATH=src uv run --locked python -m unittest discover -s tests
 cd ../..
 ```
 
+`apps/api/tests/`の取得・保存コマンドのテストは、次の責務ごとに分けています。
+
+| テストファイル | 確認する内容 |
+| --- | --- |
+| `test_fetch_and_save_command.py` | 引数検証、DB設定、取得失敗の診断 |
+| `test_fetch_and_save_transaction.py` | Sessionの管理、commit・rollback・close、commit後の出力 |
+| `test_fetch_and_save_scraper.py` | scraperの子プロセス、JSON復元、stdout・stderr、一時ファイル |
+
+特定のファイルだけ実行する場合も、`discover`にファイル名を指定します。
+
+```bash
+cd apps/api
+PYTHONPATH=src uv run --locked python -m unittest discover -s tests -p 'test_fetch_and_save_transaction.py'
+cd ../..
+```
+
+## scraper unittestを実行する
+
+scraperのテストはAPIと別のディレクトリで実行します。
+
+```bash
+cd packages/scraper
+PYTHONPATH=src uv run --locked python -m unittest discover -s tests
+cd ../..
+```
+
+`packages/scraper/tests/`のCLIテストは、次の責務ごとに分けています。
+
+| テストファイル | 確認する内容 |
+| --- | --- |
+| `test_cli.py` | 基本実行、引数検証 |
+| `test_cli_archive.py` | 月別巡回、停止条件、rate limiterの共有 |
+| `test_cli_output.py` | 出力保存、進捗、stdout抑制、エラー時の診断と出力ファイルの保持 |
+| `test_cli_crawl_state.py` | 巡回stateの保存、再開、検証、削除 |
+
+共通helperは`cli_test_support.py`に置き、各責務だけで使うhelperはそのテストファイルに残しています。
+個別実行では、巡回stateのテストも含めて`discover`にファイル名を指定します。
+
+```bash
+cd packages/scraper
+PYTHONPATH=src uv run --locked python -m unittest discover -s tests -p 'test_cli_archive.py'
+cd ../..
+```
+
 ## 固定カテゴリの初期データを取り込む
 
 固定カテゴリ用migration `a51eab6808f3`が適用済みで、対象DBの`DATABASE_URL`を環境変数へ設定済みであることを前提とします。
