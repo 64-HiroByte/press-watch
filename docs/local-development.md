@@ -234,6 +234,9 @@ PRの必須レビュー数は0で、CODEOWNER承認・最終pushの承認・会�
 指定レビュアーは空で、マージ方式は`merge`・`squash`・`rebase`を許可しています。
 最新baseへの追従義務（`strict_required_status_checks_policy`）とブランチ作成時のチェック免除（`do_not_enforce_on_create`）は、ともに`false`です。
 最新化を必須にしていないため、baseが更新された後の組み合わせまで常に検証する保証はありません。
+Phase 5のmain統合前には、PRのhead SHAに加え、CIがcheckoutしたマージ結果のSHAとその親コミットを確認し、最新のmain・Phaseの組み合わせを検証できていることを確かめます。
+一致しない場合は統合を止め、現在の組み合わせを検証する方法と必要な追加承認を確認します。
+[既存runの再実行](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)は元のSHAとrefを使用するため、base更新後の組み合わせを確認した証拠にはなりません。
 
 現在の`main`のworkflowにはDB統合ジョブがないため、DBチェックを先に必須化すると、そのジョブを含まないmain向けPRはマージできません。
 Phase 5のmain統合時に、統合PRでDBチェックが報告されることと既存PRへの影響を確認し、別途承認してから必須化します。
