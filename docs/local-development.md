@@ -179,6 +179,59 @@ PYTHONPATH=src uv run --locked python -m unittest discover -s tests -p 'test_cli
 cd ../..
 ```
 
+## CIの実行範囲と必須チェック
+
+`.github/workflows/api-tests.yml`は、PRと`main`・Phaseブランチへのpushで動きます。
+すべての変更で`git diff --check`を実行し、変更ファイルに応じてPythonテストを実行または省略します。
+
+| 変更内容 | API unittest・Scraper unittest・PostgreSQL integration |
+| --- | --- |
+| Markdown（`*.md`）のみ | 3種類とも省略 |
+| `apps/web/**`、ルートの`package.json`・`pnpm-lock.yaml`・`pnpm-workspace.yaml`、`infra/docker/web.Dockerfile`のみ | 3種類とも省略 |
+| 上記のファイルだけを組み合わせた変更、または差分なし | 3種類とも省略 |
+| 上記以外を一つでも含む変更 | 3種類とも実行 |
+
+API・scraperのコード、テスト、Python依存、migration、固定カテゴリCSV、workflow、共有設定は実行対象です。
+改名では移動元の削除も判定するため、Pythonファイルを省略対象のパスへ移してもテストを実行します。
+API unittestには実際のscraper子プロセスを使う確認があるため、Python内の実行範囲は分割していません。
+省略対象の設定をPythonでも使うようにした場合は、変更判定も見直してください。
+
+省略時、API・scraperジョブは理由を表示して成功し、Python環境の構築とテストstepを省きます。
+DB統合ジョブはジョブ全体を省略するため、PostgreSQLサービスも起動しません。
+変更判定や空白確認が失敗した場合、または判定結果が`true`・`false`以外の場合は、API・scraperジョブを失敗させます。
+必須チェックが未報告になることを避けるため、workflow全体を`paths`などで省略する構成にはしません。
+
+実行時のコマンドは、この文書のAPI unittest・scraper unittest・PostgreSQL 17 DB統合テストの手順と同じです。
+CIのDB統合テストはGitHub Actions内の一時的なPostgreSQL 17を使い、開発DBやSupabaseには接続しません。
+通常CIでは実データスナップショット検証1件をskipします。
+確認結果は成功とskipを分けて記録し、CI全体の成功だけで製品テストを実行済みとは判断しません。
+
+PRでは最新コミットだけでなく、baseからのPR全体の差分を判定します。
+workflow変更を含むPRに文書だけのコミットを追加しても、Pythonテスト3種類は実行対象のままです。
+実CIでは、workflow変更のPRで3種類の実行を確認し、省略経路は変更を取り込んだPhaseブランチをbaseにした別の文書・フロントエンド専用PRで確認します。
+タスクブランチへのpush自体はworkflowの起動対象ではないため、pushだけで省略経路を確認することはできません。
+
+### 必須チェックの段階適用
+
+テストの実行と、失敗時にマージを止めるGitHub rulesetの設定は別に管理します。
+集約ジョブは追加せず、既存のジョブ名を個別に必須チェックへ指定する方針です。
+
+| 対象・適用時期 | 必須チェックの設定方針 |
+| --- | --- |
+| 今回の`main` | `API unittest`・`Scraper unittest` |
+| 今回の`phase-5/api` | `API unittest`・`Scraper unittest`・`PostgreSQL integration` |
+| Phase 5のmain統合時 | `main`に`PostgreSQL integration`を追加 |
+
+2026年9月28日の調査時点では、`main`の`protect-main`で必須なのは`API unittest`だけで、`phase-5/api`には保護ルールがありません。
+上表は適用方針であり、設定済みを表しません。
+`phase-5/api`にはPR経由と3チェックを要求する専用rulesetを設定し、`main`の削除禁止ルールを流用しません。
+将来のPhaseブランチへの適用は、各Phaseの開始時に確認します。
+
+現在の`main`のworkflowにはDB統合ジョブがないため、DBチェックを先に必須化すると、そのジョブを含まないmain向けPRはマージできません。
+Phase 5のmain統合時に、統合PRでDBチェックが報告されることと既存PRへの影響を確認し、別途承認してから必須化します。
+設定変更後は適用先・必須チェック・例外設定を再取得し、未実施の設定は[タスク一覧](tasks.md#読み取りapi)に残します。
+CI見直しの完了とPhase 5全体の完了・main統合は区別します。
+
 ## 固定カテゴリの初期データを取り込む
 
 固定カテゴリ用migration `a51eab6808f3`が適用済みで、対象DBの`DATABASE_URL`を環境変数へ設定済みであることを前提とします。

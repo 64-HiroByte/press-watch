@@ -38,33 +38,38 @@ jobs:
             git diff --check "$empty_tree" "${{ github.sha }}"
           fi
 
-      - name: Detect Markdown-only changes
+      - name: Detect changes requiring Python tests
         id: changed-files
         shell: bash
         run: |
           set -euo pipefail
 
           changed_files="$(mktemp)"
+          trap 'rm -f "$changed_files"' EXIT
 
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" > "$changed_files"
+            git diff --name-only --no-renames -z "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" > "$changed_files"
           elif [[ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
-            git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" > "$changed_files"
+            git diff --name-only --no-renames -z "${{ github.event.before }}" "${{ github.sha }}" > "$changed_files"
           else
             empty_tree="$(git hash-object -t tree /dev/null)"
-            git diff --name-only "$empty_tree" "${{ github.sha }}" > "$changed_files"
+            git diff --name-only --no-renames -z "$empty_tree" "${{ github.sha }}" > "$changed_files"
           fi
 
           echo "Changed files:"
-          sed 's/^/- /' "$changed_files"
+          python_tests_required=false
+          while IFS= read -r -d '' changed_file; do
+            printf -- '- %q\n' "$changed_file"
+            case "$changed_file" in
+              *.md|apps/web/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|infra/docker/web.Dockerfile)
+                ;;
+              *)
+                python_tests_required=true
+                ;;
+            esac
+          done < "$changed_files"
 
-          if [[ ! -s "$changed_files" ]]; then
-            echo "python_tests_required=false" >> "$GITHUB_OUTPUT"
-          elif grep -Ev '\.md$' "$changed_files" > /dev/null; then
-            echo "python_tests_required=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "python_tests_required=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "python_tests_required=$python_tests_required" >> "$GITHUB_OUTPUT"
 
   api-tests:
     name: API unittest
@@ -73,15 +78,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Fail when change detection fails
-        if: needs.detect-changes.result != 'success'
+      - name: Fail when change detection is invalid
+        if: >-
+          needs.detect-changes.result != 'success' ||
+          (needs.detect-changes.outputs.python_tests_required != 'true' &&
+          needs.detect-changes.outputs.python_tests_required != 'false')
         run: |
-          echo "Change detection or whitespace check failed."
+          echo "Change detection or whitespace check failed, or its output is invalid."
           exit 1
 
       - name: Skip API unit tests
         if: needs.detect-changes.result == 'success' && needs.detect-changes.outputs.python_tests_required == 'false'
-        run: echo "Only Markdown files changed. Skipping API unit tests."
+        run: echo "No changes requiring Python tests. Skipping API unit tests."
 
       - name: Checkout repository
         if: needs.detect-changes.result == 'success' && needs.detect-changes.outputs.python_tests_required == 'true'
@@ -111,15 +119,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Fail when change detection fails
-        if: needs.detect-changes.result != 'success'
+      - name: Fail when change detection is invalid
+        if: >-
+          needs.detect-changes.result != 'success' ||
+          (needs.detect-changes.outputs.python_tests_required != 'true' &&
+          needs.detect-changes.outputs.python_tests_required != 'false')
         run: |
-          echo "Change detection or whitespace check failed."
+          echo "Change detection or whitespace check failed, or its output is invalid."
           exit 1
 
       - name: Skip scraper unit tests
         if: needs.detect-changes.result == 'success' && needs.detect-changes.outputs.python_tests_required == 'false'
-        run: echo "Only Markdown files changed. Skipping scraper unit tests."
+        run: echo "No changes requiring Python tests. Skipping scraper unit tests."
 
       - name: Checkout repository
         if: needs.detect-changes.result == 'success' && needs.detect-changes.outputs.python_tests_required == 'true'
