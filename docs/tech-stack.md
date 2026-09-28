@@ -140,7 +140,8 @@
 - API schema / 入出力DTOは Pydantic で定義し、DB model と分ける
 - scraper の `PressRelease` は取得結果を表す型として扱い、DB model と直接同一視しない
 - スクレイピング結果を保存する処理では、変換関数または service 層を挟む
-- `source_url` の一意制約をDB側に置き、既存URLの確認は repository、skip と保存件数 / skip 件数の集計は service で扱う
+- `source_url` の一意制約をDB側に置き、repositoryで`ON CONFLICT (source_url) DO NOTHING`による一括INSERTを行う
+- serviceは入力内の同一URLをまとめ、最大1,000件ずつrepositoryへ渡し、保存件数とskip件数を集計する
 
 ### DB実装状態と未対応範囲
 
@@ -159,7 +160,8 @@
 - Docker Compose 内の接続URLは `postgresql+psycopg://presswatch:${POSTGRES_PASSWORD}@db:5432/presswatch` を基本形とする
 - ローカルPCから直接接続する場合は `127.0.0.1:5432` を使い、Compose の `db` サービスはこのポートをローカルPCに限定して公開する
 - 通常の保存処理では、`source_url` が既存なら重複登録せずスキップする
-- MVP段階では管理者またはシステム実行のスクレイピング処理を前提に、`IntegrityError` の詳細ハンドリングと同時実行時の race condition 対策は後続タスクで扱う
+- `source_url` の競合以外の制約違反は失敗として扱い、呼び出し元でトランザクション全体のrollbackを試みる
+- 取得・保存、seed、再分類などの同時実行を制御する排他ロックや自動再試行は実装していない
 - 通常の差分取得では `source_url` の一致だけを確認し、保存済みレコードの内容は更新しない
 - 既存データの修正検知は、通常の差分取得とは分け、メンテナンス用フルスキャンとして MVP後に再検討する
 - 週次フルスキャンや再照合モード、`last_seen_at`、`content_hash`、変更履歴の保存は、実運用で過去データ修正の検知が必要になった時点で検討する

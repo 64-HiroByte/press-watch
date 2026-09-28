@@ -49,7 +49,7 @@ MVPでは、報道発表の収集・保存、一覧・検索、共有の固定�
 - 手動コマンドで初回全件取得・通常の差分取得を行い、詳細ページURLによる重複を除いてPostgreSQLへ保存できます。
 - 固定カテゴリ定義をseed CLIで取り込み、新規保存時の自動分類と、保存済み報道発表の全件再分類を行えます。
   実行前提と操作手順は[ローカル開発手順](docs/local-development.md)を参照してください。
-- DB設定に依存しないヘルスチェックと、offset方式のページネーション・タイトル検索に対応した報道発表一覧取得APIを利用できます。
+- DB設定に依存しないヘルスチェックと、offset方式のページネーション・タイトル検索・固定カテゴリ絞り込みに対応した報道発表一覧取得APIを利用できます。
 
 Data APIは利用せず、FastAPIからSQLAlchemy + psycopgでPostgreSQLへ直接接続します。
 
@@ -89,7 +89,7 @@ Data APIは利用せず、FastAPIからSQLAlchemy + psycopgでPostgreSQLへ直�
 - Alembic で `press_releases` テーブルを作成する
 - `press_releases` にタイトル、詳細ページURL、公開日、取得元カテゴリ、取得日時、作成日時、更新日時を保存するための DB モデルと migration を持つ
 - scraper の取得結果を API 側 DTO に変換し、repository / service 経由の保存処理へ渡せる
-- service 層で既存 `source_url` を確認し、通常の重複データを skip する
+- 報道発表を一括INSERTし、`source_url` の競合時は既存データを更新せずに skip する
 
 DB migration と保存済みデータの確認手順は `docs/db-migrations.md` と `docs/local-development.md` に整理しています。
 

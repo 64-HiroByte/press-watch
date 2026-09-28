@@ -255,11 +255,13 @@ Phase 4 では、scraper CLI からDB保存までを接続する手動取得・�
 定期実行と、運用者が失敗を確認するためのジョブ結果、ログ、またはサービス標準の失敗通知は Phase 7 で扱う。
 実行履歴の検索、長期保存、再試行管理などの本格的な運用機能は MVP後の改善候補とする。
 Phase 5 開始前の見直しで、管理 PostgreSQL に Supabase を採用し、PostgreSQL 18 の初期方針から 17 へ変更することを決定した。
-ローカル環境の PostgreSQL 17 への変更、Supabase への Direct connection、既存 Alembic migration の適用を確認済みである。
+ローカル環境の PostgreSQL 17 への変更、Supabase への Direct connection、既存 Alembic migration の `9f2c7a4e1d63` までの適用を確認済みである。
 Data API は利用せず、Supabase の `anon`・`authenticated` ロールが `public.press_releases` の `SELECT` 権限を持たないことを2026年8月20日に確認済みである。
 この結果は現時点の確認であり、Data API や Supabase Auth の採用時、権限や migration の変更時、Supabase プロジェクトや DB の再作成時、本番公開前には再確認する。
-Phase 5 では、ヘルスチェック、一覧取得、新着順、ページネーション、タイトル検索の読み取り API を先行する。
-独自カテゴリは、旧 Topics Checker のCSVから正規化し、水関連分野を見直した初期データを使う共有の固定カテゴリとして実装する。
+Phase 5 では、ヘルスチェック、一覧取得、新着順、ページネーション、タイトル検索、固定カテゴリ絞り込みの読み取り API を実装済みである。
+独自カテゴリは、旧 Topics Checker のCSVから正規化し、水関連分野を見直した初期データを使う共有の固定カテゴリとして実装済みである。
+固定カテゴリの3テーブル、seed CLI、新規保存時の分類、既存報道発表の再分類CLIを実装し、テスト専用PostgreSQL 17で検証済みである。
+開発DB・Supabaseへの固定カテゴリmigration適用・seed実行、および実データの再分類は未確認であり、コードの実装完了と区別する。
 ブックマーク、ユーザー登録、ユーザー定義カテゴリは MVP後に扱う。
 ユーザー認証と複数ユーザー管理は、引き続き MVP では実装しない。
 フロントエンド画面は Phase 6 以降で扱う。
