@@ -82,7 +82,7 @@
 [公式告知](https://nextjs.org/blog/upcoming-nextjs-security-release-september-2026)では16.3.8で提供予定とされており、未公開版を導入済み・修正済みとして扱わない。
 
 更新は「Node.js・pnpmと実行環境」「Next.js・React・型定義・PostCSS」「TypeScript」に分け、各段階で再インストール・型チェック・ビルド・既存画面の表示を確認する。
-[pnpm 11](https://pnpm.io/blog/releases/11.0)・[pnpm 12](https://pnpm.io/blog/releases/12.0)の変更点に従い、設定の配置、Docker・開発手順とのバージョン統一、PostCSSの上書き設定を確認する。
+[pnpm 11](https://pnpm.io/blog/releases/11.0)・[pnpm 12](https://github.com/pnpm/pnpm/releases/tag/v12.0.0)の変更点に従い、設定の配置、Docker・開発手順とのバージョン統一、PostCSSの上書き設定を確認する。
 TypeScript 7は[Next.jsの公式手順](https://nextjs.org/docs/app/api-reference/config/typescript)を基に、ビルドとエディターの型支援を確認する。
 互換性に問題があれば、エラーを無視する設定で通さず、原因と代替案を整理する。
 
