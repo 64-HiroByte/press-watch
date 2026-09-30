@@ -44,6 +44,45 @@ POSTGRES_PASSWORD=your-local-postgres-password
 - `infra/docker/api.Dockerfile`: API コンテナのビルド手順を定義します。
 - `Makefile`: Docker Compose の起動・停止コマンドを短く呼べるようにします。
 
+## Markdownの書式とエディター設定
+
+既存Markdownの段落、一文一行、末尾2スペースによる強制改行を維持します。
+Gitの空白検査は`.gitattributes`、EditorConfig対応エディターの保存時の空白削除は`.editorconfig`で設定します。
+`.editorconfig`では`[*.md]`の`trim_trailing_whitespace = false`でMarkdownの末尾空白を残し、他のファイルの末尾空白削除は維持します。
+設定の意味は[EditorConfigの公式仕様](https://editorconfig.org/#supported-properties)を参照してください。
+
+Cursorでは、既存の`.vscode/settings.json`へ次の言語別設定を追加します。
+既存のキーは残し、`[markdown]`がある場合はその中へ統合します。
+
+```json
+{
+  "[markdown]": {
+    "files.trimTrailingWhitespace": false,
+    "editor.formatOnSave": false
+  }
+}
+```
+
+`.vscode/`はGit管理外のため、この設定は各開発環境で追加してください。
+この設定はMarkdownの保存時整形と末尾空白削除を無効にし、明示的な手動整形の禁止は行いません。
+末尾2スペースを含む検証用Markdownを保存し、スペースが残ることとプレビューの強制改行を確認します。
+
+Oxlint・OxfmtとそのCLI・CI連携は、Phase 6のMock確認後に導入します。
+Phase 6ではフロントエンドを対象とし、Oxfmtの共有設定の`ignorePatterns`に`**/*.md`を指定してMarkdownを除外します。
+CLI・CIの対象パスもフロントエンドに限定し、CursorでOxcを既定のフォーマッターに指定する場合はJavaScript・JSX・TypeScript・TSXの言語別設定にします。
+導入時は、エディター・CLI・CIで同じ除外設定が参照され、Markdownが整形・チェック対象に含まれないことを確認します。
+除外設定はOxfmtの設定ファイルごとの範囲に適用されるため、設定を階層ごとに分ける場合は各設定でMarkdownの除外を維持します。
+リポジトリルートと`apps/web`からの実行、Markdownファイルの明示指定でも除外が効くことを確認します。
+除外対象だけを指定した検証では、「対象ファイルなし」による終了と整形失敗を区別し、元の内容が変更されていないことを確認します。
+`.gitattributes`と`.editorconfig`だけではOxfmtの整形対象を制御できません。
+詳細は[Oxfmtの除外設定](https://oxc.rs/docs/guide/usage/formatter/ignore-files)と[エディター設定](https://oxc.rs/docs/guide/usage/formatter/editors)を参照してください。
+
+2026年9月30日に、一時環境のOxfmt 0.71.0で、ルート・`apps/web`・明示ファイル指定・階層別設定のCLIでの除外を確認しました。
+LSP経由でもルートと`apps/web`のMarkdownに整形結果が返らず、TypeScriptには整形結果が返ることを確認しました。
+除外を外すとMarkdownが書き換わり、除外を戻すと内容が維持されることも確認しています。
+これは除外方針の検証であり、プロジェクトへの導入やCursorでの実保存・実CIの確認ではありません。
+導入時は採用するバージョンで上記の確認を行います。
+
 ## lockfile について
 
 `pnpm-lock.yaml` は Node.js 依存関係の lockfile です。`pnpm install` で生成・更新されます。
@@ -184,6 +223,18 @@ cd ../..
 `.github/workflows/api-tests.yml`は、PRと`main`・Phaseブランチへのpushで動きます。
 すべての変更で`git diff --check`を実行し、変更ファイルに応じてPythonテストを実行または省略します。
 
+空白検査は、PRではbaseとの差分、既存ブランチへのpushではpush前との差分、新規ブランチの初回pushでは空ツリーとの差分を比較します。
+空ツリーとの比較では既存ファイルの全行が追加扱いになるため、普段の差分に含まれない既存行も検査対象になります。
+2026年9月30日の新規Phaseブランチ公開では、この比較により以前から存在するMarkdownの末尾2スペース5行が検出されました。
+既存文書の強制改行を変更せずに検査との不整合を解消するため、Markdown用のパス別ルールを採用します。
+
+空白検査のパス別ルールは、ルートの`.gitattributes`でローカルとCIに共有します。
+Markdown（`*.md`）は、末尾2スペースによる強制改行を維持するため、`whitespace=-blank-at-eol`で行末空白を許容します。
+この設定は2スペースだけに限定せず、1スペース・タブ・コードブロック内を含むMarkdownの行末空白全般に適用されます。
+Markdownでも、末尾に追加された空行、インデント内のスペース直後のタブ、競合マーカーは引き続き検出します。
+Markdown以外のファイルでは、行末空白の検査も維持します。
+詳細は[Gitのwhitespace属性](https://git-scm.com/docs/gitattributes#_checking_whitespace_errors)を参照してください。
+
 | 変更内容 | API unittest・Scraper unittest・PostgreSQL integration |
 | --- | --- |
 | Markdown（`*.md`）のみ | 3種類とも省略 |
@@ -192,6 +243,7 @@ cd ../..
 | 上記以外を一つでも含む変更 | 3種類とも実行 |
 
 API・scraperのコード、テスト、Python依存、migration、固定カテゴリCSV、workflow、共有設定は実行対象です。
+`.gitattributes`や`.editorconfig`の変更も共有設定として、Pythonテスト3種類の実行対象です。
 改名では移動元の削除も判定するため、Pythonファイルを省略対象のパスへ移してもテストを実行します。
 API unittestには実際のscraper子プロセスを使う確認があるため、Python内の実行範囲は分割していません。
 省略対象の設定をPythonでも使うようにした場合は、変更判定も見直してください。

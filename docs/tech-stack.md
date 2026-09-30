@@ -2,7 +2,7 @@
 
 ## 1. 目的
 
-本ドキュメントは、PressWatch の初期技術前提を整理するためのものである。\
+本ドキュメントは、PressWatch の初期技術前提を整理するためのものである。  
 実装開始前に使用技術とバージョン方針を明確にし、開発時の判断ぶれを防ぐことを目的とする。
 
 ---
@@ -151,8 +151,13 @@ TypeScript 7は[Next.jsの公式手順](https://nextjs.org/docs/app/api-referenc
 - 依存関係の更新とUI基盤の導入後に、固定データのMockでPC上の見た目を確認する。
   スマートフォン専用の作り込みはPhase 6の完成条件に含めない。
 - Mock確認後に操作・API設計を記録・合意し、Oxlint・Oxfmtと検証基盤を整えてから機能を実装する。
+- Phase 6のlint・formatはフロントエンドを対象とし、既存Markdownの書式を変更しない。
+  Oxfmt導入時は共有設定の`ignorePatterns`に`**/*.md`を指定し、CLI・CIの対象パスもフロントエンドに限定する。
+  Markdownの行末空白を許容する`.gitattributes`はGitの検査用であり、Oxfmtの除外設定や保存時設定とは別に維持する。
 - Cursorでは公式Oxc拡張からプロジェクト内のOxlint・Oxfmtを利用し、lintとformatのルールをエディター・CLI・CIで共通に参照する。
   診断表示、保存時の整形、任意のlint自動修正を区別して設定・確認し、他言語の既存設定を維持する。
+  Oxcを既定のフォーマッターに指定する場合はJavaScript・JSX・TypeScript・TSXの言語別設定とし、全言語へ一括適用しない。
+  Markdownの保存時整形と末尾空白の削除を無効にし、Oxfmt導入後も末尾2スペースによる強制改行が残ることを確認する。
   [Oxlint](https://oxc.rs/docs/guide/usage/linter/editors)・[Oxfmt](https://oxc.rs/docs/guide/usage/formatter/editors)の公式手順を基に連携を確認し、導入後の設定・実行手順を[ローカル開発手順](local-development.md)へ記録する。
 - 画面テストはPlaywrightのChromiumを導入する案とし、依存関係と実行方法を確認する。
   [Next.jsの公式手順](https://nextjs.org/docs/app/guides/testing/playwright)を基に、API応答を制御した画面テストと実API・DBとの結合確認を分ける。
