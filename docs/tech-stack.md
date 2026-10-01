@@ -64,19 +64,24 @@
 
 ### Phase 6開始時のフロントエンド更新候補
 
-以下は2026年9月30日時点の調査に基づく更新候補であり、導入・検証済みのバージョンではない。
+以下は2026年9月30日時点の調査に基づく更新候補と、その後の導入状況を示す。
+Node.jsとpnpmは2026年10月2日にローカル・Web単体Dockerで導入と検証を行い、その他の項目は後続タスクの候補である。
 更新作業時に公開状況・互換性・セキュリティ情報を再確認し、実際の解決バージョンは各マニフェストと`pnpm-lock.yaml`を正本とする。
 
-| 対象 | 更新候補・方針 |
+| 対象 | 導入状況・更新候補 |
 | --- | --- |
-| Node.js | 24系LTSを維持し、24.21.0を候補にする |
+| Node.js | 24.21.0をローカルとWeb単体Dockerで確認済み |
 | Next.js | 16.3系の最新セキュリティ修正版を確認する |
 | React / React DOM | 19.3.0へ揃える |
 | `@types/react` / `@types/react-dom` | 19.3.0へ揃える |
 | `@types/node` | Node.jsのメジャーに合わせ、24.19.0を候補にする |
 | TypeScript | 7.0.2への更新を独立して検証する |
-| pnpm | 12.8.1への移行を独立して検証する |
+| pnpm | 12.8.1をローカルとWeb単体Dockerで確認済み |
 | PostCSS | 8.5.28を候補にし、既存の上書き設定も確認する |
+
+Node.jsはルートのVolta設定とWebの`volta.extends`、Web Dockerfileで24.21.0に揃える。
+pnpmはルートの`packageManager`をローカルとDockerのCorepackから参照し、PostCSSの上書き設定は`pnpm-workspace.yaml`に置く。
+今回の移行ではPostCSSの指定`^8.5.10`と解決版`8.5.14`を維持した。
 
 調査時点のNext.js公開済み最新版16.3.7には、9月30日予定のセキュリティ修正が含まれていない。
 [公式告知](https://nextjs.org/blog/upcoming-nextjs-security-release-september-2026)では16.3.8で提供予定とされており、未公開版を導入済み・修正済みとして扱わない。
