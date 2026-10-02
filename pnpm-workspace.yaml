@@ -1,2 +1,11 @@
 packages:
   - "apps/web"
+
+overrides:
+  postcss: ^8.5.10
+
+pmOnFail: error
+verifyDepsBeforeRun: error
+
+allowBuilds:
+  "sharp@0.34.5": false

@@ -9,15 +9,35 @@ PressWatch をローカル環境で起動・確認するための手順です。
 次のツールが使えることを確認します。
 
 ```bash
-node -v
-pnpm -v
+volta --version
 uv --version
 docker compose version
 ```
 
+## Web用のNode.jsとpnpm
+
+WebはNode.js 24.21.0とpnpm 12.8.1を使用します。
+ルートの`package.json`が両者の版数を指定し、`apps/web/package.json`の`volta.extends`がNode.jsの指定を継承します。
+ローカルではVoltaとNode.js同梱のCorepackを使用します。
+Web用のコマンドを実行するシェルごとに、リポジトリルートで次を実行してください。
+
+```bash
+volta fetch node@24.21.0
+presswatch_pnpm_shims="$(mktemp -d)"
+volta run --node 24.21.0 corepack enable pnpm --install-directory "$presswatch_pnpm_shims"
+export PATH="$presswatch_pnpm_shims:$PATH"
+volta run --node 24.21.0 corepack install
+node -v
+pnpm -v
+```
+
+`pnpm -v`の初回実行では、この環境に対応するpnpm本体が取得されます。
+一時ディレクトリのshimはそのシェルの`PATH`で使用し、新しいシェルでは上記の初期化をやり直します。
+`volta fetch`はNode.jsをキャッシュへ取得し、リポジトリ外で使うVoltaの既定版を変更しません。
+
 ## 用意するファイル
 
-ローカル起動前に `.env` を作成します。
+Docker ComposeでAPI・DBを起動する前に `.env` を作成します。
 
 ```bash
 cp .env.example .env
@@ -30,6 +50,7 @@ POSTGRES_PASSWORD=your-local-postgres-password
 ```
 
 `.env` は秘密情報を含みうるため、コミットしません。
+Web単体の起動には、このファイルは必要ありません。
 
 ## セットアップされている主な構成ファイル
 
@@ -85,7 +106,9 @@ LSP経由でもルートと`apps/web`のMarkdownに整形結果が返らず、Ty
 
 ## lockfile について
 
-`pnpm-lock.yaml` は Node.js 依存関係の lockfile です。`pnpm install` で生成・更新されます。
+`pnpm-lock.yaml` は Node.js 依存関係の lockfile です。
+pnpm 12では、先頭の文書にpnpm本体の管理情報、最後の文書にWebの依存関係を記録します。
+通常の再インストールでは`pnpm install --frozen-lockfile`を使い、lockfileの書き換えが必要な場合は差分を確認します。
 
 `uv.lock` は Python 依存関係の lockfile です。API と scraper はそれぞれ `apps/api/uv.lock`、`packages/scraper/uv.lock` を持ちます。各 `pyproject.toml` をもとに `uv sync` すると、解決されたパッケージの具体的なバージョンが記録され、その内容に沿って仮想環境が作られます。
 
@@ -96,7 +119,7 @@ Dockerfile では `uv sync --frozen` を使うため、lockfile を更新せず�
 画面だけを確認したい場合は、フロントエンドを単体で起動できます。
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
 pnpm dev:web
 ```
 
@@ -107,6 +130,9 @@ http://127.0.0.1:3000/
 ```
 
 Docker Compose で全体を起動する場合、この単体起動は必須ではありません。
+WebのDockerfileもルートの`packageManager`を読み、Node.js 24.21.0とpnpm 12.8.1を使用します。
+ComposeのWebは`node_modules`を名前付きボリュームに保持するため、既存ボリュームを使うと以前の依存関係が残る場合があります。
+新しい依存関係を確認するときは、秘密ファイルと既存の`node_modules`・`.next`を含めない一時build contextでWeb単体をビルドし、既存ボリュームを使わずに起動します。
 
 ## API を単体で起動する
 
