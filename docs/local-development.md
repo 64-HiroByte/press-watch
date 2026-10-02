@@ -169,7 +169,7 @@ Cursor 3.23.12（VS Code基盤1.128.0）で、Microsoft公式の[TypeScript 7拡
 拡張機能IDは`TypeScriptTeam.native-preview`で、必要なVS Code基盤は1.126.0以上です。
 通常の型支援には拡張機能と言語サーバーが必要であり、CLIの更新だけでは切り替わりません。
 
-PressWatchをルートとして開き、拡張の初回起動が他のワークスペースへ影響しないよう、導入前に既存の`.vscode/settings.json`へ次を追加します。
+PressWatchをルートとして開き、拡張の導入前に既存の`.vscode/settings.json`へ次を追加します。
 既存のcSpell・Markdown設定は維持し、ユーザー全体の設定へ追加しません。
 `.vscode/`はGit管理外のため、他の開発環境ではこの手順を実施します。
 
@@ -180,8 +180,10 @@ PressWatchをルートとして開き、拡張の初回起動が他のワーク�
 }
 ```
 
+拡張を初めて導入する際は、ほかのCursorウィンドウをすべて閉じ、設定済みのPressWatchで導入・初回起動を完了してから開き直します。
+設定のない別のワークスペースで先に初回起動すると、ユーザー全体の`js/ts.experimental.useTsgo`が自動で有効になる場合があります。
 信頼済みのPressWatchワークスペースでTS・TSXを開き、プロジェクト版を使用する通知が出たら`Allow`を選択します。
-必要に応じてコマンド`TypeScript: Select TypeScript Version...`で`Use TypeScript 7`を選択します。
+通知が出ない場合や選択し直す場合は、コマンド`TypeScript: Select TypeScript Version...`で`Use Workspace Version`からPressWatchのプロジェクト版を選択します。
 言語の状態から7.0.2と`apps/web/tsconfig.json`を確認し、Outputの`TypeScript 7`で`Resolved to`がプロジェクト内の`node_modules/.pnpm/@typescript+typescript-<platform>@7.0.2/`配下を指すことも確認します。
 拡張同梱版も7.0.2のため、表示された版だけではプロジェクト版を使用している証拠になりません。
 
