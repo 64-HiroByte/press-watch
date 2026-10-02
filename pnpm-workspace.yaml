@@ -2,10 +2,10 @@ packages:
   - "apps/web"
 
 overrides:
-  postcss: ^8.5.10
+  postcss: ^8.5.28
 
 pmOnFail: error
 verifyDepsBeforeRun: error
 
 allowBuilds:
-  "sharp@0.34.5": false
+  "sharp@0.35.5": false

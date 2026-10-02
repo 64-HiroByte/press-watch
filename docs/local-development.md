@@ -120,7 +120,7 @@ Dockerfile では `uv sync --frozen` を使うため、lockfile を更新せず�
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm dev:web
+pnpm dev:web --hostname 127.0.0.1
 ```
 
 ブラウザで次を開きます。
@@ -133,6 +133,30 @@ Docker Compose で全体を起動する場合、この単体起動は必須で�
 WebのDockerfileもルートの`packageManager`を読み、Node.js 24.21.0とpnpm 12.8.1を使用します。
 ComposeのWebは`node_modules`を名前付きボリュームに保持するため、既存ボリュームを使うと以前の依存関係が残る場合があります。
 新しい依存関係を確認するときは、秘密ファイルと既存の`node_modules`・`.next`を含めない一時build contextでWeb単体をビルドし、既存ボリュームを使わずに起動します。
+ホストの公開ポートは`127.0.0.1`に限定し、確認後は今回作成したコンテナ・イメージだけを削除します。
+Dockerの画面確認には`http://localhost:<ホスト側の公開ポート>/`を使い、開発サーバーが表示するホスト名に合わせます。
+
+### Webの型チェックとビルド
+
+新規インストール後は、開発サーバーや古い生成物に依存せず型情報を生成してから確認します。
+
+```bash
+pnpm install --frozen-lockfile
+pnpm --filter @press-watch/web exec next typegen
+pnpm typecheck:web
+pnpm build:web
+```
+
+`next typegen`は型情報を生成し、`typecheck:web`はTypeScriptの型チェック、`build:web`は本番ビルドを実行します。
+[Next.jsの型生成手順](https://nextjs.org/docs/app/api-reference/cli/next#next-typegen-options)に従い、`next-env.d.ts`は手動で編集しません。
+Next.js 16.3では`root-params.d.ts`への参照も生成されます。
+型生成・ビルドでは`.next/types/`、開発起動では`.next/dev/types/`を参照するため、`next-env.d.ts`の自動差分と`tsconfig.json`への必要な変更を確認します。
+型エラーやビルドエラーを無視する設定は追加しません。
+
+依存更新の比較では、必要なマニフェスト・lockfile・設定・Webソースだけを一時環境へコピーし、秘密ファイル・既存の`node_modules`・`.next`・`tsbuildinfo`を含めません。
+更新前後で上記の手順を実行し、同じ画面サイズで文言・レイアウト・タイトル・日本語設定とブラウザ・サーバーのエラーを確認します。
+更新後は`pnpm install --frozen-lockfile`を再実行し、lockfileが変わらないことも確認します。
+ループバック限定で起動した開発サーバーは、確認後に終了します。
 
 ## API を単体で起動する
 
