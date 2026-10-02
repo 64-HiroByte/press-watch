@@ -64,27 +64,48 @@
 
 ### Phase 6開始時のフロントエンド更新候補
 
-以下は2026年9月30日時点の調査に基づく更新候補と、その後の導入状況を示す。
-Node.jsとpnpmは2026年10月2日にローカル・Web単体Dockerで導入と検証を行い、その他の項目は後続タスクの候補である。
-更新作業時に公開状況・互換性・セキュリティ情報を再確認し、実際の解決バージョンは各マニフェストと`pnpm-lock.yaml`を正本とする。
+2026年9月30日の候補を基に、10月2日に公開状況・互換性・セキュリティ情報を再確認した。
+以下は更新後のマニフェストとlockfileの記録であり、既存の`node_modules`の状態とは区別する。
+実際の指定・解決バージョンは各マニフェストと`pnpm-lock.yaml`を正本とする。
 
-| 対象 | 導入状況・更新候補 |
-| --- | --- |
-| Node.js | 24.21.0をローカルとWeb単体Dockerで確認済み |
-| Next.js | 16.3系の最新セキュリティ修正版を確認する |
-| React / React DOM | 19.3.0へ揃える |
-| `@types/react` / `@types/react-dom` | 19.3.0へ揃える |
-| `@types/node` | Node.jsのメジャーに合わせ、24.19.0を候補にする |
-| TypeScript | 7.0.2への更新を独立して検証する |
-| pnpm | 12.8.1をローカルとWeb単体Dockerで確認済み |
-| PostCSS | 8.5.28を候補にし、既存の上書き設定も確認する |
+| 対象 | プロジェクト指定 | lockfileの解決版・方針 |
+| --- | --- | --- |
+| Node.js | 24.21.0 | 前の小タスクでローカル・Web単体Dockerを確認済み、今回は維持 |
+| Next.js | `^16.3.8` | 16.3.8 |
+| React / React DOM | 両方`^19.3.0` | 両方19.3.0 |
+| `@types/react` / `@types/react-dom` | 両方`^19.3.0` | 両方19.3.0 |
+| `@types/node` | `^24.19.0` | 24.19.0、Node.jsと同じ24系を維持 |
+| TypeScript | `^5.0.0` | 5.9.3を維持、7.0.2は次の独立した小タスクの候補 |
+| pnpm | 12.8.1 | 前の小タスクでローカル・Web単体Dockerを確認済み、今回は維持 |
+| PostCSS | workspaceの上書き`^8.5.28` | Next.js経由で8.5.28 |
+| sharp | Next.jsの間接依存 | 0.35.5 |
+
+`@types/node`は公開後24時間を経過した24.19.0を採用し、pnpmの待機ポリシーの例外は追加しない。
+24.19.1の型定義追加は現在のWebソースで使用していないZstd圧縮のオプションであり、この更新の必須条件ではない。
+
+2026年10月2日に、秘密ファイル・既存の`node_modules`・`.next`・`tsbuildinfo`を含めない一時環境で更新前後を検証した。
+Node.js 24.21.0・pnpm 12.8.1で型生成・型チェック・ビルドが成功し、ローカル・Web単体Dockerの1280×720の表示で文言・レイアウト・タイトル・日本語設定が一致した。
+更新後のfrozen再インストールでlockfileが変わらず、macOS arm64・Linux arm64で解決版・peer条件とsharpのネイティブ読み込み・PNG生成も確認した。
 
 Node.jsはルートのVolta設定とWebの`volta.extends`、Web Dockerfileで24.21.0に揃える。
 pnpmはルートの`packageManager`をローカルとDockerのCorepackから参照し、PostCSSの上書き設定は`pnpm-workspace.yaml`に置く。
-今回の移行ではPostCSSの指定`^8.5.10`と解決版`8.5.14`を維持した。
+Next.js 16.3.8が指定するPostCSS 8.5.23へ、追加修正を含む8.5.28を上書きする。
+旧解決版8.5.14が対象となる[ソースマップ読み込みのHigh](https://github.com/postcss/postcss/security/advisories/GHSA-r28c-9q8g-f849)と[不完全な修正のMedium](https://github.com/postcss/postcss/security/advisories/GHSA-fxqj-rqcc-2cmp)は、それぞれ8.5.18・8.5.23で修正されている。
 
-調査時点のNext.js公開済み最新版16.3.7には、9月30日予定のセキュリティ修正が含まれていない。
-[公式告知](https://nextjs.org/blog/upcoming-nextjs-security-release-september-2026)では16.3.8で提供予定とされており、未公開版を導入済み・修正済みとして扱わない。
+[Next.js 16.3.8](https://github.com/vercel/next.js/releases/tag/v16.3.8)は9月30日に公開され、High 1件・Medium 5件・Low 1件の修正を含む。
+10月2日の調査時点では、[公式予告](https://nextjs.org/blog/upcoming-nextjs-security-release-september-2026)にある別のCritical・High各1件は後続修正待ちであり、すべて修正済みとは扱わない。
+現在の案内画面で、告知された全機能の脆弱性が悪用可能だと確認したわけではない。
+sharpは、同梱librsvgの[セキュリティ修正](https://github.com/lovell/sharp/security/advisories/GHSA-wq5f-xc86-pv6w)を含む0.35.5へ解決する。
+[sharp 0.35.0](https://github.com/lovell/sharp/releases/tag/v0.35.0)でinstallスクリプトは廃止されているが、`allowBuilds`は採用版の`"sharp@0.35.5": false`へ揃え、ビルド処理の一括許可は行わない。
+
+更新に伴う間接依存として、Next.jsの`@next/env`・各OS向けSWCを16.3.8、`@swc/helpers`を0.5.23へ更新する。
+React DOMのschedulerは0.28.0、Node.js型定義のundici-typesは7.24.6、PostCSSのnanoidは3.3.19へ更新する。
+sharpの各OS向けパッケージは0.35.5、libvips配布パッケージは1.3.4、semverは7.8.5、Wasm経路の`@emnapi/runtime`は1.11.3へ更新する。
+sharpの配布構成に合わせてFreeBSD・WebContainers向けWasm経路と、Linuxのglibc・musl条件がlockfileへ反映される。
+pnpm本体の管理情報とTypeScriptの解決版は変更しない。
+
+Next.jsの設定では[公式の停止手順](https://nextjs.org/docs/app/guides/ai-agents#opting-out)に従い、`agentRules: false`で指示ファイルの自動生成・更新を止める。
+型生成・型チェック・ビルド・更新前後の表示比較は[開発手順](local-development.md#webの型チェックとビルド)に従う。
 
 更新は「Node.js・pnpmと実行環境」「Next.js・React・型定義・PostCSS」「TypeScript」に分け、各段階で再インストール・型チェック・ビルド・既存画面の表示を確認する。
 [pnpm 11](https://pnpm.io/blog/releases/11.0)・[pnpm 12](https://github.com/pnpm/pnpm/releases/tag/v12.0.0)の変更点に従い、設定の配置、Docker・開発手順とのバージョン統一、PostCSSの上書き設定を確認する。
