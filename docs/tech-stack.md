@@ -75,7 +75,7 @@
 | React / React DOM | 両方`^19.3.0` | 両方19.3.0 |
 | `@types/react` / `@types/react-dom` | 両方`^19.3.0` | 両方19.3.0 |
 | `@types/node` | `^24.19.0` | 24.19.0、Node.jsと同じ24系を維持 |
-| TypeScript | `^5.0.0` | 5.9.3を維持、7.0.2は次の独立した小タスクの候補 |
+| TypeScript | `^7.0.2` | 7.0.2、ネイティブコンパイラーを採用 |
 | pnpm | 12.8.1 | 前の小タスクでローカル・Web単体Dockerを確認済み、今回は維持 |
 | PostCSS | workspaceの上書き`^8.5.28` | Next.js経由で8.5.28 |
 | sharp | Next.jsの間接依存 | 0.35.5 |
@@ -83,7 +83,7 @@
 `@types/node`は公開後24時間を経過した24.19.0を採用し、pnpmの待機ポリシーの例外は追加しない。
 24.19.1の型定義追加は現在のWebソースで使用していないZstd圧縮のオプションであり、この更新の必須条件ではない。
 
-2026年10月2日に、秘密ファイル・既存の`node_modules`・`.next`・`tsbuildinfo`を含めない一時環境で更新前後を検証した。
+Next.js・React・型定義・PostCSSの更新では、2026年10月2日に、秘密ファイル・既存の`node_modules`・`.next`・`tsbuildinfo`を含めない一時環境で更新前後を検証した。
 Node.js 24.21.0・pnpm 12.8.1で型生成・型チェック・ビルドが成功し、ローカル・Web単体Dockerの1280×720の表示で文言・レイアウト・タイトル・日本語設定が一致した。
 更新後のfrozen再インストールでlockfileが変わらず、macOS arm64・Linux arm64で解決版・peer条件とsharpのネイティブ読み込み・PNG生成も確認した。
 
@@ -102,14 +102,29 @@ sharpは、同梱librsvgの[セキュリティ修正](https://github.com/lovell/
 React DOMのschedulerは0.28.0、Node.js型定義のundici-typesは7.24.6、PostCSSのnanoidは3.3.19へ更新する。
 sharpの各OS向けパッケージは0.35.5、libvips配布パッケージは1.3.4、semverは7.8.5、Wasm経路の`@emnapi/runtime`は1.11.3へ更新する。
 sharpの配布構成に合わせてFreeBSD・WebContainers向けWasm経路と、Linuxのglibc・musl条件がlockfileへ反映される。
-pnpm本体の管理情報とTypeScriptの解決版は変更しない。
+この小タスクではpnpm本体の管理情報とTypeScript 5.9.3の解決版を維持した。
 
 Next.jsの設定では[公式の停止手順](https://nextjs.org/docs/app/guides/ai-agents#opting-out)に従い、`agentRules: false`で指示ファイルの自動生成・更新を止める。
 型生成・型チェック・ビルド・更新前後の表示比較は[開発手順](local-development.md#webの型チェックとビルド)に従う。
 
 更新は「Node.js・pnpmと実行環境」「Next.js・React・型定義・PostCSS」「TypeScript」に分け、各段階で再インストール・型チェック・ビルド・既存画面の表示を確認する。
 [pnpm 11](https://pnpm.io/blog/releases/11.0)・[pnpm 12](https://github.com/pnpm/pnpm/releases/tag/v12.0.0)の変更点に従い、設定の配置、Docker・開発手順とのバージョン統一、PostCSSの上書き設定を確認する。
-TypeScript 7は[Next.jsの公式手順](https://nextjs.org/docs/app/api-reference/config/typescript)を基に、ビルドとエディターの型支援を確認する。
+TypeScriptは独立した小タスクで5.9.3から7.0.2へ更新した。
+[Microsoftのリリース情報](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/)と[Next.jsの公式手順](https://nextjs.org/docs/app/api-reference/config/typescript#using-typescript-7)に従い、公開後の待機ポリシーを満たす安定版の`typescript`を採用する。
+7系の`tsc`はネイティブコンパイラーへ処理を渡し、lockfileにはOS・CPU別の`@typescript/typescript-*`がoptional dependencyとして追加される。
+別のプレビュー用npmパッケージやTypeScript 6の併用は不要であり、Node.js・pnpm・他のWeb依存関係とpnpm本体の管理情報は維持した。
+調査時点の[TypeScript公式セキュリティ情報](https://github.com/microsoft/TypeScript/security/advisories)に公開されたアドバイザリーはなく、今回の更新をセキュリティ修正としては扱わない。
+
+Next.js 16.3.8は既定でCLIによる型チェックを使用するため、`next.config.ts`・`tsconfig.json`・scripts・Dockerfileの変更は不要だった。
+既存の`next-env.d.ts`によるNode.js・React・React DOMの型参照で型チェックが成功し、`compilerOptions.types`の追加も不要だった。
+ローカルのmacOS arm64とWeb単体DockerのLinux arm64で、更新前後の型生成・型チェック・ビルド・表示と、更新後のfrozen再インストールを確認した。
+更新後のCLIとNext.jsビルドがそれぞれのプラットフォーム用7.0.2のバイナリーを起動し、意図的な型エラーはローカルの型チェック・ビルドの両方で拒否された。
+Cursorでは公式TypeScript 7拡張とワークスペース内の7.0.2を使用し、TypeScript・TSXの補完・エラー診断・定義への移動を確認した。
+設定と確認手順は[開発手順](local-development.md#cursorでのtypescript-7の型支援)に記録する。
+7系では従来のJavaScriptコンパイラーAPI・言語サービスプラグインを使用できず、Next.js固有のエディタープラグインの診断・補完と、ビルド時の独自の診断表示は利用できない。
+基本の型支援とCLIの型チェックを採用し、この制限を許容する。
+型チェックやビルド全体の速度比較は未測定であり、高速化の倍率は完了判断に含めない。
+
 互換性に問題があれば、エラーを無視する設定で通さず、原因と代替案を整理する。
 
 ### Python
