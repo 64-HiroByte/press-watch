@@ -18,22 +18,55 @@ docker compose version
 
 WebはNode.js 24.21.0とpnpm 12.8.1を使用します。
 ルートの`package.json`が両者の版数を指定し、`apps/web/package.json`の`volta.extends`がNode.jsの指定を継承します。
-ローカルではVoltaとNode.js同梱のCorepackを使用します。
-Web用のコマンドを実行するシェルごとに、リポジトリルートで次を実行してください。
+ローカルのNode.jsは既存のVoltaで選択し、pnpmはグローバルに導入した指定版を使用します。
+プロジェクト専用のmise設定、Corepackのshim・キャッシュ、セットアップ補助は使用しません。
+
+### 初回準備と版確認
+
+[Voltaの導入手順](https://docs.volta.sh/guide/getting-started)に従い、`node`がVolta経由で実行される状態にします。
+プロジェクト内では`volta.node`の指定が優先され、必要なNode.jsが取得されます。
+このPCの既定Node.jsも、[volta install](https://docs.volta.sh/reference/install)で24.21.0へ更新済みです。
+
+pnpmは[公式の導入手順](https://pnpm.io/installation)に従い、12.8.1を用意します。
+既存のpnpmを更新する場合は、PressWatchなどpnpmを固定したプロジェクトの外で、[self-update](https://pnpm.io/cli/self-update)を実行します。
+プロジェクト内の`self-update`はグローバル更新ではなく`package.json`の指定を書き換えるため、実行場所を分けます。
 
 ```bash
-volta fetch node@24.21.0
-presswatch_pnpm_shims="$(mktemp -d)"
-volta run --node 24.21.0 corepack enable pnpm --install-directory "$presswatch_pnpm_shims"
-export PATH="$presswatch_pnpm_shims:$PATH"
-volta run --node 24.21.0 corepack install
+pnpm self-update 12.8.1
+```
+
+複数のpnpmがインストールされている場合は、更新したものが通常の`pnpm`で選ばれていることも確認します。
+このPCはHomebrew版と`PNPM_HOME`側を両方12.8.1へ揃え、CursorではHomebrew版を選ぶことを確認しています。
+`self-update`で更新する`PNPM_HOME`側と、Homebrew等が管理するインストールは別であり、一方の更新だけで全ての導入済みpnpmが更新されるわけではありません。
+
+新しいCursorターミナルを作成し、ルートと`apps/web`で次を確認します。
+
+```bash
+command -v node
 node -v
+command -v pnpm
 pnpm -v
 ```
 
-`pnpm -v`の初回実行では、この環境に対応するpnpm本体が取得されます。
-一時ディレクトリのshimはそのシェルの`PATH`で使用し、新しいシェルでは上記の初期化をやり直します。
-`volta fetch`はNode.jsをキャッシュへ取得し、リポジトリ外で使うVoltaの既定版を変更しません。
+Node.jsは24.21.0、pnpmは12.8.1と表示される必要があります。
+この構成ではpnpmの版をプロジェクトごとに自動切り替えしないため、`packageManager`の指定を更新した際は、実際に選ばれるグローバルpnpmも合わせて更新します。
+グローバル版の更新は他プロジェクトにも適用されるため、利用中のプロジェクトの起動・ビルドを確認します。
+`pmOnFail: error`・`verifyDepsBeforeRun: error`は維持し、版や依存関係の検証を緩和しません。
+
+このPCのCodexの非対話環境では、未登録のVolta pnpm shimが先に選ばれると、子プロセスで`node`が見つからないことを確認しました。
+Cursorの通常ターミナルはHomebrew版を選び、そのまま型チェック・ビルドを実行できます。
+Codexで同じ問題が出る場合は、次のように実行するプロセスだけHomebrew版を先に選びます。
+
+```bash
+PATH="/opt/homebrew/bin:$PATH" pnpm typecheck:web
+```
+
+これはこのPCのHomebrew導入先に合わせた実行方法であり、シェル起動ファイルやプロジェクト専用設定の追加は不要です。
+
+2026年10月3日に、このPCのmacOS arm64で既定Node.jsを24.21.0、Homebrew版と`PNPM_HOME`側のpnpmを12.8.1へ更新しました。
+その後、プロジェクト専用の自動選択設定・スクリプト・生成物とmiseの信頼登録を撤去しました。
+更新・撤去後の新規Cursorターミナルと通常の開発コマンドを確認しています。
+別PC・Linuxホストでの初回導入は未確認です。
 
 ## 用意するファイル
 
