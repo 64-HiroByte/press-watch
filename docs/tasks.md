@@ -356,8 +356,15 @@ API追加と機能実装では、テストを先に追加し、未実装によ�
 - [x] Node.js・pnpmの起動とプロジェクト指定の整合を確認し、Node.js 24系内の更新とpnpmの移行を行う
   - pnpm設定の移行、既存のPostCSS上書き設定、Docker・開発手順とのバージョン統一を確認する。
 - [x] Next.js・React・型定義・PostCSSを、公開状況・互換性・セキュリティ情報を確認して更新する
-- [ ] TypeScriptのメジャー更新を独立して検証する
+- [x] TypeScriptのメジャー更新を独立して検証する
   - Next.jsでの型チェック・ビルドに加え、エディターの型支援も確認する。
+  - 5.9.3から7.0.2へ更新し、macOS arm64・Web単体DockerのLinux arm64で型生成・型チェック・ビルド・frozen再インストール・1280×720の表示一致と、ネイティブコンパイラーの起動を確認した。
+  - Cursorでプロジェクト版7.0.2によるTypeScript・TSXの補完・診断・定義移動を確認し、設定とNext.js固有の型支援の制限を[開発手順](local-development.md#cursorでのtypescript-7の型支援)へ記録した。
+- [ ] Cursorのターミナルでシェルごとの手動切り替えなしに、プロジェクト指定のNode.js・pnpmを使えるローカル開発環境を整える
+  - PC全体の既定ツールを変更せず、プロジェクト単位で自動選択する方式を比較・合意する。
+  - 新しいターミナルとCursor再起動後に、`node -v`・`pnpm -v`がプロジェクト指定と一致し、`pnpm dev:web`で既存画面を表示でき、必要な型生成後の`pnpm typecheck:web`・`pnpm build:web`が成功することを確認する。
+  - PressWatch外・他のプロジェクトで、既存のNode.js・pnpmの選択と起動手順が維持されることを確認する。
+  - 初回セットアップ、別の開発環境での再現、設定の解除方法を[開発手順](local-development.md#web用のnodejsとpnpm)へ記録する。
 
 上記を小タスクに分け、各段階でlockfileからの再インストール、`pnpm typecheck:web`、`pnpm build:web`、既存画面の表示を確認する。
 完成条件は、ローカルとDockerで起動・表示を確認でき、実際の導入バージョンと手順が揃っていることとする。

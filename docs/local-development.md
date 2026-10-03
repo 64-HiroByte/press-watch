@@ -148,6 +148,10 @@ pnpm build:web
 ```
 
 `next typegen`は型情報を生成し、`typecheck:web`はTypeScriptの型チェック、`build:web`は本番ビルドを実行します。
+TypeScriptは`^7.0.2`、lockfileの解決版は7.0.2で、`tsc`はインストール先のOS・CPUに対応するネイティブバイナリーを使用します。
+optional dependencyに含まれるプラットフォーム用パッケージも必要なため、インストール時にoptional dependencyを一括で省略しません。
+Next.js 16.3.8のビルドも既定のCLI経路で同じプロジェクト内のTypeScriptを使用し、`experimental.useTypeScriptCli`の追加設定は不要です。
+`pnpm --filter @press-watch/web exec tsc --version`でCLIの版を確認できます。
 [Next.jsの型生成手順](https://nextjs.org/docs/app/api-reference/cli/next#next-typegen-options)に従い、`next-env.d.ts`は手動で編集しません。
 Next.js 16.3では`root-params.d.ts`への参照も生成されます。
 型生成・ビルドでは`.next/types/`、開発起動では`.next/dev/types/`を参照するため、`next-env.d.ts`の自動差分と`tsconfig.json`への必要な変更を確認します。
@@ -156,7 +160,41 @@ Next.js 16.3では`root-params.d.ts`への参照も生成されます。
 依存更新の比較では、必要なマニフェスト・lockfile・設定・Webソースだけを一時環境へコピーし、秘密ファイル・既存の`node_modules`・`.next`・`tsbuildinfo`を含めません。
 更新前後で上記の手順を実行し、同じ画面サイズで文言・レイアウト・タイトル・日本語設定とブラウザ・サーバーのエラーを確認します。
 更新後は`pnpm install --frozen-lockfile`を再実行し、lockfileが変わらないことも確認します。
+Web単体Dockerでも、表示だけでなく、コンテナ内の`/workspace`から型生成・`pnpm typecheck:web`・`pnpm build:web`を実行し、Linux用コンパイラーの版と起動を確認します。
 ループバック限定で起動した開発サーバーは、確認後に終了します。
+
+### CursorでのTypeScript 7の型支援
+
+Cursor 3.23.12（VS Code基盤1.128.0）で、Microsoft公式の[TypeScript 7拡張](https://marketplace.visualstudio.com/items?itemName=TypeScriptTeam.native-preview)1.0.1を確認しました。
+拡張機能IDは`TypeScriptTeam.native-preview`で、必要なVS Code基盤は1.126.0以上です。
+通常の型支援には拡張機能と言語サーバーが必要であり、CLIの更新だけでは切り替わりません。
+
+PressWatchをルートとして開き、拡張の導入前に既存の`.vscode/settings.json`へ次を追加します。
+既存のcSpell・Markdown設定は維持し、ユーザー全体の設定へ追加しません。
+`.vscode/`はGit管理外のため、他の開発環境ではこの手順を実施します。
+
+```json
+{
+  "js/ts.experimental.useTsgo": true,
+  "js/ts.tsdk.path": "./apps/web/node_modules/typescript"
+}
+```
+
+拡張を初めて導入する際は、ほかのCursorウィンドウをすべて閉じ、設定済みのPressWatchで導入・初回起動を完了してから開き直します。
+設定のない別のワークスペースで先に初回起動すると、ユーザー全体の`js/ts.experimental.useTsgo`が自動で有効になる場合があります。
+信頼済みのPressWatchワークスペースでTS・TSXを開き、プロジェクト版を使用する通知が出たら`Allow`を選択します。
+通知が出ない場合や選択し直す場合は、コマンド`TypeScript: Select TypeScript Version...`で`Use Workspace Version`からPressWatchのプロジェクト版を選択します。
+言語の状態から7.0.2と`apps/web/tsconfig.json`を確認し、Outputの`TypeScript 7`で`Resolved to`がプロジェクト内の`node_modules/.pnpm/@typescript+typescript-<platform>@7.0.2/`配下を指すことも確認します。
+拡張同梱版も7.0.2のため、表示された版だけではプロジェクト版を使用している証拠になりません。
+
+2026年10月2日に、macOS arm64のプロジェクト版を使い、TypeScript・TSXで文字列メソッドの補完、型の不一致の診断（TS2322）、定義への移動を確認しました。
+一時的な検証ファイルは削除し、診断が解消したことと、ユーザー全体のTypeScript設定を変更していないことも確認しました。
+拡張1.0.1とコンパイラー7.0.2の組み合わせでは、Outputに`custom/setContentMapperContributions`の`InvalidRequest`警告が出ましたが、上記の型支援は動作しました。
+この警告だけを理由にコンパイラーや拡張の版を変更せず、将来の拡張更新時に連携機能を再確認します。
+
+TypeScript 7では従来の言語サービスプラグインが動作せず、`tsconfig.json`のNext.jsプラグインによる固有の診断・補完は利用できません。
+Next.jsビルドのCLI経路でも、Next.js独自の診断表示は利用できません。
+通常のTypeScript・Reactの型チェックは維持し、型エラーを無視する設定は追加しません。
 
 ## API を単体で起動する
 
