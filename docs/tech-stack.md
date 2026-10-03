@@ -88,7 +88,8 @@ Node.js 24.21.0・pnpm 12.8.1で型生成・型チェック・ビルドが成功
 更新後のfrozen再インストールでlockfileが変わらず、macOS arm64・Linux arm64で解決版・peer条件とsharpのネイティブ読み込み・PNG生成も確認した。
 
 Node.jsはルートのVolta設定とWebの`volta.extends`、Web Dockerfileで24.21.0に揃える。
-pnpmはルートの`packageManager`をローカルとDockerのCorepackから参照し、PostCSSの上書き設定は`pnpm-workspace.yaml`に置く。
+pnpmの指定版はルートの`packageManager`を正本とし、ローカルでは同じ版のグローバルpnpmを、Dockerでは既存のCorepack経路を使用する。
+PostCSSの上書き設定は`pnpm-workspace.yaml`に置く。
 Next.js 16.3.8が指定するPostCSS 8.5.23へ、追加修正を含む8.5.28を上書きする。
 旧解決版8.5.14が対象となる[ソースマップ読み込みのHigh](https://github.com/postcss/postcss/security/advisories/GHSA-r28c-9q8g-f849)と[不完全な修正のMedium](https://github.com/postcss/postcss/security/advisories/GHSA-fxqj-rqcc-2cmp)は、それぞれ8.5.18・8.5.23で修正されている。
 
@@ -126,6 +127,24 @@ Cursorでは公式TypeScript 7拡張とワークスペース内の7.0.2を使用
 型チェックやビルド全体の速度比較は未測定であり、高速化の倍率は完了判断に含めない。
 
 互換性に問題があれば、エラーを無視する設定で通さず、原因と代替案を整理する。
+
+### ローカルのNode.js・pnpm実行環境
+
+Node.jsは既存のVoltaがルートの`package.json`の`volta.node`に従って選択する。
+Webの`volta.extends`はルートの指定を継承する。
+pnpmはグローバルに導入した12.8.1を使用し、版指定の正本は引き続きルートの`packageManager`とする。
+pnpmの版を自動切り替えする構成ではないため、指定版の変更時はグローバル版も同期し、不一致は`pmOnFail: error`で検出する。
+`verifyDepsBeforeRun: error`と既存のビルド許可設定も維持する。
+
+2026年10月3日に、PCの既定Node.jsを24.21.0、Homebrew版と`PNPM_HOME`側のpnpmを12.8.1へ更新した。
+npmの既定版11.6.3は維持した。
+当初試行したプロジェクト専用のmise設定・Corepackのshimとキャッシュ・セットアップ補助は、グローバル更新で目的を満たせたため撤去した。
+既存のCursor設定とシェル起動ファイルの変更は不要だった。
+既存miseは脆弱性修正済みの2026.10.0を維持し、uv等の既存用途で利用する。
+準備・通常操作・版の確認は[開発手順](local-development.md#web用のnodejsとpnpm)を参照する。
+
+Dockerの版指定と実行経路は変更していない。
+Linux arm64での型チェック・ビルド・表示は前タスクの検証を参照し、この整理ではDockerを再実行していない。
 
 ### Python
 
