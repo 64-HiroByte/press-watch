@@ -223,6 +223,14 @@ Dockerでは既存のWeb DockerfileとCorepack経路を使い、新規コンテ�
 Dockerの開発画面は`http://localhost:<公開ポート>/ui-foundation`で開く。
 コンテナ内を`0.0.0.0`で起動した場合、閲覧先の`127.0.0.1`はNext.jsの開発リソースのorigin制限に拒否されるため、ループバック公開を維持して`localhost`を使う。
 
+### 一覧Mockの確認
+
+Phase 6-3のデザイン比較はdevelopment限定の`/mock`で行う。
+3案のデザイン、カテゴリ欄2案、通常・ローディング・取得失敗・データなし・検索結果なしを比較欄で切り替える。
+内容は固定サンプルで、検索・カテゴリ選択・ページ送りによって結果やURLは変わらない。
+画面構成、起動方法、確認項目、未確定事項は[一覧Mockの画面構成と確認方法](frontend-mock.md)を参照する。
+ユーザーの見た目確認が終わるまではPhase 6-3の完了としない。
+
 ### CursorでのTypeScript 7の型支援
 
 Cursor 3.23.12（VS Code基盤1.128.0）で、Microsoft公式の[TypeScript 7拡張](https://marketplace.visualstudio.com/items?itemName=TypeScriptTeam.native-preview)1.0.1を確認しました。
