@@ -38,6 +38,7 @@ CheckboxとNative Selectの取り込みは、カテゴリの単一／複数選�
 2026年10月4日に公式マニフェストと取り込むコードを確認した。
 TailwindのPostCSS条件と既存の`postcss: ^8.5.28`、Base UI・Lucide・next-themesのReact 19対応条件は整合する。
 Lucideは当初候補の1.51.0が新規Docker環境でpnpmの公開後待機条件に拒否されたため、ユーザー承認のもと1.50.0へ変更した。
+Lucideは1.50.0を維持し、必要なアイコンの追加、利用箇所に関係する不具合修正、互換性・セキュリティ対応が必要になった時に、差分と動作を確認して更新する。
 待機条件の例外は追加せず、`pmOnFail`・`verifyDepsBeforeRun`・既存のビルド許可設定を維持する。
 Base UIのoptional peerである日付関連ライブラリは、この7部品には不要なので追加しない。
 TailwindのOxideとLightning CSSはネイティブ依存を持つため、OS・CPUに対応するoptional dependenciesを省略しない。
