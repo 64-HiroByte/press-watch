@@ -14,9 +14,9 @@
 - Next.js
 - React
 - TypeScript
-- Tailwind CSS 4系（Phase 6で導入予定）
-- shadcn/ui（Phase 6で導入予定）
-- Kibo UI（Phase 6で必要な部品を導入予定）
+- Tailwind CSS 4.3.3
+- shadcn/ui（base-nova・Base UIの基本部品、CLI 4.21.1）
+- Kibo UI（必要性を評価し、Phase 6-2では導入保留）
 - Oxlint / Oxfmt（Phase 6のMock確認後、機能実装前に導入予定）
 
 ### バックエンド
@@ -77,7 +77,7 @@
 | `@types/node` | `^24.19.0` | 24.19.0、Node.jsと同じ24系を維持 |
 | TypeScript | `^7.0.2` | 7.0.2、ネイティブコンパイラーを採用 |
 | pnpm | 12.8.1 | 前の小タスクでローカル・Web単体Dockerを確認済み、今回は維持 |
-| PostCSS | workspaceの上書き`^8.5.28` | Next.js経由で8.5.28 |
+| PostCSS | workspaceの上書き`^8.5.28`、Webの直接指定8.5.28 | Next.jsとTailwindで8.5.28を共用 |
 | sharp | Next.jsの間接依存 | 0.35.5 |
 
 `@types/node`は公開後24時間を経過した24.19.0を採用し、pnpmの待機ポリシーの例外は追加しない。
@@ -191,8 +191,12 @@ Linux arm64での型チェック・ビルド・表示は前タスクの検証を
 | --- | --- |
 | Tailwind CSS | 慣れた方法でスタイルを調整し、画面の作り込みに時間をかけすぎないために採用する |
 | shadcn/ui | 基本部品と見た目を揃え、取り込んだコードを理解・調整して保守するために採用する |
-| Kibo UI | 必要な複合部品を補い、画面固有の処理に集中するために採用する |
+| Kibo UI | 標準部品で不足する複合UIが必要になった時に再評価する。Phase 6-2では導入を保留する |
 | Oxlint / Oxfmt | lintとformatの実行方法を揃え、機能実装時の確認を再現できるようにするために採用する |
+
+Phase 6-2ではNeutralを初期テーマとし、ライト・ダーク・システム追従と7種類の基本部品を用意する。
+採用版、Server／Client境界、出典・ライセンス、独自変更と更新手順は[UI基盤](frontend-ui.md)を参照する。
+既存のNode.js・pnpm・Next.js・React・TypeScriptとDockerのCorepack経路は維持する。
 
 - UI部品は使用するものだけ取り込み、基本部品との整合、追加依存、選定理由と保守範囲を確認する。
 - UI部品は無料で利用できる公開OSS部品を選び、採用時にライセンスと利用条件を確認する。

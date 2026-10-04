@@ -196,6 +196,33 @@ Next.js 16.3では`root-params.d.ts`への参照も生成されます。
 Web単体Dockerでも、表示だけでなく、コンテナ内の`/workspace`から型生成・`pnpm typecheck:web`・`pnpm build:web`を実行し、Linux用コンパイラーの版と起動を確認します。
 ループバック限定で起動した開発サーバーは、確認後に終了します。
 
+### UI基盤の確認
+
+開発サーバーをループバックに限定して起動し、`http://127.0.0.1:3000/ui-foundation`を開く。
+このページはdevelopment限定で、productionの通常ソースでは404になる。
+基本部品・テーマの採用版、出典と更新手順は[UI基盤](frontend-ui.md)を参照する。
+
+- 日本語の文言・入力とラベルの関連付け、Button・Input・Checkbox・Native Selectの無効状態を確認する。
+- Tabの移動とフォーカス表示、CheckboxのSpace操作、Native Selectの選択を確認する。
+- ライト・ダーク・システム追従を切り替え、再読込後も選択が保持されることを確認する。
+  システム追従時は現在のOS設定と表示を照合する。
+- Paginationは表示だけの見本で、クリックしてもURLや現在ページが変わらないことを確認する。
+- ブラウザ・サーバーのエラーとhydration警告、`/third-party-notices.txt`の表示を確認する。
+
+通常ソースのproduction確認は、型生成・型チェック・ビルドの後に次を実行する。
+
+```bash
+pnpm --filter @press-watch/web start --hostname 127.0.0.1
+```
+
+productionで7部品を確認する時は、秘密ファイル・既存依存・生成物を含まない一時コピーを作る。
+そのコピーだけで確認ページのdevelopment判定と`notFound()`呼び出しを外し、frozen install・型生成・型チェック・build/startを行う。
+納品ソースにはこの変更を取り込まず、通常ソースのproductionで404になることも別に確認する。
+Dockerでは既存のWeb DockerfileとCorepack経路を使い、新規コンテナ内で検証した後、同じコンテナ内の本番ビルドを`start --hostname 0.0.0.0`で起動する。
+ホスト側は`127.0.0.1`へ限定して公開し、確認後に今回作成したリソースだけを片付ける。
+Dockerの開発画面は`http://localhost:<公開ポート>/ui-foundation`で開く。
+コンテナ内を`0.0.0.0`で起動した場合、閲覧先の`127.0.0.1`はNext.jsの開発リソースのorigin制限に拒否されるため、ループバック公開を維持して`localhost`を使う。
+
 ### CursorでのTypeScript 7の型支援
 
 Cursor 3.23.12（VS Code基盤1.128.0）で、Microsoft公式の[TypeScript 7拡張](https://marketplace.visualstudio.com/items?itemName=TypeScriptTeam.native-preview)1.0.1を確認しました。
