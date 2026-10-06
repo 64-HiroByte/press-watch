@@ -2,13 +2,11 @@ import { notFound } from "next/navigation";
 import { SearchIcon } from "lucide-react";
 
 import { MockWorkbench } from "@/components/mock/workbench";
-import { MockCategoryToggles } from "@/components/mock/category-toggles";
 import { PressReleaseList } from "@/components/press-releases/list";
 import { PressReleaseStatus, type ReleaseDisplayState } from "@/components/press-releases/status";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import {
   Pagination, PaginationContent, PaginationEllipsis, PaginationItem,
   PaginationLink, PaginationNext, PaginationPrevious,
@@ -17,43 +15,27 @@ import { longCategorySample, mockCategories, mockReleases } from "@/mock/press-r
 
 import "./mock.css";
 
-function SearchFields({ withPublicationDates = false }: { withPublicationDates?: boolean }) {
+function SearchFields() {
   return (
     <div className="release-search" role="search" aria-label="報道発表の検索">
       <div className="release-search-field">
         <Label htmlFor="release-keyword">キーワード</Label>
         <Input id="release-keyword" type="search" placeholder="タイトル内のキーワード" />
       </div>
-      {withPublicationDates && (
-        <fieldset className="release-date-range">
-          <legend>公開日</legend>
-          <div className="release-date-inputs">
-            <div className="release-date-field">
-              <Label htmlFor="release-date-from">開始日</Label>
-              <Input id="release-date-from" type="date" />
-            </div>
-            <div className="release-date-field">
-              <Label htmlFor="release-date-to">終了日</Label>
-              <Input id="release-date-to" type="date" />
-            </div>
+      <fieldset className="release-date-range">
+        <legend>公開日</legend>
+        <div className="release-date-inputs">
+          <div className="release-date-field">
+            <Label htmlFor="release-date-from">開始日</Label>
+            <Input id="release-date-from" type="date" />
           </div>
-        </fieldset>
-      )}
+          <div className="release-date-field">
+            <Label htmlFor="release-date-to">終了日</Label>
+            <Input id="release-date-to" type="date" />
+          </div>
+        </div>
+      </fieldset>
       <Button type="button" className="release-search-button"><SearchIcon aria-hidden="true" />検索</Button>
-    </div>
-  );
-}
-
-function CategorySelect() {
-  return (
-    <div className="release-category-field release-category-select">
-      <Label htmlFor="release-category">カテゴリ</Label>
-      <NativeSelect id="release-category" defaultValue="">
-        <NativeSelectOption value="">すべてのカテゴリ</NativeSelectOption>
-        {mockCategories.map((category) => (
-          <NativeSelectOption value={category.slug} key={category.slug}>{category.name}</NativeSelectOption>
-        ))}
-      </NativeSelect>
     </div>
   );
 }
@@ -100,16 +82,7 @@ export default function MockPage() {
 
   return (
     <MockWorkbench
-      header={
-        <header className="release-header">
-          <p className="release-brand">PressWatch<span>環境省の報道発表</span></p>
-          <h2>報道発表一覧</h2>
-          <p className="release-introduction">日々の発表から、必要な情報を見つける。</p>
-        </header>
-      }
-      search={<SearchFields />}
-      sidebarSearch={<SearchFields withPublicationDates />}
-      categories={{ toggles: <MockCategoryToggles categories={mockCategories} />, select: <CategorySelect /> }}
+      sidebarSearch={<SearchFields />}
       sidebarCategories={mockCategories}
       results={{
         normal: <Results />, loading: <Results state="loading" />, error: <Results state="error" />,

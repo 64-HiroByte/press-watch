@@ -502,6 +502,87 @@ html:has(.release-filter-panel:modal) {
   border-top: 1px solid var(--border);
 }
 
+.mock-preview .release-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+}
+
+.mock-preview .release-theme-options {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+  margin-left: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+}
+
+.mock-preview .release-theme-indicator {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  background: var(--foreground);
+  pointer-events: none;
+}
+
+.mock-preview .release-theme-options[data-ready="false"] .release-theme-indicator {
+  visibility: hidden;
+}
+
+.mock-preview .release-theme-options[data-selected="dark"] .release-theme-indicator {
+  transform: translateX(48px);
+}
+
+/* next-themesの切替時のtransition抑止から独立して、選択背景だけを動かす。 */
+.mock-preview .release-theme-options[data-animate="true"][data-selected="dark"] .release-theme-indicator {
+  animation: mock-theme-slide-dark 180ms ease-out;
+}
+
+.mock-preview .release-theme-options[data-animate="true"][data-selected="light"] .release-theme-indicator {
+  animation: mock-theme-slide-light 180ms ease-out;
+}
+
+@keyframes mock-theme-slide-dark {
+  from { transform: translateX(0); }
+  to { transform: translateX(48px); }
+}
+
+@keyframes mock-theme-slide-light {
+  from { transform: translateX(48px); }
+  to { transform: translateX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mock-preview .release-theme-options[data-animate="true"][data-selected] .release-theme-indicator {
+    animation: none;
+  }
+}
+
+.mock-preview .release-theme-options button {
+  position: relative;
+  z-index: 1;
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  background: transparent;
+}
+
+.mock-preview .release-theme-options button:hover {
+  background: transparent;
+}
+
+.mock-preview .release-theme-options button[aria-pressed="true"] {
+  color: var(--background);
+}
+
 .mock-preview[data-design="sidebar"] .release-category-field {
   margin-top: 0;
 }
