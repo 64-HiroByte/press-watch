@@ -1,21 +1,7 @@
 "use client";
 
-import { useState } from "react";
-
 import type { FixedCategoryLabel } from "@/components/press-releases/list";
 import { Button } from "@/components/ui/button";
-
-export function MockCategoryToggles({ categories }: { categories: readonly FixedCategoryLabel[] }) {
-  const [selected, setSelected] = useState<string[]>([]);
-
-  function toggleCategory(slug: string) {
-    setSelected((current) => current.includes(slug)
-      ? current.filter((value) => value !== slug)
-      : [...current, slug]);
-  }
-
-  return <MockCategoryPills categories={categories} selectedSlugs={selected} onToggle={toggleCategory} />;
-}
 
 type CategoryPillsProps = {
   categories: readonly FixedCategoryLabel[];
