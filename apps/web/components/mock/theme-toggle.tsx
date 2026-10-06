@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { MoonIcon, SunIcon } from "lucide-react";
 import { useTheme } from "next-themes";
 
+import { MockDisplayTooltip } from "@/components/mock/display-tooltip";
 import { Button } from "@/components/ui/button";
 
 const options = [
@@ -26,11 +27,14 @@ export function MockThemeToggle() {
     >
       <span className="release-theme-indicator" aria-hidden="true" />
       {options.map(({ value, label, icon: Icon }) => (
-        <Button
-          key={value} type="button" variant="ghost" size="icon" disabled={!mounted}
-          aria-label={label} title={label} aria-pressed={mounted && selected === value}
-          onClick={() => { setAnimate(selected !== value); setTheme(value); }}
-        ><Icon aria-hidden="true" /></Button>
+        <MockDisplayTooltip key={value} label={mounted && selected === value
+          ? `${label}モード（選択中）` : `${label}モードに切り替え`}>
+          <Button
+            type="button" variant="ghost" size="icon" disabled={!mounted}
+            aria-label={label} aria-pressed={mounted && selected === value}
+            onClick={() => { setAnimate(selected !== value); setTheme(value); }}
+          ><Icon className="size-4.5" aria-hidden="true" /></Button>
+        </MockDisplayTooltip>
       ))}
     </div>
   );

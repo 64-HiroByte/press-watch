@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "re
 import { ChevronDownIcon, PencilLineIcon } from "lucide-react";
 
 import { MockCategoryPills } from "@/components/mock/category-toggles";
+import { MockDisplayTooltip } from "@/components/mock/display-tooltip";
 import { MockSidebarFilters, type MockSearchConditions } from "@/components/mock/sidebar-filters";
 import { MockThemeToggle } from "@/components/mock/theme-toggle";
 import type { FixedCategoryLabel } from "@/components/press-releases/list";
@@ -26,6 +27,7 @@ export function MockWorkbench({ sidebarSearch, sidebarCategories, resultSummarie
   const [sidebarSelection, setSidebarSelection] = useState<string[]>([]);
   const [appliedSearch, setAppliedSearch] = useState<MockSearchConditions>({ keyword: "", publishedFrom: "", publishedTo: "" });
   const [conditionsExpanded, setConditionsExpanded] = useState(false);
+  const [textSize, setTextSize] = useState<"standard" | "large">("standard");
   const mainRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
 
@@ -115,7 +117,7 @@ export function MockWorkbench({ sidebarSearch, sidebarCategories, resultSummarie
       </aside>
 
       <section
-        className="mock-preview" data-design="sidebar" aria-label="サイドバーの画面見本"
+        className="mock-preview" data-design="sidebar" data-text-size={textSize} aria-label="サイドバーの画面見本"
         onClick={preventPreviewNavigation} onAuxClick={preventPreviewNavigation}
       >
         <MockSidebarFilters onSearch={setAppliedSearch} renderMain={({ drawerOpen, openDrawer, triggerRef, rememberTriggerFocus }) => (
@@ -124,7 +126,24 @@ export function MockWorkbench({ sidebarSearch, sidebarCategories, resultSummarie
               <div className="release-header-body">
                 <div className="release-header-top">
                   <h2>報道発表一覧</h2>
-                  <MockThemeToggle />
+                  <div className="release-display-controls">
+                    <div className="release-text-options" role="group" aria-label="文字サイズ">
+                      <div className="release-text-buttons">
+                        {(["standard", "large"] as const).map((size) => (
+                          <MockDisplayTooltip key={size} label={textSize === size
+                            ? `${size === "standard" ? "標準" : "大きめ"}サイズ（選択中）`
+                            : `${size === "standard" ? "標準" : "大きめ"}サイズに切り替え`}>
+                            <Button
+                              type="button" variant="ghost" size="icon"
+                              aria-label={size === "standard" ? "文字サイズ：標準" : "文字サイズ：大きめ"}
+                              aria-pressed={textSize === size} onClick={() => setTextSize(size)}
+                            ><span className="release-text-symbol" data-size={size} aria-hidden="true">あ</span></Button>
+                          </MockDisplayTooltip>
+                        ))}
+                      </div>
+                    </div>
+                    <MockThemeToggle />
+                  </div>
                 </div>
                 <div className="release-condition-controls">
                   <span id="mock-condition-status" className="release-condition-status" aria-live="polite" aria-atomic="true">

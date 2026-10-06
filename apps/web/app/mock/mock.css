@@ -548,24 +548,69 @@ html:has(.release-filter-panel:modal) {
   gap: 12px 16px;
 }
 
+.mock-preview .release-display-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  max-width: 100%;
+  margin-left: auto;
+}
+
+.mock-preview .release-text-options {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.mock-preview .release-text-buttons {
+  display: flex;
+  padding: 3px;
+  gap: 2px;
+  border: 1px solid var(--mock-pill-border, var(--border));
+  border-radius: 9999px;
+}
+
+.mock-preview .release-text-buttons button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 9999px;
+}
+
+.mock-preview .release-text-symbol {
+  font-size: 14px;
+  line-height: 1;
+  font-weight: 500;
+}
+
+.mock-preview .release-text-symbol[data-size="large"] {
+  font-size: 22px;
+}
+
+.mock-preview .release-text-buttons button[aria-pressed="true"] {
+  background: var(--foreground);
+  color: var(--background);
+}
+
 .mock-preview .release-theme-options {
   position: relative;
   isolation: isolate;
   display: flex;
   flex-shrink: 0;
-  gap: 4px;
+  gap: 2px;
   margin-left: auto;
-  padding: 4px;
+  padding: 3px;
   border: 1px solid var(--mock-pill-border, var(--border));
   border-radius: 9999px;
 }
 
 .mock-preview .release-theme-indicator {
   position: absolute;
-  top: 4px;
-  left: 4px;
-  width: 44px;
-  height: 44px;
+  top: 3px;
+  left: 3px;
+  width: 32px;
+  height: 32px;
   border-radius: 9999px;
   background: var(--foreground);
   pointer-events: none;
@@ -576,7 +621,7 @@ html:has(.release-filter-panel:modal) {
 }
 
 .mock-preview .release-theme-options[data-selected="dark"] .release-theme-indicator {
-  transform: translateX(48px);
+  transform: translateX(34px);
 }
 
 /* next-themesの切替時のtransition抑止から独立して、選択背景だけを動かす。 */
@@ -590,11 +635,11 @@ html:has(.release-filter-panel:modal) {
 
 @keyframes mock-theme-slide-dark {
   from { transform: translateX(0); }
-  to { transform: translateX(48px); }
+  to { transform: translateX(34px); }
 }
 
 @keyframes mock-theme-slide-light {
-  from { transform: translateX(48px); }
+  from { transform: translateX(34px); }
   to { transform: translateX(0); }
 }
 
@@ -607,18 +652,46 @@ html:has(.release-filter-panel:modal) {
 .mock-preview .release-theme-options button {
   position: relative;
   z-index: 1;
-  width: 44px;
-  height: 44px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   border-radius: 9999px;
-  background: transparent;
-}
-
-.mock-preview .release-theme-options button:hover {
   background: transparent;
 }
 
 .mock-preview .release-theme-options button[aria-pressed="true"] {
   color: var(--background);
+}
+
+@media (hover: hover) {
+  .mock-preview .release-display-controls button:hover {
+    border-color: currentColor;
+  }
+
+  .mock-preview .release-display-controls button[aria-pressed="false"]:hover {
+    background: var(--muted);
+  }
+}
+
+.mock-display-tooltip-positioner {
+  z-index: 20;
+}
+
+.mock-display-tooltip {
+  max-width: min(280px, calc(100vw - 32px));
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 3px;
+  background: #d8d7ce;
+  color: #303630;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+html.dark .mock-display-tooltip {
+  background: var(--muted);
+  color: var(--foreground);
 }
 
 .mock-preview[data-design="sidebar"] .release-category-field {
@@ -634,7 +707,7 @@ html:has(.release-filter-panel:modal) {
 }
 
 .mock-preview[data-design="sidebar"] .release-header h2 {
-  font-size: 26px;
+  font-size: 30px;
 }
 
 .mock-preview .release-applied-conditions {
@@ -992,4 +1065,79 @@ html:has(.release-filter-panel:modal) {
     grid-column: 1;
     justify-content: start;
   }
+}
+
+.mock-preview[data-text-size="large"] .release-header h2 {
+  font-size: 32px;
+}
+
+.mock-preview[data-text-size="large"] .release-title,
+.mock-preview[data-text-size="large"] .release-status-title {
+  font-size: 18px;
+}
+
+.mock-preview[data-text-size="large"] .release-date,
+.mock-preview[data-text-size="large"] .release-category {
+  font-size: 15px;
+}
+
+.mock-preview[data-text-size="large"] .release-applied-conditions,
+.mock-preview[data-text-size="large"] .release-condition-controls,
+.mock-preview[data-text-size="large"] .release-condition-controls button,
+.mock-preview[data-text-size="large"] .release-results-summary,
+.mock-preview[data-text-size="large"] .release-uncategorized,
+.mock-preview[data-text-size="large"] .release-page-description,
+.mock-preview[data-text-size="large"] .release-date-field label,
+.mock-preview[data-text-size="large"] .release-sidebar-brand span,
+.mock-preview[data-text-size="large"] .mock-robustness {
+  font-size: 14px;
+}
+
+.mock-preview[data-text-size="large"] .release-search-field label,
+.mock-preview[data-text-size="large"] .release-date-range legend,
+.mock-preview[data-text-size="large"] .release-category-field legend,
+.mock-preview[data-text-size="large"] .release-results-summary strong,
+.mock-preview[data-text-size="large"] .release-status-description,
+.mock-preview[data-text-size="large"] .release-pagination a {
+  font-size: 16px;
+}
+
+.mock-preview[data-text-size="large"] .release-search input,
+.mock-preview[data-text-size="large"] .release-search-button {
+  height: 44px;
+  font-size: 16px;
+}
+
+.mock-preview[data-text-size="large"] .release-category-toggle {
+  height: 32px;
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.mock-preview[data-text-size="large"] .release-applied-row {
+  grid-template-columns: 88px minmax(0, 1fr);
+}
+
+.mock-preview[data-text-size="large"] .release-row {
+  padding-top: 24px;
+  padding-bottom: 24px;
+}
+
+.mock-preview[data-text-size="large"] .release-link-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.mock-preview[data-text-size="large"] .release-pagination a {
+  min-width: 36px;
+  height: 36px;
+}
+
+.mock-preview[data-text-size="large"] .release-sidebar-brand,
+.mock-preview[data-text-size="large"] .release-mobile-bar {
+  font-size: 22px;
+}
+
+.mock-preview[data-text-size="large"] .release-drawer-heading h2 {
+  font-size: 20px;
 }
