@@ -14,6 +14,16 @@ export function MockCategoryToggles({ categories }: { categories: readonly Fixed
       : [...current, slug]);
   }
 
+  return <MockCategoryPills categories={categories} selectedSlugs={selected} onToggle={toggleCategory} />;
+}
+
+type CategoryPillsProps = {
+  categories: readonly FixedCategoryLabel[];
+  selectedSlugs: readonly string[];
+  onToggle: (slug: string) => void;
+};
+
+export function MockCategoryPills({ categories, selectedSlugs, onToggle }: CategoryPillsProps) {
   return (
     <fieldset className="release-category-field">
       <legend>カテゴリ</legend>
@@ -21,7 +31,7 @@ export function MockCategoryToggles({ categories }: { categories: readonly Fixed
         {categories.map((category) => (
           <Button
             key={category.slug} type="button" variant="outline" className="release-category-toggle"
-            aria-pressed={selected.includes(category.slug)} onClick={() => toggleCategory(category.slug)}
+            aria-pressed={selectedSlugs.includes(category.slug)} onClick={() => onToggle(category.slug)}
           >
             {category.name}
           </Button>

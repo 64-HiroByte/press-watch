@@ -17,13 +17,28 @@ import { longCategorySample, mockCategories, mockReleases } from "@/mock/press-r
 
 import "./mock.css";
 
-function SearchFields() {
+function SearchFields({ withPublicationDates = false }: { withPublicationDates?: boolean }) {
   return (
     <div className="release-search" role="search" aria-label="報道発表の検索">
       <div className="release-search-field">
         <Label htmlFor="release-keyword">キーワード</Label>
-        <Input id="release-keyword" type="search" placeholder="タイトルに含まれるキーワード" />
+        <Input id="release-keyword" type="search" placeholder="タイトル内のキーワード" />
       </div>
+      {withPublicationDates && (
+        <fieldset className="release-date-range">
+          <legend>公開日</legend>
+          <div className="release-date-inputs">
+            <div className="release-date-field">
+              <Label htmlFor="release-date-from">開始日</Label>
+              <Input id="release-date-from" type="date" />
+            </div>
+            <div className="release-date-field">
+              <Label htmlFor="release-date-to">終了日</Label>
+              <Input id="release-date-to" type="date" />
+            </div>
+          </div>
+        </fieldset>
+      )}
       <Button type="button" className="release-search-button"><SearchIcon aria-hidden="true" />検索</Button>
     </div>
   );
@@ -93,7 +108,9 @@ export default function MockPage() {
         </header>
       }
       search={<SearchFields />}
+      sidebarSearch={<SearchFields withPublicationDates />}
       categories={{ toggles: <MockCategoryToggles categories={mockCategories} />, select: <CategorySelect /> }}
+      sidebarCategories={mockCategories}
       results={{
         normal: <Results />, loading: <Results state="loading" />, error: <Results state="error" />,
         empty: <Results state="empty" />, "no-results": <Results state="no-results" />,
