@@ -4,6 +4,7 @@ import { useState, type MouseEvent, type ReactNode } from "react";
 
 import { ThemeSelector } from "@/components/theme-selector";
 import { MockCategoryPills } from "@/components/mock/category-toggles";
+import { MockSidebarFilters } from "@/components/mock/sidebar-filters";
 import type { FixedCategoryLabel } from "@/components/press-releases/list";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -110,16 +111,18 @@ export function MockWorkbench({ header, search, sidebarSearch, categories, sideb
         onClick={preventPreviewNavigation} onAuxClick={preventPreviewNavigation}
       >
         <div hidden={isSidebar}>{header}</div>
-        <aside className="release-filters" aria-label="検索とカテゴリ">
-          {isSidebar && <p className="release-sidebar-brand">PressWatch<span>環境省の報道発表</span></p>}
-          {isSidebar ? sidebarSearch : search}
-          <div hidden={isSidebar}>{categories[categoryLayout]}</div>
-          {isSidebar && (
+        <aside hidden={isSidebar} className="release-filters" aria-label="検索とカテゴリ">
+          {!isSidebar && search}
+          {categories[categoryLayout]}
+        </aside>
+        {isSidebar && (
+          <MockSidebarFilters>
+            {sidebarSearch}
             <div className="release-sidebar-categories">
               <MockCategoryPills categories={sidebarCategories} selectedSlugs={sidebarSelection} onToggle={toggleSidebarCategory} />
             </div>
-          )}
-        </aside>
+          </MockSidebarFilters>
+        )}
         <div className="release-main">
           {isSidebar && (
             <header className="release-header">
