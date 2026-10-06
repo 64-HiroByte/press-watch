@@ -230,43 +230,30 @@ html.dark .mock-workbench {
 }
 
 .mock-preview .release-results {
-  margin-top: 24px;
+  margin-top: 0;
 }
 
-.mock-preview .release-results-heading {
+.mock-preview .release-results-summary {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
+  justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 10px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--border);
-}
-
-.mock-preview .release-results-heading h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.mock-preview .release-results-heading p {
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
-  margin: 0;
+  gap: 8px 24px;
+  margin-top: 16px;
   font-size: 12px;
   color: var(--muted-foreground);
 }
 
-.mock-preview .release-results-heading strong {
+.mock-preview .release-results-summary p {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.mock-preview .release-results-summary strong {
   color: var(--foreground);
   font-size: 14px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
-}
-
-.mock-preview .release-results-heading p span {
-  margin-left: 18px;
 }
 
 .mock-preview .release-list {
@@ -449,6 +436,7 @@ html.dark .mock-workbench {
 }
 
 .mock-preview .release-mobile-bar,
+.mock-preview .release-conditions-trigger,
 .mock-preview .release-drawer-heading {
   display: none;
 }
@@ -626,17 +614,67 @@ html:has(.release-filter-panel:modal) {
   font-size: 26px;
 }
 
-.mock-preview .release-applied-categories {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 8px 14px;
+.mock-preview .release-applied-conditions {
   margin-top: 12px;
   font-size: 12px;
 }
 
+.mock-preview .release-condition-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+.mock-preview .release-condition-status {
+  color: var(--muted-foreground);
+}
+
+.mock-preview .release-condition-controls button {
+  height: auto;
+  min-height: 32px;
+  padding: 4px 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.mock-preview .release-condition-controls button:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.mock-preview .release-condition-controls button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+}
+
+.mock-preview .release-conditions-disclosure[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.mock-preview .release-applied-row {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 14px;
+}
+
+.mock-preview .release-applied-row + .release-applied-row {
+  margin-top: 8px;
+}
+
 .mock-preview .release-applied-label {
   color: var(--muted-foreground);
+}
+
+.mock-preview .release-applied-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .mock-preview .release-applied-values {
@@ -746,7 +784,6 @@ html:has(.release-filter-panel:modal) {
     letter-spacing: -0.5px;
   }
 
-  .mock-preview .release-filter-trigger,
   .mock-preview .release-filter-close {
     min-height: 44px;
     border-radius: 3px;
@@ -754,6 +791,14 @@ html:has(.release-filter-panel:modal) {
 
   .mock-preview .release-filter-close {
     width: 44px;
+  }
+
+  .mock-preview .release-conditions-trigger {
+    display: inline-flex;
+  }
+
+  .mock-preview .release-condition-controls button {
+    min-height: 44px;
   }
 
   .mock-preview .release-filter-panel:not(:modal) {

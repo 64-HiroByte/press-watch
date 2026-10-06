@@ -1,16 +1,33 @@
 "use client";
 
-import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
-import { MenuIcon, XIcon } from "lucide-react";
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
-export function MockSidebarFilters({ children }: { children: ReactNode }) {
+export type MockSearchConditions = {
+  keyword: string;
+  publishedFrom: string;
+  publishedTo: string;
+};
+
+type SidebarFiltersProps = {
+  children: ReactNode;
+  onSearch: (conditions: MockSearchConditions) => void;
+  renderMain: (controls: {
+    drawerOpen: boolean;
+    openDrawer: () => void;
+    rememberTriggerFocus: () => void;
+    triggerRef: RefObject<HTMLButtonElement | null>;
+  }) => ReactNode;
+};
+
+export function MockSidebarFilters({ children, onSearch, renderMain }: SidebarFiltersProps) {
   const panelRef = useRef<HTMLDialogElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const restoreTriggerFocus = useRef(false);
-  const lastPanelFocus = useRef<HTMLElement | null>(null);
+  const lastFilterFocus = useRef<HTMLElement | null>(null);
   const pointerStartedOnBackdrop = useRef(false);
   const pagePosition = useRef({ left: 0, top: 0 });
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -27,8 +44,8 @@ export function MockSidebarFilters({ children }: { children: ReactNode }) {
       if (narrowScreen.matches && wasNarrow) return;
       wasNarrow = narrowScreen.matches;
       // CSSでパネルが隠れると、幅変更の通知より先にbodyへフォーカスが戻ることがある。
-      const focused = document.activeElement === document.body && lastPanelFocus.current
-        ? lastPanelFocus.current : document.activeElement;
+      const focused = document.activeElement === document.body && lastFilterFocus.current
+        ? lastFilterFocus.current : document.activeElement;
       const focusInPanel = panel.contains(focused);
       const position = panel.matches(":modal") ? pagePosition.current : { left: window.scrollX, top: window.scrollY };
       restoreTriggerFocus.current = false;
@@ -44,7 +61,7 @@ export function MockSidebarFilters({ children }: { children: ReactNode }) {
         // 幅変更で隠れる閉じるボタン・見出しから、通常の検索欄へ戻す。
         if (focusInPanel && focused instanceof HTMLElement && focused.getClientRects().length > 0) {
           focused.focus({ preventScroll: true });
-        } else if (focusInPanel) {
+        } else if (focusInPanel || focused === triggerRef.current) {
           panel.querySelector<HTMLInputElement>('input[type="search"]')?.focus({ preventScroll: true });
         } else if (focused instanceof HTMLElement) {
           focused.focus({ preventScroll: true });
@@ -89,10 +106,17 @@ export function MockSidebarFilters({ children }: { children: ReactNode }) {
 
   function handlePanelClick(event: MouseEvent<HTMLDialogElement>) {
     const panel = panelRef.current;
-    if (!panel?.matches(":modal")) return;
-    if (event.target instanceof Element && event.target.closest(".release-search-button")) {
-      panel.close();
-    } else if (pointerStartedOnBackdrop.current && event.target === panel) {
+    if (!panel) return;
+    const search = event.target instanceof Element
+      ? event.target.closest(".release-search-button")?.closest(".release-search") : null;
+    if (search) {
+      onSearch({
+        keyword: search.querySelector<HTMLInputElement>("#release-keyword")?.value ?? "",
+        publishedFrom: search.querySelector<HTMLInputElement>("#release-date-from")?.value ?? "",
+        publishedTo: search.querySelector<HTMLInputElement>("#release-date-to")?.value ?? "",
+      });
+      if (panel.matches(":modal")) panel.close();
+    } else if (panel.matches(":modal") && pointerStartedOnBackdrop.current && event.target === panel) {
       const bounds = panel.getBoundingClientRect();
       if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) {
         panel.close();
@@ -129,20 +153,15 @@ export function MockSidebarFilters({ children }: { children: ReactNode }) {
     <>
       <div className="release-mobile-bar">
         <span>PressWatch</span>
-        <Button
-          ref={triggerRef} type="button" variant="outline" className="release-filter-trigger"
-          aria-haspopup="dialog" aria-controls="mock-filter-panel" aria-expanded={drawerOpen}
-          onClick={openDrawer}
-        ><MenuIcon aria-hidden="true" />検索条件</Button>
       </div>
       <aside className="release-filters release-sidebar-filters" aria-label="検索とカテゴリ">
         <dialog
           ref={panelRef} id="mock-filter-panel" className="release-filter-panel" open aria-label="検索条件"
           onClose={handleClose} onClick={handlePanelClick} onPointerDown={handleBackdropPointer}
           onKeyDown={handlePanelKeyDown}
-          onFocusCapture={(event) => { lastPanelFocus.current = event.target; }}
+          onFocusCapture={(event) => { lastFilterFocus.current = event.target; }}
           onBlurCapture={(event) => {
-            if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) lastPanelFocus.current = null;
+            if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) lastFilterFocus.current = null;
           }}
         >
           <div className="release-drawer-heading">
@@ -155,6 +174,7 @@ export function MockSidebarFilters({ children }: { children: ReactNode }) {
           {children}
         </dialog>
       </aside>
+      {renderMain({ drawerOpen, openDrawer, triggerRef, rememberTriggerFocus: () => { lastFilterFocus.current = triggerRef.current; } })}
     </>
   );
 }

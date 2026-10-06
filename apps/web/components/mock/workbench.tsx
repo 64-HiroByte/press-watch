@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { ChevronDownIcon, PencilLineIcon } from "lucide-react";
 
 import { MockCategoryPills } from "@/components/mock/category-toggles";
-import { MockSidebarFilters } from "@/components/mock/sidebar-filters";
+import { MockSidebarFilters, type MockSearchConditions } from "@/components/mock/sidebar-filters";
 import { MockThemeToggle } from "@/components/mock/theme-toggle";
 import type { FixedCategoryLabel } from "@/components/press-releases/list";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 
@@ -14,14 +16,46 @@ type PreviewState = "normal" | "loading" | "error" | "empty" | "no-results";
 type WorkbenchProps = {
   sidebarSearch: ReactNode;
   sidebarCategories: readonly FixedCategoryLabel[];
+  resultSummaries: Record<PreviewState, ReactNode>;
   results: Record<PreviewState, ReactNode>;
   robustness: ReactNode;
 };
 
-export function MockWorkbench({ sidebarSearch, sidebarCategories, results, robustness }: WorkbenchProps) {
+export function MockWorkbench({ sidebarSearch, sidebarCategories, resultSummaries, results, robustness }: WorkbenchProps) {
   const [state, setState] = useState<PreviewState>("normal");
   const [sidebarSelection, setSidebarSelection] = useState<string[]>([]);
+  const [appliedSearch, setAppliedSearch] = useState<MockSearchConditions>({ keyword: "", publishedFrom: "", publishedTo: "" });
+  const [conditionsExpanded, setConditionsExpanded] = useState(false);
+
+  useEffect(() => {
+    setConditionsExpanded(!window.matchMedia("(width < 768px)").matches);
+  }, []);
   const selectedCategories = sidebarCategories.filter((category) => sidebarSelection.includes(category.slug));
+  const publicationRange = appliedSearch.publishedFrom || appliedSearch.publishedTo
+    ? `${appliedSearch.publishedFrom.replaceAll("-", "/") || "開始日指定なし"} 〜 ${appliedSearch.publishedTo.replaceAll("-", "/") || "終了日指定なし"}`
+    : "指定なし";
+  const hasConditions = Boolean(appliedSearch.keyword || appliedSearch.publishedFrom || appliedSearch.publishedTo || selectedCategories.length);
+  const conditionAction = hasConditions ? "条件を変更" : "検索条件を設定";
+  const conditionRows = (
+    <>
+      <span className="release-applied-row">
+        <span className="release-applied-label">キーワード</span>
+        <span className="release-applied-value">{appliedSearch.keyword || "指定なし"}</span>
+      </span>
+      <span className="release-applied-row">
+        <span className="release-applied-label">公開日</span>
+        <span className="release-applied-value">{publicationRange}</span>
+      </span>
+      <span className="release-applied-row">
+        <span className="release-applied-label">カテゴリ</span>
+        <span className="release-applied-values">
+          {selectedCategories.length === 0 ? <span>すべてのカテゴリ</span> : selectedCategories.map((category) => (
+            <Badge key={category.slug} variant="outline" className="release-category">{category.name}</Badge>
+          ))}
+        </span>
+      </span>
+    </>
+  );
 
   function toggleSidebarCategory(slug: string) {
     setSidebarSelection((current) => current.includes(slug)
@@ -58,7 +92,7 @@ export function MockWorkbench({ sidebarSearch, sidebarCategories, results, robus
           </div>
         </div>
         <p className="mock-design-description">
-          サイドバーとピル型ボタンを採用しています。適用中カテゴリは選択に連動する表示見本で、一覧・件数・ページ位置は固定です。
+          検索ボタンでキーワード・公開日、カテゴリ選択でカテゴリの条件表示だけが更新されます。一覧・件数・ページ位置は固定です。
         </p>
       </aside>
 
@@ -66,30 +100,50 @@ export function MockWorkbench({ sidebarSearch, sidebarCategories, results, robus
         className="mock-preview" data-design="sidebar" aria-label="サイドバーの画面見本"
         onClick={preventPreviewNavigation} onAuxClick={preventPreviewNavigation}
       >
-        <MockSidebarFilters>
+        <MockSidebarFilters onSearch={setAppliedSearch} renderMain={({ drawerOpen, openDrawer, triggerRef, rememberTriggerFocus }) => (
+          <div className="release-main">
+            <header className="release-header">
+              <div className="release-header-top">
+                <h2>報道発表一覧</h2>
+                <MockThemeToggle />
+              </div>
+              <div className="release-condition-controls">
+                <span id="mock-condition-status" className="release-condition-status" aria-live="polite" aria-atomic="true">
+                  {hasConditions ? "検索条件あり" : "絞り込みなし"}
+                </span>
+                <Button
+                  type="button" variant="ghost" className="release-conditions-disclosure"
+                  aria-expanded={conditionsExpanded} aria-controls="mock-applied-values"
+                  onClick={() => setConditionsExpanded((current) => !current)}
+                >
+                  条件の詳細<ChevronDownIcon aria-hidden="true" />
+                </Button>
+                <Button
+                  ref={triggerRef} type="button" variant="ghost" className="release-conditions-trigger"
+                  aria-describedby="mock-condition-status"
+                  aria-haspopup="dialog" aria-controls="mock-filter-panel" aria-expanded={drawerOpen}
+                  onClick={openDrawer} onFocus={rememberTriggerFocus}
+                >
+                  <PencilLineIcon aria-hidden="true" />{conditionAction}
+                </Button>
+              </div>
+              <div
+                id="mock-applied-values" className="release-applied-conditions" hidden={!conditionsExpanded}
+                role="group" aria-label="適用中の検索条件" aria-live="polite" aria-atomic="true"
+              >
+                {conditionRows}
+              </div>
+              {resultSummaries[state]}
+            </header>
+            {results[state]}
+            {robustness}
+          </div>
+        )}>
           {sidebarSearch}
           <div className="release-sidebar-categories">
             <MockCategoryPills categories={sidebarCategories} selectedSlugs={sidebarSelection} onToggle={toggleSidebarCategory} />
           </div>
         </MockSidebarFilters>
-        <div className="release-main">
-          <header className="release-header">
-            <div className="release-header-top">
-              <h2>報道発表一覧</h2>
-              <MockThemeToggle />
-            </div>
-            <div className="release-applied-categories" role="group" aria-label="適用中カテゴリ">
-              <span className="release-applied-label">適用中カテゴリ</span>
-              <div className="release-applied-values" aria-live="polite" aria-atomic="true">
-                {selectedCategories.length === 0 ? <span>すべてのカテゴリ</span> : selectedCategories.map((category) => (
-                  <Badge key={category.slug} variant="outline" className="release-category">{category.name}</Badge>
-                ))}
-              </div>
-            </div>
-          </header>
-          {results[state]}
-          {robustness}
-        </div>
       </section>
     </main>
   );

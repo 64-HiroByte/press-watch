@@ -59,16 +59,26 @@ function SamplePagination() {
   );
 }
 
-function Results({ state = "normal" }: { state?: "normal" | ReleaseDisplayState }) {
-  const isEmpty = state === "empty" || state === "no-results";
+function ResultSummary({ state = "normal" }: { state?: "normal" | ReleaseDisplayState }) {
+  if (state === "loading" || state === "error") {
+    return null;
+  }
 
   return (
+    <div className="release-results-summary">
+      {state === "normal" ? (
+        <>
+          <p><strong>128</strong> 件中 1–{mockReleases.length}件</p>
+          <span>公開日の新しい順</span>
+        </>
+      ) : <p><strong>0</strong> 件</p>}
+    </div>
+  );
+}
+
+function Results({ state = "normal" }: { state?: "normal" | ReleaseDisplayState }) {
+  return (
     <section className="release-results" aria-label="報道発表の表示">
-      <header className="release-results-heading">
-        <h3>報道発表</h3>
-        {state === "normal" && <p><strong>128</strong> 件中 1–{mockReleases.length}件<span>公開日の新しい順</span></p>}
-        {isEmpty && <p><strong>0</strong> 件</p>}
-      </header>
       {state === "normal" ? <PressReleaseList releases={mockReleases} /> : <PressReleaseStatus state={state} />}
       {state === "normal" && <SamplePagination />}
     </section>
@@ -84,6 +94,10 @@ export default function MockPage() {
     <MockWorkbench
       sidebarSearch={<SearchFields />}
       sidebarCategories={mockCategories}
+      resultSummaries={{
+        normal: <ResultSummary />, loading: <ResultSummary state="loading" />, error: <ResultSummary state="error" />,
+        empty: <ResultSummary state="empty" />, "no-results": <ResultSummary state="no-results" />,
+      }}
       results={{
         normal: <Results />, loading: <Results state="loading" />, error: <Results state="error" />,
         empty: <Results state="empty" />, "no-results": <Results state="no-results" />,
