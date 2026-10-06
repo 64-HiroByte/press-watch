@@ -1,5 +1,29 @@
 .mock-workbench {
+  min-height: 100dvh;
   padding: 24px 32px 64px;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+html:not(.dark) .mock-workbench {
+  --background: #e4e3dc;
+  --foreground: #303630;
+  --primary: #3b443b;
+  --primary-foreground: #e4e3dc;
+  --secondary: #d8d7ce;
+  --secondary-foreground: #303630;
+  --muted: #d8d7ce;
+  --muted-foreground: #585e56;
+  --accent: #d8d7ce;
+  --accent-foreground: #303630;
+  --border: #c3c1b6;
+  --input: #797f73;
+  --ring: #687660;
+  --mock-badge-background: #c5c6bb;
+}
+
+html.dark .mock-workbench {
+  --mock-pill-border: #6f736b;
 }
 
 .mock-controls {
@@ -172,7 +196,7 @@
   min-width: 56px;
   padding: 0 14px;
   border-radius: 9999px;
-  border-color: var(--border);
+  border-color: var(--mock-pill-border, var(--border));
   background: transparent;
   color: var(--foreground);
   font-size: 13px;
@@ -312,6 +336,9 @@
   max-width: 100%;
   padding: 2px 8px;
   border-radius: 3px;
+  border-color: transparent;
+  background: var(--mock-badge-background, var(--muted));
+  color: var(--foreground);
   flex-shrink: 1;
   line-height: 1.6;
   font-weight: 400;
@@ -518,7 +545,7 @@ html:has(.release-filter-panel:modal) {
   gap: 4px;
   margin-left: auto;
   padding: 4px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--mock-pill-border, var(--border));
   border-radius: 9999px;
 }
 
