@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { ChevronDownIcon, PencilLineIcon } from "lucide-react";
 
 import { MockCategoryPills } from "@/components/mock/category-toggles";
@@ -26,9 +26,27 @@ export function MockWorkbench({ sidebarSearch, sidebarCategories, resultSummarie
   const [sidebarSelection, setSidebarSelection] = useState<string[]>([]);
   const [appliedSearch, setAppliedSearch] = useState<MockSearchConditions>({ keyword: "", publishedFrom: "", publishedTo: "" });
   const [conditionsExpanded, setConditionsExpanded] = useState(false);
+  const mainRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     setConditionsExpanded(!window.matchMedia("(width < 768px)").matches);
+  }, []);
+
+  useEffect(() => {
+    const main = mainRef.current;
+    const header = headerRef.current;
+    if (!main || !header) return;
+    const updateHeaderHeight = () => {
+      main.style.setProperty("--mock-header-height", `${header.offsetHeight}px`);
+    };
+    updateHeaderHeight();
+    const observer = new ResizeObserver(updateHeaderHeight);
+    observer.observe(header, { box: "border-box" });
+    return () => {
+      observer.disconnect();
+      main.style.removeProperty("--mock-header-height");
+    };
   }, []);
   const selectedCategories = sidebarCategories.filter((category) => sidebarSelection.includes(category.slug));
   const publicationRange = appliedSearch.publishedFrom || appliedSearch.publishedTo
@@ -101,42 +119,46 @@ export function MockWorkbench({ sidebarSearch, sidebarCategories, resultSummarie
         onClick={preventPreviewNavigation} onAuxClick={preventPreviewNavigation}
       >
         <MockSidebarFilters onSearch={setAppliedSearch} renderMain={({ drawerOpen, openDrawer, triggerRef, rememberTriggerFocus }) => (
-          <div className="release-main">
-            <header className="release-header">
-              <div className="release-header-top">
-                <h2>報道発表一覧</h2>
-                <MockThemeToggle />
-              </div>
-              <div className="release-condition-controls">
-                <span id="mock-condition-status" className="release-condition-status" aria-live="polite" aria-atomic="true">
-                  {hasConditions ? "検索条件あり" : "絞り込みなし"}
-                </span>
-                <Button
-                  type="button" variant="ghost" className="release-conditions-disclosure"
-                  aria-expanded={conditionsExpanded} aria-controls="mock-applied-values"
-                  onClick={() => setConditionsExpanded((current) => !current)}
+          <div ref={mainRef} className="release-main" role="region" aria-label="報道発表一覧のスクロール領域" tabIndex={0}>
+            <header ref={headerRef} className="release-header">
+              <div className="release-header-body">
+                <div className="release-header-top">
+                  <h2>報道発表一覧</h2>
+                  <MockThemeToggle />
+                </div>
+                <div className="release-condition-controls">
+                  <span id="mock-condition-status" className="release-condition-status" aria-live="polite" aria-atomic="true">
+                    {hasConditions ? "検索条件あり" : "絞り込みなし"}
+                  </span>
+                  <Button
+                    type="button" variant="ghost" className="release-conditions-disclosure"
+                    aria-expanded={conditionsExpanded} aria-controls="mock-applied-values"
+                    onClick={() => setConditionsExpanded((current) => !current)}
+                  >
+                    条件の詳細<ChevronDownIcon aria-hidden="true" />
+                  </Button>
+                  <Button
+                    ref={triggerRef} type="button" variant="ghost" className="release-conditions-trigger"
+                    aria-describedby="mock-condition-status"
+                    aria-haspopup="dialog" aria-controls="mock-filter-panel" aria-expanded={drawerOpen}
+                    onClick={openDrawer} onFocus={rememberTriggerFocus}
+                  >
+                    <PencilLineIcon aria-hidden="true" />{conditionAction}
+                  </Button>
+                </div>
+                <div
+                  id="mock-applied-values" className="release-applied-conditions" hidden={!conditionsExpanded}
+                  role="group" aria-label="適用中の検索条件" aria-live="polite" aria-atomic="true"
                 >
-                  条件の詳細<ChevronDownIcon aria-hidden="true" />
-                </Button>
-                <Button
-                  ref={triggerRef} type="button" variant="ghost" className="release-conditions-trigger"
-                  aria-describedby="mock-condition-status"
-                  aria-haspopup="dialog" aria-controls="mock-filter-panel" aria-expanded={drawerOpen}
-                  onClick={openDrawer} onFocus={rememberTriggerFocus}
-                >
-                  <PencilLineIcon aria-hidden="true" />{conditionAction}
-                </Button>
+                  {conditionRows}
+                </div>
+                {resultSummaries[state]}
               </div>
-              <div
-                id="mock-applied-values" className="release-applied-conditions" hidden={!conditionsExpanded}
-                role="group" aria-label="適用中の検索条件" aria-live="polite" aria-atomic="true"
-              >
-                {conditionRows}
-              </div>
-              {resultSummaries[state]}
             </header>
-            {results[state]}
-            {robustness}
+            <div className="release-content">
+              {results[state]}
+              {robustness}
+            </div>
           </div>
         )}>
           {sidebarSearch}
