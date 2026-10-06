@@ -2,10 +2,10 @@ import { notFound } from "next/navigation";
 import { SearchIcon } from "lucide-react";
 
 import { MockWorkbench } from "@/components/mock/workbench";
+import { MockCategoryToggles } from "@/components/mock/category-toggles";
 import { PressReleaseList } from "@/components/press-releases/list";
 import { PressReleaseStatus, type ReleaseDisplayState } from "@/components/press-releases/status";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
@@ -26,22 +26,6 @@ function SearchFields() {
       </div>
       <Button type="button" className="release-search-button"><SearchIcon aria-hidden="true" />検索</Button>
     </div>
-  );
-}
-
-function CategoryCheckboxes() {
-  return (
-    <fieldset className="release-category-field">
-      <legend>カテゴリ</legend>
-      <div className="release-category-checkboxes">
-        {mockCategories.map((category) => (
-          <div className="release-category-choice" key={category.slug}>
-            <Checkbox id={`category-${category.slug}`} />
-            <Label htmlFor={`category-${category.slug}`}>{category.name}</Label>
-          </div>
-        ))}
-      </div>
-    </fieldset>
   );
 }
 
@@ -109,7 +93,7 @@ export default function MockPage() {
         </header>
       }
       search={<SearchFields />}
-      categories={{ checkboxes: <CategoryCheckboxes />, select: <CategorySelect /> }}
+      categories={{ toggles: <MockCategoryToggles categories={mockCategories} />, select: <CategorySelect /> }}
       results={{
         normal: <Results />, loading: <Results state="loading" />, error: <Results state="error" />,
         empty: <Results state="empty" />, "no-results": <Results state="no-results" />,

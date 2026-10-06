@@ -118,7 +118,7 @@
 
 .mock-preview .release-filters {
   margin-top: 20px;
-  padding: 20px;
+  padding: 16px 20px;
   border: 1px solid var(--border);
   border-radius: 4px;
 }
@@ -148,7 +148,7 @@
 }
 
 .mock-preview .release-category-field {
-  margin: 18px 0 0;
+  margin: 14px 0 0;
   padding: 0;
   border: 0;
   min-width: 0;
@@ -160,21 +160,34 @@
   font-weight: 500;
 }
 
-.mock-preview .release-category-checkboxes {
+.mock-preview .release-category-toggles {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px 24px;
-  margin-top: 10px;
+  gap: 6px;
+  margin-top: 8px;
 }
 
-.mock-preview .release-category-choice {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.mock-preview .release-category-choice label {
+.mock-preview .release-category-toggle {
+  height: 28px;
+  min-width: 56px;
+  padding: 0 14px;
+  border-radius: 9999px;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--foreground);
+  font-size: 13px;
+  line-height: 18px;
   font-weight: 400;
+}
+
+.mock-preview .release-category-toggle:hover {
+  background: var(--muted);
+}
+
+.mock-preview .release-category-toggle[aria-pressed="true"] {
+  border-color: var(--foreground);
+  background: var(--foreground);
+  color: var(--background);
 }
 
 .mock-preview .release-category-select {
@@ -409,7 +422,7 @@
 }
 
 .mock-preview[data-design="spacious"] .release-filters {
-  padding: 28px 0;
+  padding: 20px 0;
   margin-top: 0;
   border: 0;
   border-bottom: 1px solid var(--border);
@@ -443,7 +456,7 @@
 }
 
 .mock-preview[data-design="compact"] .release-filters {
-  padding: 20px 24px;
+  padding: 16px 24px;
   background: var(--muted);
   border: 0;
   border-radius: 0;
@@ -475,7 +488,7 @@
   }
 
   .mock-preview .release-filters {
-    padding: 20px 16px;
+    padding: 16px;
   }
 
   .mock-preview .release-row,

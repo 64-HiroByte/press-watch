@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 
 type PreviewState = "normal" | "loading" | "error" | "empty" | "no-results";
-type CategoryLayout = "checkboxes" | "select";
+type CategoryLayout = "toggles" | "select";
 
 const designs = [
   { id: "standard", label: "A · 標準", description: "日付を左に揃えた、一覧性と読みやすさのバランス。" },
@@ -27,7 +27,7 @@ type WorkbenchProps = {
 export function MockWorkbench({ header, search, categories, results, robustness }: WorkbenchProps) {
   const [design, setDesign] = useState<(typeof designs)[number]>(designs[0]);
   const [state, setState] = useState<PreviewState>("normal");
-  const [categoryLayout, setCategoryLayout] = useState<CategoryLayout>("checkboxes");
+  const [categoryLayout, setCategoryLayout] = useState<CategoryLayout>("toggles");
 
   function preventPreviewNavigation(event: MouseEvent<HTMLElement>) {
     // 表示部品のリンクは維持し、Mockの比較画面内でだけ遷移を抑止する。
@@ -73,7 +73,7 @@ export function MockWorkbench({ header, search, categories, results, robustness 
           <div className="mock-control-field">
             <Label htmlFor="mock-category-layout">カテゴリ欄</Label>
             <NativeSelect id="mock-category-layout" value={categoryLayout} onChange={(event) => setCategoryLayout(event.target.value as CategoryLayout)}>
-              <NativeSelectOption value="checkboxes">チェックボックス案</NativeSelectOption>
+              <NativeSelectOption value="toggles">ピルボタン案</NativeSelectOption>
               <NativeSelectOption value="select">コンパクトな選択欄案</NativeSelectOption>
             </NativeSelect>
           </div>
