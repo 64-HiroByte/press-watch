@@ -146,9 +146,6 @@ export function MockWorkbench({ sidebarSearch, sidebarCategories, resultSummarie
                   </div>
                 </div>
                 <div className="release-condition-controls">
-                  <span id="mock-condition-status" className="release-condition-status" aria-live="polite" aria-atomic="true">
-                    {hasConditions ? "検索条件あり" : "絞り込みなし"}
-                  </span>
                   <Button
                     type="button" variant="ghost" className="release-conditions-disclosure"
                     aria-expanded={conditionsExpanded} aria-controls="mock-applied-values"
@@ -158,7 +155,6 @@ export function MockWorkbench({ sidebarSearch, sidebarCategories, resultSummarie
                   </Button>
                   <Button
                     ref={triggerRef} type="button" variant="ghost" className="release-conditions-trigger"
-                    aria-describedby="mock-condition-status"
                     aria-haspopup="dialog" aria-controls="mock-filter-panel" aria-expanded={drawerOpen}
                     onClick={openDrawer} onFocus={rememberTriggerFocus}
                   >

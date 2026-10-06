@@ -679,10 +679,6 @@ html.dark .mock-display-tooltip {
   font-size: 12px;
 }
 
-.mock-preview .release-condition-status {
-  color: var(--muted-foreground);
-}
-
 .mock-preview .release-condition-controls button {
   height: auto;
   min-height: 32px;
