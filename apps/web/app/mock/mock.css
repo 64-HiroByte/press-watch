@@ -110,7 +110,6 @@ html.dark .mock-workbench {
 
 .mock-preview .release-search-field {
   display: grid;
-  flex: 1;
   gap: 8px;
   min-width: 0;
 }
@@ -852,11 +851,8 @@ html.dark .mock-display-tooltip {
 
   .mock-preview .release-filter-close {
     min-height: 44px;
-    border-radius: 3px;
-  }
-
-  .mock-preview .release-filter-close {
     width: 44px;
+    border-radius: 3px;
   }
 
   .mock-preview .release-conditions-trigger {
