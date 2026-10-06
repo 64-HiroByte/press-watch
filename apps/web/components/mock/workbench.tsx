@@ -182,7 +182,11 @@ export function MockWorkbench({ sidebarSearch, sidebarCategories, resultSummarie
         )}>
           {sidebarSearch}
           <div className="release-sidebar-categories">
-            <MockCategoryPills categories={sidebarCategories} selectedSlugs={sidebarSelection} onToggle={toggleSidebarCategory} />
+            <MockCategoryPills
+              categories={sidebarCategories} selectedSlugs={sidebarSelection}
+              onSelectAll={() => setSidebarSelection(sidebarCategories.map((category) => category.slug))}
+              onToggle={toggleSidebarCategory} onClear={() => setSidebarSelection([])}
+            />
           </div>
         </MockSidebarFilters>
       </section>

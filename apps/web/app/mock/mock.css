@@ -134,16 +134,53 @@ html.dark .mock-workbench {
 }
 
 .mock-preview .release-category-field legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
   padding: 0;
   font-size: 14px;
   font-weight: 500;
+}
+
+.mock-preview .release-category-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.mock-preview .release-search-reset,
+.mock-preview .release-category-action {
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 3px;
+  border-color: var(--mock-pill-border, var(--border));
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.mock-preview .release-category-action {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 9999px;
+}
+
+.mock-preview .release-search-reset:hover,
+.mock-preview .release-category-action:hover {
+  background: var(--muted);
+  color: var(--foreground);
 }
 
 .mock-preview .release-category-toggles {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 8px;
+  margin-top: 16px;
 }
 
 .mock-preview .release-category-toggle {
@@ -923,6 +960,8 @@ html.dark .mock-display-tooltip {
 .mock-preview[data-text-size="large"] .release-uncategorized,
 .mock-preview[data-text-size="large"] .release-page-description,
 .mock-preview[data-text-size="large"] .release-date-field label,
+.mock-preview[data-text-size="large"] .release-search-reset,
+.mock-preview[data-text-size="large"] .release-category-action,
 .mock-preview[data-text-size="large"] .release-sidebar-brand span,
 .mock-preview[data-text-size="large"] .mock-robustness {
   font-size: 14px;
@@ -947,6 +986,10 @@ html.dark .mock-display-tooltip {
   height: 32px;
   font-size: 15px;
   line-height: 22px;
+}
+
+.mock-preview[data-text-size="large"] .release-category-action {
+  height: 32px;
 }
 
 .mock-preview[data-text-size="large"] .release-applied-row {

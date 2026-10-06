@@ -107,9 +107,16 @@ export function MockSidebarFilters({ children, onSearch, renderMain }: SidebarFi
   function handlePanelClick(event: MouseEvent<HTMLDialogElement>) {
     const panel = panelRef.current;
     if (!panel) return;
+    const reset = event.target instanceof Element
+      ? event.target.closest(".release-search-reset")?.closest(".release-search") : null;
     const search = event.target instanceof Element
       ? event.target.closest(".release-search-button")?.closest(".release-search") : null;
-    if (search) {
+    if (reset) {
+      for (const input of reset.querySelectorAll<HTMLInputElement>("input")) {
+        input.value = "";
+      }
+      onSearch({ keyword: "", publishedFrom: "", publishedTo: "" });
+    } else if (search) {
       onSearch({
         keyword: search.querySelector<HTMLInputElement>("#release-keyword")?.value ?? "",
         publishedFrom: search.querySelector<HTMLInputElement>("#release-date-from")?.value ?? "",

@@ -37,6 +37,7 @@ function SearchFields() {
         </div>
       </fieldset>
       <Button type="button" className="release-search-button"><SearchIcon aria-hidden="true" />検索</Button>
+      <Button type="button" variant="outline" className="release-search-reset">リセット</Button>
     </div>
   );
 }
