@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
-import { SearchIcon } from "lucide-react";
+import { InboxIcon, SearchIcon } from "lucide-react";
 
+import { MockRetrievalFailureDecoration } from "@/components/mock/retrieval-failure-decoration";
 import { MockWorkbench } from "@/components/mock/workbench";
 import { PressReleaseList } from "@/components/press-releases/list";
 import { PressReleaseStatus, type ReleaseDisplayState } from "@/components/press-releases/status";
@@ -77,8 +78,19 @@ function ResultSummary({ state = "normal" }: { state?: "normal" | ReleaseDisplay
 }
 
 function Results({ state = "normal" }: { state?: "normal" | ReleaseDisplayState }) {
+  const DecorationIcon = state === "error" ? MockRetrievalFailureDecoration
+    : state === "empty" ? InboxIcon
+    : state === "no-results" ? SearchIcon : null;
+
   return (
-    <section className="release-results" aria-label="報道発表の表示">
+    <section className="release-results" data-state={state} data-decorated={DecorationIcon ? true : undefined} aria-label="報道発表の表示">
+      {DecorationIcon && <DecorationIcon
+        className="release-results-decoration"
+        viewBox={state === "empty" ? "-1.5 -1.5 27 27" : "0 0 24 24"}
+        strokeWidth={state === "empty" ? 1.125 : 1}
+        aria-hidden="true"
+        focusable="false"
+      />}
       {state === "normal" ? <PressReleaseList releases={mockReleases} /> : <PressReleaseStatus state={state} />}
       {state === "normal" && <SamplePagination />}
     </section>

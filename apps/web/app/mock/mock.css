@@ -381,6 +381,29 @@ html.dark .mock-workbench {
   line-height: 1.8;
 }
 
+.mock-preview .release-results[data-decorated] {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.mock-preview .release-results[data-decorated] .release-status {
+  min-height: 360px;
+  padding-bottom: 200px;
+}
+
+.mock-preview .release-results-decoration {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  z-index: -1;
+  width: 160px;
+  height: 160px;
+  color: var(--muted-foreground);
+  opacity: 0.18;
+  pointer-events: none;
+}
+
 .mock-preview .release-skeleton {
   max-width: 720px;
   margin: 32px auto 0;
@@ -759,6 +782,18 @@ html:has(.release-filter-panel:modal) {
 }
 
 @media (width < 768px) {
+  .mock-preview .release-results[data-decorated] .release-status {
+    min-height: 300px;
+    padding-bottom: 136px;
+  }
+
+  .mock-preview .release-results-decoration {
+    right: 20px;
+    bottom: 20px;
+    width: 96px;
+    height: 96px;
+  }
+
   .mock-preview[data-design="sidebar"] {
     grid-template-columns: minmax(0, 1fr);
     gap: 24px;
