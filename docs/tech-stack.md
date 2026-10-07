@@ -250,9 +250,16 @@ URL・下書きの復元、ローディング、片側失敗、再試行、空�
   Oxcを既定のフォーマッターに指定する場合はJavaScript・JSX・TypeScript・TSXの言語別設定とし、全言語へ一括適用しない。
   Markdownの保存時整形と末尾空白の削除を無効にし、Oxfmt導入後も末尾2スペースによる強制改行が残ることを確認する。
   [Oxlint](https://oxc.rs/docs/guide/usage/linter/editors)・[Oxfmt](https://oxc.rs/docs/guide/usage/formatter/editors)の公式手順を基に連携を確認し、導入後の設定・実行手順を[ローカル開発手順](local-development.md)へ記録する。
-- 画面テストはPlaywrightのChromiumを導入する案とし、依存関係と実行方法を確認する。
+- Oxlint 1.87.0・Oxfmt 0.72.0をルートの開発依存とし、共有設定を一つずつ置く。
+  保存時のlint自動修正は無効とし、formatはimport・package.jsonキー・Tailwindクラスの並べ替えを行わない。
+- 画面テストはPlaywright 1.63.0のChromiumをWebの開発依存へ置く。
+  developmentのMock確認とproductionの公開ガード確認をprojectごとに分け、対象ファイルと接続先を指定する。
+  ブラウザーはプロジェクト専用領域へ取得し、既存サーバーを再利用せずループバック限定で起動・終了する。
   [Next.jsの公式手順](https://nextjs.org/docs/app/guides/testing/playwright)を基に、API応答を制御した画面テストと実API・DBとの結合確認を分ける。
+  Server側取得の応答制御には検証用HTTPサーバー等を用い、ブラウザー側のリクエスト差し替えだけで検証済みとしない。
 - 型チェック・lint・format確認・ビルド・画面テストをCIへ追加し、既存Python CIとの実行範囲と省略経路を確認する。
+  Web専用workflowで共通scriptsを使い、変更判定の失敗・不正出力を失敗として扱う。
+  実行・省略の証拠は対象SHA・step・理由で確認し、ローカル検証と実CIを区別する。
   必須チェック設定の変更は、workflowの実装・動作確認と分けて扱う。
 
 具体的な作業順序と完成条件は[Phase 6のタスク](tasks.md#phase-6-フロントエンド実装)に整理する。
