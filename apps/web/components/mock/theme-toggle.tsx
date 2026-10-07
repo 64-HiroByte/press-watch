@@ -18,22 +18,41 @@ export function MockThemeToggle() {
   const { theme, resolvedTheme, setTheme } = useTheme();
   const selected = (theme === "system" ? resolvedTheme : theme) === "dark" ? "dark" : "light";
 
-  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   return (
     <div
-      className="release-theme-options" role="group" aria-label="表示テーマ"
-      data-selected={mounted ? selected : "light"} data-ready={mounted} data-animate={animate}
+      className="release-theme-options"
+      role="group"
+      aria-label="表示テーマ"
+      data-selected={mounted ? selected : "light"}
+      data-ready={mounted}
+      data-animate={animate}
     >
       <span className="release-theme-indicator" aria-hidden="true" />
       {options.map(({ value, label, icon: Icon }) => (
-        <MockDisplayTooltip key={value} label={mounted && selected === value
-          ? `${label}モード（選択中）` : `${label}モードに切り替え`}>
+        <MockDisplayTooltip
+          key={value}
+          label={
+            mounted && selected === value ? `${label}モード（選択中）` : `${label}モードに切り替え`
+          }
+        >
           <Button
-            type="button" variant="ghost" size="icon" disabled={!mounted}
-            aria-label={label} aria-pressed={mounted && selected === value}
-            onClick={() => { setAnimate(selected !== value); setTheme(value); }}
-          ><Icon className="size-4.5" aria-hidden="true" /></Button>
+            type="button"
+            variant="ghost"
+            size="icon"
+            disabled={!mounted}
+            aria-label={label}
+            aria-pressed={mounted && selected === value}
+            onClick={() => {
+              setAnimate(selected !== value);
+              setTheme(value);
+            }}
+          >
+            <Icon className="size-4.5" aria-hidden="true" />
+          </Button>
         </MockDisplayTooltip>
       ))}
     </div>

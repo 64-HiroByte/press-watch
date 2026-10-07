@@ -121,7 +121,7 @@ Cursorでは、既存の`.vscode/settings.json`へ次の言語別設定を追加
 この設定はMarkdownの保存時整形と末尾空白削除を無効にし、明示的な手動整形の禁止は行いません。
 末尾2スペースを含む検証用Markdownを保存し、スペースが残ることとプレビューの強制改行を確認します。
 
-Oxlint・OxfmtとそのCLI・CI連携は、Phase 6のMock確認後に導入します。
+Oxlint 1.87.0・Oxfmt 0.72.0をルートの開発依存へ置き、CLI・CIはルートの`.oxlintrc.json`・`.oxfmtrc.json`を明示して参照します。
 Phase 6ではフロントエンドを対象とし、Oxfmtの共有設定の`ignorePatterns`に`**/*.md`を指定してMarkdownを除外します。
 CLI・CIの対象パスもフロントエンドに限定し、CursorでOxcを既定のフォーマッターに指定する場合はJavaScript・JSX・TypeScript・TSXの言語別設定にします。
 導入時は、エディター・CLI・CIで同じ除外設定が参照され、Markdownが整形・チェック対象に含まれないことを確認します。
@@ -136,6 +136,12 @@ LSP経由でもルートと`apps/web`のMarkdownに整形結果が返らず、Ty
 除外を外すとMarkdownが書き換わり、除外を戻すと内容が維持されることも確認しています。
 これは除外方針の検証であり、プロジェクトへの導入やCursorでの実保存・実CIの確認ではありません。
 導入時は採用するバージョンで上記の確認を行います。
+
+2026年10月7日に、採用版Oxfmt 0.72.0の一時環境で、除外なしでは差分が出るMarkdownを使ってCLIの除外と内容保持を確認しました。
+ルートと`apps/web`のMarkdownを明示指定した場合、除外後は「対象ファイルなし」の診断と終了コード2になり、書式違反による終了コード1と区別できました。
+設定不正も非ゼロで終了するため、「対象ファイルなし」・書式違反・設定不正を診断内容で区別し、元のファイルのバイト列も確認します。
+LSP経由では同じMarkdownに整形差分が返らず、書式違反のTypeScriptには整形差分が返ることを確認しました。
+このCLI・LSP確認は、Cursorでの実保存・プレビューやGitHub Actions上での実行を代替するものではありません。
 
 ## lockfile について
 
@@ -175,7 +181,7 @@ Dockerの画面確認には`http://localhost:<ホスト側の公開ポート>/`�
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm --filter @press-watch/web exec next typegen
+pnpm typegen:web
 pnpm typecheck:web
 pnpm build:web
 ```
@@ -195,6 +201,107 @@ Next.js 16.3では`root-params.d.ts`への参照も生成されます。
 更新後は`pnpm install --frozen-lockfile`を再実行し、lockfileが変わらないことも確認します。
 Web単体Dockerでも、表示だけでなく、コンテナ内の`/workspace`から型生成・`pnpm typecheck:web`・`pnpm build:web`を実行し、Linux用コンパイラーの版と起動を確認します。
 ループバック限定で起動した開発サーバーは、確認後に終了します。
+
+### Webのlint・formatとCursor連携
+
+lintはWebのJavaScript・JSX・TypeScript・TSXを対象とし、既定のTypeScript・Unicorn・OxcにReact・Next.js・JSXアクセシビリティのプラグインを加えます。
+correctnessカテゴリの警告を有効にし、`--deny-warnings`で警告もCLI・CIの失敗として扱います。
+formatはWebの対応ソース・CSS・JSONを対象とし、2スペース、ダブルクォート、セミコロン、行幅100を共有します。
+import・package.jsonキー・Tailwindクラスの並べ替えは無効です。
+Markdown、Next.jsの生成ファイル、依存とビルド・テスト生成物は共有設定で除外します。
+
+既存のMock・テーマ初期化・共通Label部品を維持するため、次の6ルールを該当する7ファイルに限定して例外にします。
+例外は`.oxlintrc.json`の`overrides`へ置き、その他のファイルでは同じルールを有効にします。
+
+| ルール | 対象（`apps/web/`からの相対パス） | 理由 |
+| --- | --- | --- |
+| `react/set-state-in-effect` | `components/theme-selector.tsx`、`components/mock/theme-toggle.tsx`、`components/mock/workbench.tsx` | hydration後のテーマ表示と画面幅の初期化で使う状態更新を維持する |
+| `jsx-a11y/prefer-tag-over-role` | `components/mock/category-toggles.tsx`、`components/mock/theme-toggle.tsx`、`components/mock/workbench.tsx`、`app/mock/page.tsx` | 現Mockの名前付きgroup・region・searchと、対応するCSSを維持する |
+| `jsx-a11y/label-has-associated-control` | `components/ui/label.tsx` | 共通部品の`htmlFor`をprops経由で受け取り、呼び出し側で入力欄と対応させる |
+| `jsx-a11y/click-events-have-key-events` | `components/mock/workbench.tsx` | 見本内のリンクから伝播するclickを受けて遷移を止める既存処理を維持する |
+| `jsx-a11y/no-noninteractive-tabindex` | `components/mock/workbench.tsx` | 名前付き一覧領域へフォーカスし、キーボードでスクロールできる構成を維持する |
+| `jsx-a11y/no-noninteractive-element-interactions` | `components/mock/workbench.tsx`、`components/mock/sidebar-filters.tsx` | 見本内の遷移抑止と、dialogの背景クリック・フォーカス制御を維持する |
+
+ファイル単位の例外なので、そのファイルへ今後追加するコードにも適用されます。
+後続の製品実装で対象部品を変更する際は、必要性を見直し、入力ラベル・キーボード操作・フォーカスを画面テストと実操作で確認します。
+
+```bash
+pnpm lint:web
+pnpm format:check:web
+# 書式を変更するときだけ実行します。
+pnpm format:web
+```
+
+`apps/web`からは`pnpm lint`・`pnpm format:check`・`pnpm format`を使えます。
+いずれもルートの共有設定を参照し、チェック用のコマンドはファイルを書き換えません。
+
+Cursorでは公式拡張`oxc.oxc-vscode`を使い、プロジェクトをリポジトリルートで開きます。
+既存の`.vscode/settings.json`のキーとMarkdown用設定を残し、次の設定を追加します。
+`.vscode/`はGit管理外のため各環境で設定し、全体設定へ追加しません。
+
+```json
+{
+  "oxc.lint.run": "onType",
+  "oxc.configPath": ".oxlintrc.json",
+  "oxc.fmt.configPath": ".oxfmtrc.json",
+  "[javascript][javascriptreact][typescript][typescriptreact]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.oxc": "never"
+    }
+  }
+}
+```
+
+lintは診断表示だけを行い、保存時のlint自動修正は無効にします。
+TypeScript・TSXの検証用ファイルに書式違反を入れて実際に保存し、Oxfmtの書式へ変わることを確認します。
+別に未使用変数などを入れ、Oxlintの診断が表示され、保存しても自動修正されないことを確認します。
+OxcのOutputでプロジェクト内の実行ファイル、Oxlint 1.87.0・Oxfmt 0.72.0と設定を確認し、必要なら`Oxc: Restart oxlint Server`・`Oxc: Restart oxfmt Server`を実行します。
+Markdownでは前述の実保存・強制改行と、採用版LSPによる除外を別々に確認します。
+
+2026年10月7日に、リポジトリルートを開いたCursorで公式Oxc拡張1.63.0とプロジェクト内のOxlint 1.87.0・Oxfmt 0.72.0の検出を確認しました。
+TypeScript・TSXのそれぞれで、保存時の整形と未使用変数のlint警告表示を確認しました。
+保存後も未使用変数と警告が残り、lintによる自動修正が行われないことを確認しました。
+末尾2スペースを含むMarkdownは保存前後のバイト列が一致し、プレビューでも強制改行を確認しました。
+検証専用ファイルは確認後に削除しています。
+
+### Webの画面テスト
+
+Playwright 1.63.0をWebの開発依存へ置き、Chromium、1280×720、1 worker、リトライ0で実行します。
+`dev-mock`はdevelopmentの通常一覧と既存の取得失敗表示への切替を確認します。
+`production-smoke`はproductionのトップページと`/mock`の404を確認します。
+対象ファイルと接続先はprojectごとに指定し、Mockの公開ガードを維持します。
+
+秘密ファイルを自動読込みさせずに検証するときは、必要なファイルだけを一時環境へコピーします。
+許可するものはルートのマニフェスト・lockfile・workspace・Oxc設定・空白設定と、Webのマニフェスト・Next.js／TypeScript／PostCSS／部品設定・製品ソース・テスト・公開アセットです。
+今回の確認ではコピーするファイルを個別に選び、`.env`・`.env.*`、認証設定、既存の`node_modules`・`.next`・`next-env.d.ts`・`tsbuildinfo`を含めていません。
+起動用の環境変数にも外部API用の値を渡さず、一時環境で依存を再現します。
+
+検証環境のルートから次の順序で実行します。
+
+```bash
+pnpm install --frozen-lockfile
+pnpm typegen:web
+pnpm typecheck:web
+pnpm lint:web
+pnpm format:check:web
+pnpm build:web
+PLAYWRIGHT_BROWSERS_PATH="$PWD/tmp/playwright/browsers" PLAYWRIGHT_SKIP_BROWSER_GC=1 pnpm --filter @press-watch/web exec playwright install chromium
+pnpm test:web
+```
+
+`test:web`は現在のソースで本番ビルド済みであることを前提とします。
+Web側の`pnpm test`も同じ専用ブラウザー保存先を使い、取得時は共有キャッシュの旧版を削除する処理を無効にします。
+Playwrightが開発サーバーを`127.0.0.1:3105`、本番サーバーを`127.0.0.1:3106`で起動し、`/`で準備完了を確認します。
+既存サーバーは再利用せず、ポート占有時は失敗させます。
+終了後は両ポートに待受プロセスが残っていないことを確認します。
+
+CIでは`test.only`・`test.describe.only`を`forbidOnly`で拒否します。
+traceは`retain-on-failure`、スクリーンショットは`only-on-failure`とし、出力先はルートの`tmp/playwright/test-results`です。
+現在のMockはAPIを呼ばないため、これらは検索・API取得の製品テストではありません。
+後続のAPI応答を制御する画面テストは、Server側の取得にも応答できる検証用HTTPサーバー等を使い、実API・DBとの結合確認と分けます。
+ブラウザーのリクエスト差し替えだけでServer側の通信を制御できたとは扱いません。
 
 ### UI基盤の確認
 
@@ -431,6 +538,32 @@ PRでは最新コミットだけでなく、baseからのPR全体の差分を判
 workflow変更を含むPRに文書だけのコミットを追加しても、Pythonテスト3種類は実行対象のままです。
 実CIでは、workflow変更のPRで3種類の実行を確認し、省略経路は変更を取り込んだPhaseブランチをbaseにした別の文書・フロントエンド専用PRで確認します。
 タスクブランチへのpush自体はworkflowの起動対象ではないため、pushだけで省略経路を確認することはできません。
+
+### Web CIの実行範囲
+
+`.github/workflows/web-checks.yml`はPRと`main`・Phaseブランチへのpushで起動します。
+workflow全体にパス条件を付けず、変更判定と空白検査を実行してからWeb検証の実行・省略を決めます。
+比較範囲は既存Python CIと同じくPR全体、push前後、新規ブランチは空ツリーとの差分です。
+`.github/scripts/web-checks-required.sh`はNUL区切りと`--no-renames`で削除・改名元も判定します。
+
+| 変更内容 | Web検証 |
+| --- | --- |
+| Markdown（`*.md`）のみ | 理由を表示して省略 |
+| `apps/web/**`のMarkdown以外 | 実行 |
+| ルートのマニフェスト・lockfile・workspace、Oxc設定、`.editorconfig`・`.gitattributes` | 実行 |
+| workflow・CI判定スクリプト・Web Dockerfile | 実行 |
+| Python専用変更、その他上記の実行対象を含まない変更、差分なし | 理由を表示して省略 |
+
+実行対象を一つでも含むと、Ubuntu 24.04、Node.js 24.21.0、pnpm 12.8.1でfrozen install、型生成、型チェック、lint、format確認、ビルド、Chromium画面テストを順に実行します。
+ChromiumのLinux依存はActions内で取得し、ブラウザーとテスト生成物はルートの`tmp/playwright/`へ保存します。
+画面テスト失敗時のtrace・スクリーンショットは`playwright-diagnostics` artifactで7日間保持します。
+変更判定や空白検査の失敗、不正な判定出力を成功や省略へ置き換えません。
+新しくWebで使う共有設定や別のソース配置を追加した場合は、変更判定の対象も見直します。
+
+新規workflow・ルートOxc設定・CI判定スクリプトの変更は、既存Python CIのAPI・scraper・一時PostgreSQLも実行対象にします。
+実CI確認では対象SHA、実行step、実行・省略理由を確認し、ローカルの判定確認だけで実CIも確認済みとは扱いません。
+今回のworkflowを含むPRでは実行経路を確認し、省略経路は取り込み後の別PRで確認します。
+commit・push・PR作成・マージ、GitHubの必須チェック・ruleset変更には、それぞれ定めた承認が必要です。
 
 ### 必須チェックの段階適用
 
