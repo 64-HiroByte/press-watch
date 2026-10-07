@@ -9,7 +9,11 @@ export function MockDisplayTooltip({ label, children }: { label: string; childre
       <Tooltip.Root>
         <Tooltip.Trigger render={children} />
         <Tooltip.Portal>
-          <Tooltip.Positioner side="bottom" sideOffset={8} className="mock-display-tooltip-positioner">
+          <Tooltip.Positioner
+            side="bottom"
+            sideOffset={8}
+            className="mock-display-tooltip-positioner"
+          >
             <Tooltip.Popup className="mock-display-tooltip">{label}</Tooltip.Popup>
           </Tooltip.Positioner>
         </Tooltip.Portal>

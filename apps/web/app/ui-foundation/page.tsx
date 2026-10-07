@@ -36,17 +36,27 @@ export default function UIFoundationPage() {
 
       <div className="grid gap-6 md:grid-cols-2">
         <section aria-labelledby="buttons-title" className="space-y-4 rounded-xl border p-5">
-          <h2 id="buttons-title" className="font-semibold">ボタン</h2>
+          <h2 id="buttons-title" className="font-semibold">
+            ボタン
+          </h2>
           <div className="flex flex-wrap gap-3">
             <Button type="button">基本</Button>
-            <Button type="button" variant="outline">枠線</Button>
-            <Button type="button" variant="secondary">補助</Button>
-            <Button type="button" disabled>無効</Button>
+            <Button type="button" variant="outline">
+              枠線
+            </Button>
+            <Button type="button" variant="secondary">
+              補助
+            </Button>
+            <Button type="button" disabled>
+              無効
+            </Button>
           </div>
         </section>
 
         <section aria-labelledby="inputs-title" className="space-y-4 rounded-xl border p-5">
-          <h2 id="inputs-title" className="font-semibold">入力・ラベル</h2>
+          <h2 id="inputs-title" className="font-semibold">
+            入力・ラベル
+          </h2>
           <div className="space-y-2">
             <Label htmlFor="sample-input">入力見本</Label>
             <Input id="sample-input" placeholder="日本語の入力を確認" />
@@ -58,7 +68,9 @@ export default function UIFoundationPage() {
         </section>
 
         <section aria-labelledby="badges-title" className="space-y-4 rounded-xl border p-5">
-          <h2 id="badges-title" className="font-semibold">バッジ</h2>
+          <h2 id="badges-title" className="font-semibold">
+            バッジ
+          </h2>
           <div className="flex flex-wrap gap-3">
             <Badge>基本</Badge>
             <Badge variant="secondary">補助</Badge>
@@ -67,7 +79,9 @@ export default function UIFoundationPage() {
         </section>
 
         <section aria-labelledby="checkboxes-title" className="space-y-4 rounded-xl border p-5">
-          <h2 id="checkboxes-title" className="font-semibold">チェックボックス</h2>
+          <h2 id="checkboxes-title" className="font-semibold">
+            チェックボックス
+          </h2>
           <div className="flex items-center gap-3">
             <Checkbox id="sample-checkbox" />
             <Label htmlFor="sample-checkbox">選択の見本</Label>
@@ -83,7 +97,9 @@ export default function UIFoundationPage() {
         </section>
 
         <section aria-labelledby="selects-title" className="space-y-4 rounded-xl border p-5">
-          <h2 id="selects-title" className="font-semibold">ネイティブ選択</h2>
+          <h2 id="selects-title" className="font-semibold">
+            ネイティブ選択
+          </h2>
           <div className="space-y-2">
             <Label htmlFor="sample-select">選択肢の見本</Label>
             <NativeSelect id="sample-select" defaultValue="first">
@@ -101,15 +117,31 @@ export default function UIFoundationPage() {
         </section>
 
         <section aria-labelledby="pagination-title" className="space-y-4 rounded-xl border p-5">
-          <h2 id="pagination-title" className="font-semibold">ページ送り</h2>
-          <p className="text-sm text-muted-foreground">表示だけの見本です。選択しても移動しません。</p>
+          <h2 id="pagination-title" className="font-semibold">
+            ページ送り
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            表示だけの見本です。選択しても移動しません。
+          </p>
           <Pagination>
             <PaginationContent>
-              <PaginationItem><PaginationPrevious /></PaginationItem>
-              <PaginationItem><PaginationLink aria-label="1ページ目" isActive>1</PaginationLink></PaginationItem>
-              <PaginationItem><PaginationLink aria-label="2ページ目">2</PaginationLink></PaginationItem>
-              <PaginationItem><PaginationEllipsis /></PaginationItem>
-              <PaginationItem><PaginationNext /></PaginationItem>
+              <PaginationItem>
+                <PaginationPrevious />
+              </PaginationItem>
+              <PaginationItem>
+                <PaginationLink aria-label="1ページ目" isActive>
+                  1
+                </PaginationLink>
+              </PaginationItem>
+              <PaginationItem>
+                <PaginationLink aria-label="2ページ目">2</PaginationLink>
+              </PaginationItem>
+              <PaginationItem>
+                <PaginationEllipsis />
+              </PaginationItem>
+              <PaginationItem>
+                <PaginationNext />
+              </PaginationItem>
             </PaginationContent>
           </Pagination>
         </section>

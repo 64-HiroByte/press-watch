@@ -591,26 +591,40 @@ html:has(.release-filter-panel:modal) {
 }
 
 /* next-themesの切替時のtransition抑止から独立して、選択背景だけを動かす。 */
-.mock-preview .release-theme-options[data-animate="true"][data-selected="dark"] .release-theme-indicator {
+.mock-preview
+  .release-theme-options[data-animate="true"][data-selected="dark"]
+  .release-theme-indicator {
   animation: mock-theme-slide-dark 180ms ease-out;
 }
 
-.mock-preview .release-theme-options[data-animate="true"][data-selected="light"] .release-theme-indicator {
+.mock-preview
+  .release-theme-options[data-animate="true"][data-selected="light"]
+  .release-theme-indicator {
   animation: mock-theme-slide-light 180ms ease-out;
 }
 
 @keyframes mock-theme-slide-dark {
-  from { transform: translateX(0); }
-  to { transform: translateX(34px); }
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(34px);
+  }
 }
 
 @keyframes mock-theme-slide-light {
-  from { transform: translateX(34px); }
-  to { transform: translateX(0); }
+  from {
+    transform: translateX(34px);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mock-preview .release-theme-options[data-animate="true"][data-selected] .release-theme-indicator {
+  .mock-preview
+    .release-theme-options[data-animate="true"][data-selected]
+    .release-theme-indicator {
     animation: none;
   }
 }
@@ -802,7 +816,8 @@ html.dark .mock-display-tooltip {
     outline-offset: -2px;
   }
 
-  @supports (background: color-mix(in srgb, black 90%, transparent)) and ((backdrop-filter: blur(5px)) or (-webkit-backdrop-filter: blur(5px))) {
+  @supports (background: color-mix(in srgb, black 90%, transparent)) and
+    ((backdrop-filter: blur(5px)) or (-webkit-backdrop-filter: blur(5px))) {
     .mock-preview[data-design="sidebar"] .release-header {
       background: color-mix(in srgb, var(--background) 90%, transparent);
       -webkit-backdrop-filter: blur(5px);

@@ -22,10 +22,20 @@ type WorkbenchProps = {
   robustness: ReactNode;
 };
 
-export function MockWorkbench({ sidebarSearch, sidebarCategories, resultSummaries, results, robustness }: WorkbenchProps) {
+export function MockWorkbench({
+  sidebarSearch,
+  sidebarCategories,
+  resultSummaries,
+  results,
+  robustness,
+}: WorkbenchProps) {
   const [state, setState] = useState<PreviewState>("normal");
   const [sidebarSelection, setSidebarSelection] = useState<string[]>([]);
-  const [appliedSearch, setAppliedSearch] = useState<MockSearchConditions>({ keyword: "", publishedFrom: "", publishedTo: "" });
+  const [appliedSearch, setAppliedSearch] = useState<MockSearchConditions>({
+    keyword: "",
+    publishedFrom: "",
+    publishedTo: "",
+  });
   const [conditionsExpanded, setConditionsExpanded] = useState(false);
   const [textSize, setTextSize] = useState<"standard" | "large">("standard");
   const mainRef = useRef<HTMLDivElement>(null);
@@ -50,11 +60,19 @@ export function MockWorkbench({ sidebarSearch, sidebarCategories, resultSummarie
       main.style.removeProperty("--mock-header-height");
     };
   }, []);
-  const selectedCategories = sidebarCategories.filter((category) => sidebarSelection.includes(category.slug));
-  const publicationRange = appliedSearch.publishedFrom || appliedSearch.publishedTo
-    ? `${appliedSearch.publishedFrom.replaceAll("-", "/") || "開始日指定なし"} 〜 ${appliedSearch.publishedTo.replaceAll("-", "/") || "終了日指定なし"}`
-    : "指定なし";
-  const hasConditions = Boolean(appliedSearch.keyword || appliedSearch.publishedFrom || appliedSearch.publishedTo || selectedCategories.length);
+  const selectedCategories = sidebarCategories.filter((category) =>
+    sidebarSelection.includes(category.slug),
+  );
+  const publicationRange =
+    appliedSearch.publishedFrom || appliedSearch.publishedTo
+      ? `${appliedSearch.publishedFrom.replaceAll("-", "/") || "開始日指定なし"} 〜 ${appliedSearch.publishedTo.replaceAll("-", "/") || "終了日指定なし"}`
+      : "指定なし";
+  const hasConditions = Boolean(
+    appliedSearch.keyword ||
+    appliedSearch.publishedFrom ||
+    appliedSearch.publishedTo ||
+    selectedCategories.length,
+  );
   const conditionAction = hasConditions ? "条件を変更" : "検索条件を設定";
   const conditionRows = (
     <>
@@ -69,18 +87,24 @@ export function MockWorkbench({ sidebarSearch, sidebarCategories, resultSummarie
       <span className="release-applied-row">
         <span className="release-applied-label">カテゴリ</span>
         <span className="release-applied-values">
-          {selectedCategories.length === 0 ? <span>すべてのカテゴリ</span> : selectedCategories.map((category) => (
-            <Badge key={category.slug} variant="outline" className="release-category">{category.name}</Badge>
-          ))}
+          {selectedCategories.length === 0 ? (
+            <span>すべてのカテゴリ</span>
+          ) : (
+            selectedCategories.map((category) => (
+              <Badge key={category.slug} variant="outline" className="release-category">
+                {category.name}
+              </Badge>
+            ))
+          )}
         </span>
       </span>
     </>
   );
 
   function toggleSidebarCategory(slug: string) {
-    setSidebarSelection((current) => current.includes(slug)
-      ? current.filter((value) => value !== slug)
-      : [...current, slug]);
+    setSidebarSelection((current) =>
+      current.includes(slug) ? current.filter((value) => value !== slug) : [...current, slug],
+    );
   }
 
   function preventPreviewNavigation(event: MouseEvent<HTMLElement>) {
@@ -102,7 +126,11 @@ export function MockWorkbench({ sidebarSearch, sidebarCategories, resultSummarie
         <div className="mock-control-fields">
           <div className="mock-control-field">
             <Label htmlFor="mock-state">表示状態</Label>
-            <NativeSelect id="mock-state" value={state} onChange={(event) => setState(event.target.value as PreviewState)}>
+            <NativeSelect
+              id="mock-state"
+              value={state}
+              onChange={(event) => setState(event.target.value as PreviewState)}
+            >
               <NativeSelectOption value="normal">通常一覧</NativeSelectOption>
               <NativeSelectOption value="loading">ローディング</NativeSelectOption>
               <NativeSelectOption value="error">取得失敗</NativeSelectOption>
@@ -117,71 +145,122 @@ export function MockWorkbench({ sidebarSearch, sidebarCategories, resultSummarie
       </aside>
 
       <section
-        className="mock-preview" data-design="sidebar" data-text-size={textSize} aria-label="サイドバーの画面見本"
-        onClick={preventPreviewNavigation} onAuxClick={preventPreviewNavigation}
+        className="mock-preview"
+        data-design="sidebar"
+        data-text-size={textSize}
+        aria-label="サイドバーの画面見本"
+        onClick={preventPreviewNavigation}
+        onAuxClick={preventPreviewNavigation}
       >
-        <MockSidebarFilters onSearch={setAppliedSearch} renderMain={({ drawerOpen, openDrawer, triggerRef, rememberTriggerFocus }) => (
-          <div ref={mainRef} className="release-main" role="region" aria-label="報道発表一覧のスクロール領域" tabIndex={0}>
-            <header ref={headerRef} className="release-header">
-              <div className="release-header-body">
-                <div className="release-header-top">
-                  <h2>報道発表一覧</h2>
-                  <div className="release-display-controls">
-                    <div className="release-text-options" role="group" aria-label="文字サイズ">
-                      <div className="release-text-buttons">
-                        {(["standard", "large"] as const).map((size) => (
-                          <MockDisplayTooltip key={size} label={textSize === size
-                            ? `${size === "standard" ? "標準" : "大きめ"}サイズ（選択中）`
-                            : `${size === "standard" ? "標準" : "大きめ"}サイズに切り替え`}>
-                            <Button
-                              type="button" variant="ghost" size="icon"
-                              aria-label={size === "standard" ? "文字サイズ：標準" : "文字サイズ：大きめ"}
-                              aria-pressed={textSize === size} onClick={() => setTextSize(size)}
-                            ><span className="release-text-symbol" data-size={size} aria-hidden="true">あ</span></Button>
-                          </MockDisplayTooltip>
-                        ))}
+        <MockSidebarFilters
+          onSearch={setAppliedSearch}
+          renderMain={({ drawerOpen, openDrawer, triggerRef, rememberTriggerFocus }) => (
+            <div
+              ref={mainRef}
+              className="release-main"
+              role="region"
+              aria-label="報道発表一覧のスクロール領域"
+              tabIndex={0}
+            >
+              <header ref={headerRef} className="release-header">
+                <div className="release-header-body">
+                  <div className="release-header-top">
+                    <h2>報道発表一覧</h2>
+                    <div className="release-display-controls">
+                      <div className="release-text-options" role="group" aria-label="文字サイズ">
+                        <div className="release-text-buttons">
+                          {(["standard", "large"] as const).map((size) => (
+                            <MockDisplayTooltip
+                              key={size}
+                              label={
+                                textSize === size
+                                  ? `${size === "standard" ? "標準" : "大きめ"}サイズ（選択中）`
+                                  : `${size === "standard" ? "標準" : "大きめ"}サイズに切り替え`
+                              }
+                            >
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                aria-label={
+                                  size === "standard" ? "文字サイズ：標準" : "文字サイズ：大きめ"
+                                }
+                                aria-pressed={textSize === size}
+                                onClick={() => setTextSize(size)}
+                              >
+                                <span
+                                  className="release-text-symbol"
+                                  data-size={size}
+                                  aria-hidden="true"
+                                >
+                                  あ
+                                </span>
+                              </Button>
+                            </MockDisplayTooltip>
+                          ))}
+                        </div>
                       </div>
+                      <MockThemeToggle />
                     </div>
-                    <MockThemeToggle />
                   </div>
-                </div>
-                <div className="release-condition-controls">
-                  <Button
-                    type="button" variant="ghost" className="release-conditions-disclosure"
-                    aria-expanded={conditionsExpanded} aria-controls="mock-applied-values"
-                    onClick={() => setConditionsExpanded((current) => !current)}
+                  <div className="release-condition-controls">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="release-conditions-disclosure"
+                      aria-expanded={conditionsExpanded}
+                      aria-controls="mock-applied-values"
+                      onClick={() => setConditionsExpanded((current) => !current)}
+                    >
+                      条件の詳細
+                      <ChevronDownIcon aria-hidden="true" />
+                    </Button>
+                    <Button
+                      ref={triggerRef}
+                      type="button"
+                      variant="ghost"
+                      className="release-conditions-trigger"
+                      aria-haspopup="dialog"
+                      aria-controls="mock-filter-panel"
+                      aria-expanded={drawerOpen}
+                      onClick={openDrawer}
+                      onFocus={rememberTriggerFocus}
+                    >
+                      <PencilLineIcon aria-hidden="true" />
+                      {conditionAction}
+                    </Button>
+                  </div>
+                  <div
+                    id="mock-applied-values"
+                    className="release-applied-conditions"
+                    hidden={!conditionsExpanded}
+                    role="group"
+                    aria-label="適用中の検索条件"
+                    aria-live="polite"
+                    aria-atomic="true"
                   >
-                    条件の詳細<ChevronDownIcon aria-hidden="true" />
-                  </Button>
-                  <Button
-                    ref={triggerRef} type="button" variant="ghost" className="release-conditions-trigger"
-                    aria-haspopup="dialog" aria-controls="mock-filter-panel" aria-expanded={drawerOpen}
-                    onClick={openDrawer} onFocus={rememberTriggerFocus}
-                  >
-                    <PencilLineIcon aria-hidden="true" />{conditionAction}
-                  </Button>
+                    {conditionRows}
+                  </div>
+                  {resultSummaries[state]}
                 </div>
-                <div
-                  id="mock-applied-values" className="release-applied-conditions" hidden={!conditionsExpanded}
-                  role="group" aria-label="適用中の検索条件" aria-live="polite" aria-atomic="true"
-                >
-                  {conditionRows}
-                </div>
-                {resultSummaries[state]}
+              </header>
+              <div className="release-content">
+                {results[state]}
+                {robustness}
               </div>
-            </header>
-            <div className="release-content">
-              {results[state]}
-              {robustness}
             </div>
-          </div>
-        )}>
+          )}
+        >
           {sidebarSearch}
           <div className="release-sidebar-categories">
             <MockCategoryPills
-              categories={sidebarCategories} selectedSlugs={sidebarSelection}
-              onSelectAll={() => setSidebarSelection(sidebarCategories.map((category) => category.slug))}
-              onToggle={toggleSidebarCategory} onClear={() => setSidebarSelection([])}
+              categories={sidebarCategories}
+              selectedSlugs={sidebarSelection}
+              onSelectAll={() =>
+                setSidebarSelection(sidebarCategories.map((category) => category.slug))
+              }
+              onToggle={toggleSidebarCategory}
+              onClear={() => setSidebarSelection([])}
             />
           </div>
         </MockSidebarFilters>

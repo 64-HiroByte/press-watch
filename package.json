@@ -8,6 +8,15 @@
   "scripts": {
     "dev:web": "pnpm --filter @press-watch/web dev",
     "build:web": "pnpm --filter @press-watch/web build",
-    "typecheck:web": "pnpm --filter @press-watch/web typecheck"
+    "typecheck:web": "pnpm --filter @press-watch/web typecheck",
+    "typegen:web": "pnpm --filter @press-watch/web typegen",
+    "lint:web": "pnpm --filter @press-watch/web lint",
+    "format:web": "pnpm --filter @press-watch/web format",
+    "format:check:web": "pnpm --filter @press-watch/web format:check",
+    "test:web": "pnpm --filter @press-watch/web test"
+  },
+  "devDependencies": {
+    "oxfmt": "0.72.0",
+    "oxlint": "1.87.0"
   }
 }
