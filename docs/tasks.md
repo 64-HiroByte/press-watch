@@ -354,14 +354,14 @@ Phase 6-4の完了は設計・文書の確認を表し、以下のAPI・Web実�
   - 診断表示と整形、lintの自動修正を区別し、自動修正を有効にする場合は保存時に修正可能な問題が修正されることも確認する。
   - 既存のエディター設定へ必要な項目を追加し、他言語のフォーマッター設定を維持する。
     Oxcを既定のフォーマッターに指定する場合はJavaScript・JSX・TypeScript・TSXの言語別設定とし、全言語へ一括適用しない。
-- [ ] Markdownの書式維持を、Oxfmt導入後のCursor・CLI・CIで確認する
+- [x] Markdownの書式維持を、Oxfmt導入後のCursor・CLI・CIで確認する
   - `.editorconfig`のMarkdown用例外と、CursorのMarkdown用設定を維持する。
   - 末尾2スペースを含む検証用Markdownを保存しても強制改行が残り、Oxfmtの整形・チェック対象に含まれないことを確認する。
     Markdown以外の行末空白を`git diff --check`が検出することも確認する。
   - リポジトリルートと`apps/web`からの実行、Markdownファイルの明示指定でもOxfmtの除外が効くことを確認する。
 - [x] 導入したバージョン、設定ファイルの配置、実行コマンド、Cursorの設定・確認手順を[ローカル開発手順](local-development.md)へ記録する
 - [x] 画面テストはPlaywrightのChromiumを導入する案を基に、依存関係と実行方法を確認して整備する
-- [ ] 型チェック・lint・format確認・ビルド・画面テストをフロントエンドCIへ追加する
+- [x] 型チェック・lint・format確認・ビルド・画面テストをフロントエンドCIへ追加する
 - [ ] 既存Python CIとの実行範囲を整理し、実行経路と省略経路を確認する
 
 完成条件は、ローカルとCIで同じ検証を実行でき、実行と省略の結果を区別して確認できることとする。
@@ -374,8 +374,14 @@ GitHubの必須チェック設定変更は、workflowの実装・動作確認と
 作業ツリーと入力ファイルが一致する、秘密ファイルを含めない新しい一時環境で、frozen install・型生成・型チェック・lint・format確認・ビルド・画面テスト3件の成功を確認した。
 型・lint・format・画面テストの負例、CIの変更判定16ケース、Cursorの診断・保存時整形、MarkdownのCLI・LSP除外と実保存・プレビューも確認した。
 lint例外の対象外で6ルールすべてが違反を検出することと、検証用ファイルを削除した後の成功も確認した。
-実CIの実行経路とPython CIの回帰はcommit・push・Draft PRの別途承認後、省略経路は取り込み後の別PRで確認する。
-実CI確認が残るため、Phase 6-5全体は未完了とする。
+2026年10月8日に、[PR #102](https://github.com/64-HiroByte/press-watch/pull/102)とマージ後のPhaseへのpushで、Web検証と既存Python CIのテストstepの実行・成功を実ログから確認した。
+両対象で画面テスト3件、API 256件、scraper 138件が成功し、DB統合は64件中63件成功・実データスナップショット検証1件skipだった。
+Markdown保持は採用版CLI・Cursorの既存実績、CIの共通設定・実行コマンド・空白検査の成功を合わせて確認し、Markdown以外の行末空白の検出も確認した。
+対象SHA、checkoutしたマージ結果、比較範囲、stepとrun URLは[Phase 6-5の確認実績](local-development.md#phase-6-5の確認実績)に記録した。
+新しいWeb CIを含む構成の省略経路は、`phase-6/frontend`をbaseとする文書のみの別PRで実確認する。
+この省略確認が残るため、Phase 6-5全体は未完了とする。
+実CIでの失敗時artifactアップロードは未確認であり、画面テストの保証範囲もMock表示と本番`/mock`の404に限る。
+API接続・検索の製品動作や、すべての変更組合せの実CI確認は含めない。
 
 ### 6-6: 固定カテゴリAPIと検証データの整備
 

@@ -17,7 +17,7 @@
 - Tailwind CSS 4.3.3
 - shadcn/ui（base-nova・Base UIの基本部品、CLI 4.21.1）
 - Kibo UI（必要性を評価し、Phase 6-2では導入保留）
-- Oxlint / Oxfmt（Phase 6のMock確認後、機能実装前に導入予定）
+- Oxlint 1.87.0 / Oxfmt 0.72.0（Phase 6-5で導入済み）
 
 ### バックエンド
 

@@ -143,6 +143,12 @@ LSP経由でもルートと`apps/web`のMarkdownに整形結果が返らず、Ty
 LSP経由では同じMarkdownに整形差分が返らず、書式違反のTypeScriptには整形差分が返ることを確認しました。
 このCLI・LSP確認は、Cursorでの実保存・プレビューやGitHub Actions上での実行を代替するものではありません。
 
+2026年10月8日に、採用版CLIの除外確認と[Cursorでの実保存・プレビューの確認](#webのlintformatとcursor連携)に加え、[PR #102とマージ後pushの実CI](#phase-6-5の確認実績)で共通設定を使うformat確認と空白検査の成功を確認しました。
+CIの`pnpm format:check:web`はWebの共有コマンドを呼び、ルートの`.oxfmtrc.json`を参照し、対象拡張子にMarkdownを含めません。
+OxfmtのMarkdown除外設定とCLIの対象指定は維持されています。
+同日に一時ファイルを使ったGitの空白検査で、Markdownの末尾2スペースを許容し、TypeScriptの行末空白を検出することも確認しました。
+検証用ファイルは確認後に削除しました。
+
 ## lockfile について
 
 `pnpm-lock.yaml` は Node.js 依存関係の lockfile です。
@@ -536,7 +542,8 @@ CIのDB統合テストはGitHub Actions内の一時的なPostgreSQL 17を使い�
 
 PRでは最新コミットだけでなく、baseからのPR全体の差分を判定します。
 workflow変更を含むPRに文書だけのコミットを追加しても、Pythonテスト3種類は実行対象のままです。
-実CIでは、workflow変更のPRで3種類の実行を確認し、省略経路は変更を取り込んだPhaseブランチをbaseにした別の文書・フロントエンド専用PRで確認します。
+workflow変更を含むPRでは3種類の実行経路を確認し、省略経路は変更を取り込んだPhaseブランチをbaseにした別のPRで確認します。
+Phase 6-5の実行経路はPR #102とマージ後pushで確認済みで、同構成の省略経路は文書のみの別PRで確認します。
 タスクブランチへのpush自体はworkflowの起動対象ではないため、pushだけで省略経路を確認することはできません。
 
 ### Web CIの実行範囲
@@ -556,13 +563,15 @@ workflow全体にパス条件を付けず、変更判定と空白検査を実行
 
 実行対象を一つでも含むと、Ubuntu 24.04、Node.js 24.21.0、pnpm 12.8.1でfrozen install、型生成、型チェック、lint、format確認、ビルド、Chromium画面テストを順に実行します。
 ChromiumのLinux依存はActions内で取得し、ブラウザーとテスト生成物はルートの`tmp/playwright/`へ保存します。
-画面テスト失敗時のtrace・スクリーンショットは`playwright-diagnostics` artifactで7日間保持します。
+画面テスト失敗時のtrace・スクリーンショットは`playwright-diagnostics` artifactで7日間保持する設定です。
+実CIでの失敗時アップロードは未確認であり、成功runではこのstepが省略されています。
 変更判定や空白検査の失敗、不正な判定出力を成功や省略へ置き換えません。
 新しくWebで使う共有設定や別のソース配置を追加した場合は、変更判定の対象も見直します。
 
 新規workflow・ルートOxc設定・CI判定スクリプトの変更は、既存Python CIのAPI・scraper・一時PostgreSQLも実行対象にします。
 実CI確認では対象SHA、実行step、実行・省略理由を確認し、ローカルの判定確認だけで実CIも確認済みとは扱いません。
-今回のworkflowを含むPRでは実行経路を確認し、省略経路は取り込み後の別PRで確認します。
+実行経路はPR #102とマージ後pushで確認済みです。
+省略経路は、統合済みの`phase-6/frontend`をbaseとする文書のみの別PRで確認します。
 commit・push・PR作成・マージ、GitHubの必須チェック・ruleset変更には、それぞれ定めた承認が必要です。
 
 ### 必須チェックの段階適用
@@ -600,6 +609,39 @@ DB統合ジョブを含まないmain向けPRは必須チェックが未報告に
 CI見直しの完了とPhase 5全体の完了・main統合は区別します。
 
 ### 実行経路と省略経路の確認状況
+
+#### Phase 6-5の確認実績
+
+2026年10月8日に、PR #102とマージ後のPhaseへのpushについて、各jobのstepとログを再取得して確認しました。
+job全体の成功だけでなく、検証stepが実行されて成功し、Web・API・scraperの省略通知stepは実行されなかったことを確認しています。
+
+| 対象 | head SHA | 実CI |
+| --- | --- | --- |
+| PR #102 | `71772f2ae12ab80618ff5e3b1490c9aa44df1308` | [Web checks](https://github.com/64-HiroByte/press-watch/actions/runs/37645292645)・[Python tests](https://github.com/64-HiroByte/press-watch/actions/runs/37645292413) |
+| マージ後の`phase-6/frontend`へのpush | `af34c0d875741b0d12aef098a796de40285b8b76` | [Web checks](https://github.com/64-HiroByte/press-watch/actions/runs/37649495029)・[Python tests](https://github.com/64-HiroByte/press-watch/actions/runs/37649495024) |
+
+PRの各jobがcheckoutしたマージ結果は`81dc6b8a0f0c6127df3de212e952bb1787c70f17`です。
+その親は当時のbase `2ef556f82fc59f74d5519ad5ba940d243944f7f6`と上記のPR headに一致し、変更判定・空白検査はbaseからこのマージ結果までを比較しました。
+マージ後pushの各jobは実際のマージコミット`af34c0d875741b0d12aef098a796de40285b8b76`をcheckoutし、push前の`2ef556f82fc59f74d5519ad5ba940d243944f7f6`から比較しました。
+両比較範囲にはworkflow・CI判定スクリプト・Webソース・依存の変更が含まれるため、WebとPythonの両方が実行対象です。
+
+- Webでは変更判定・空白検査、frozen install、型生成・型チェック、lint、format確認、本番ビルド、ChromiumとLinux依存の導入、画面テストの各stepが成功しました。
+  両runのログでlintの警告・エラー0件、format適合、Playwrightの3テスト成功を確認しました。
+  CLIと同じ共通scripts・Oxc設定を参照し、format確認の対象にMarkdownを含めていません。
+- PythonではAPI・scraper・PostgreSQL統合のテストstepが省略されずに実行され、成功しました。
+  両runのログでAPI 256件成功、scraper 138件成功、DB統合64件中63件成功・1件skipを確認しました。
+  DBのskipは専用runnerでだけ実行する実データスナップショット検証であり、通常CIの対象外です。
+- 画面テストの保証範囲はMock表示と本番`/mock`の404であり、API接続・検索の製品動作は確認していません。
+  失敗時artifactアップロードは実CIでは未確認で、上記の成功runでは該当stepが省略されました。
+- 同構成の省略経路は、`phase-6/frontend`をbaseとする文書のみの別PRで確認します。
+  Webの変更判定・空白検査と`Skip Web validation`の成功、環境準備・検証stepの省略を確認します。
+  Pythonの変更判定・空白検査とAPI・scraperの省略stepの成功、環境準備・テストstepの省略、DB統合job全体の省略も確認します。
+  確認済みrunのPR head・base・checkoutしたマージ結果・比較範囲・省略理由・URLを記録し、証拠追記後の最新headのCI確認とは区別します。
+  実確認前は[Phase 6-5](tasks.md#6-5-検証基盤の整備)全体を未完了とします。
+- 文書のみのPRを省略経路の代表例とし、すべての変更組合せを実CIで確認したとは扱いません。
+  既存のローカル変更判定16ケースの確認は、実CIの証拠と分けて再利用します。
+
+#### Phase 5の確認実績
 
 - main向け[統合PR #91のCI](https://github.com/64-HiroByte/press-watch/actions/runs/36440452446)を2026年9月29日に確認しました。
   対象のPhase先端は`780937b1f9dcb5123ebecf01f5dd8f8ad4a15fa1`で、API 256件成功、scraper 138件成功、DB統合64件中63件成功・1件skipを実ログから確認しました。
