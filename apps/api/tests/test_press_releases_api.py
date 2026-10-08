@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from press_watch_api.dependencies import get_db_session
 from press_watch_api.main import app
+from press_watch_api.models.fixed_category import FixedCategory
 from press_watch_api.models.press_release import PressRelease
 from api_test_constants import (
     ENV_PRESS_RELEASE_URL_1 as SOURCE_URL_1,
@@ -30,11 +31,93 @@ class PressReleaseListApiTest(unittest.TestCase):
         self.session = Mock(spec=Session)
 
         def override_get_db_session():
+            """HTTP契約の検証用にMock Sessionを渡すdependency
+
+            共通dependencyの生成・終了処理は差し替えるため、この補助だけで
+            実際のSessionライフサイクルを検証するものではない。
+
+            Yields:
+                件数・一覧・所属取得のMockへ渡すテスト用Session
+            """
+
             yield self.session
 
         app.dependency_overrides[get_db_session] = override_get_db_session
         self.addCleanup(app.dependency_overrides.clear)
         self.client = TestClient(app)
+        self.memberships = self.enterContext(patch(
+            "press_watch_api.routers.press_releases.list_press_release_fixed_categories",
+            return_value={},
+        ))
+
+    @patch("press_watch_api.routers.press_releases.list_press_releases")
+    @patch("press_watch_api.routers.press_releases.count_press_releases")
+    def test_returns_all_saved_memberships_for_page_ids(
+        self, count_mock: Mock, list_mock: Mock,
+    ) -> None:
+        """検索カテゴリ以外の所属も返し、ページ内記事にだけ対応付けること"""
+
+        count_mock.return_value = 2
+        list_mock.return_value = (
+            _press_release(
+                id=2027, title="記事2", source_url=SOURCE_URL_2,
+                source_categories=None,
+            ),
+            _press_release(
+                id=1009, title="記事1", source_url=SOURCE_URL_1,
+                source_categories=None,
+            ),
+        )
+        self.memberships.return_value = {
+            1009: (
+                FixedCategory(id=92, slug="soil", name="土壌", display_order=10),
+                FixedCategory(id=51, slug="air", name="大気", display_order=30),
+            ),
+        }
+
+        response = self.client.get(
+            "/press-releases", params={"fixed_category": "air"}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [item.get("fixed_categories") for item in response.json()["items"]],
+            [[], [{"slug": "soil", "name": "土壌"}, {"slug": "air", "name": "大気"}]],
+        )
+        self.memberships.assert_called_once_with(self.session, [2027, 1009])
+
+    @patch("press_watch_api.routers.press_releases.list_press_releases")
+    @patch("press_watch_api.routers.press_releases.count_press_releases")
+    def test_concurrent_empty_list_preserves_count_and_skips_memberships(
+        self, count_mock: Mock, list_mock: Mock,
+    ) -> None:
+        """件数取得後に一覧が空でも200と要求ページ・総件数を保持すること"""
+
+        count_mock.return_value = 11
+        list_mock.return_value = ()
+        response = self.client.get(
+            "/press-releases", params={"page": 2, "page_size": 10}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {
+            "items": [],
+            "pagination": {
+                "page": 2, "page_size": 10, "total_items": 11, "total_pages": 2,
+            },
+        })
+        list_mock.assert_called_once()
+        self.memberships.assert_not_called()
+
+    def test_openapi_requires_memberships_with_only_slug_and_name(self) -> None:
+        schemas = app.openapi()["components"]["schemas"]
+        item = schemas["PressReleaseListItem"]
+        self.assertIn("fixed_categories", item["required"])
+        membership = item["properties"]["fixed_categories"]
+        self.assertEqual(membership["type"], "array")
+        self.assertNotIn("default", membership)
+        category_schema = schemas[membership["items"]["$ref"].rsplit("/", 1)[1]]
+        self.assertEqual(set(category_schema["properties"]), {"slug", "name"})
+        self.assertEqual(set(category_schema["required"]), {"slug", "name"})
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
     @patch("press_watch_api.routers.press_releases.count_press_releases")
@@ -186,6 +269,7 @@ class PressReleaseListApiTest(unittest.TestCase):
                 ))
         count_mock.assert_not_called()
         list_mock.assert_not_called()
+        self.memberships.assert_not_called()
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
     @patch("press_watch_api.routers.press_releases.count_press_releases")
@@ -321,12 +405,14 @@ class PressReleaseListApiTest(unittest.TestCase):
                         "source_url": SOURCE_URL_1,
                         "published_at": "2026-05-26",
                         "source_categories": ["総合政策", "自然環境"],
+                        "fixed_categories": [],
                     },
                     {
                         "title": "報道発表2",
                         "source_url": SOURCE_URL_2,
                         "published_at": "2026-05-25",
                         "source_categories": None,
+                        "fixed_categories": [],
                     },
                 ],
                 "pagination": {
@@ -448,6 +534,7 @@ class PressReleaseListApiTest(unittest.TestCase):
             },
         )
         list_press_releases_mock.assert_not_called()
+        self.memberships.assert_not_called()
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
     @patch("press_watch_api.routers.press_releases.count_press_releases")
@@ -482,6 +569,7 @@ class PressReleaseListApiTest(unittest.TestCase):
             },
         )
         list_press_releases_mock.assert_not_called()
+        self.memberships.assert_not_called()
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
     @patch("press_watch_api.routers.press_releases.count_press_releases")
@@ -1021,7 +1109,7 @@ def _press_release(
         title: 報道発表タイトル
         source_url: 報道発表詳細ページURL
         published_at: 公開日
-        source_categories: 取得元カテゴリ
+        source_categories: 取得元カテゴリ。欠損を検証する場合はNone
         id: DBモデルの主キー
 
     Returns:

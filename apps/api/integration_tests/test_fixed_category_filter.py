@@ -26,12 +26,13 @@ _CATEGORY_MODELS = (
 )
 _DATA_MODELS = (*_CATEGORY_MODELS, PressRelease)
 _CATEGORY_IDS = {"air": 703, "soil": 1109, "other": 2003}
+_CATEGORY_DISPLAY_ORDERS = {"air": 30, "soil": 10, "other": 20}
 _FETCHED_AT = datetime(2026, 9, 27, tzinfo=UTC)
 _SOURCE_URL_PREFIX = "https://example.test/press/"
 
 
 class FixedCategoryFilterIntegrationTest(unittest.TestCase):
-    """HTTPからrepositoryを通し、件数・一覧・DB非更新を確認"""
+    """HTTPからrepositoryを通し、全所属・表示順・照会数・DB非更新を確認"""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -74,7 +75,7 @@ class FixedCategoryFilterIntegrationTest(unittest.TestCase):
                     id=category_id,
                     slug=slug,
                     name=f"合成カテゴリ{order}",
-                    display_order=order,
+                    display_order=_CATEGORY_DISPLAY_ORDERS[slug],
                 ))
             session.flush()
             session.add(FixedCategoryKeyword(
@@ -163,11 +164,13 @@ class FixedCategoryFilterIntegrationTest(unittest.TestCase):
         """要求中の照会数・書込みの不在と、応答・全データの保持を確認
 
         HTTP要求中のSQLだけを数え、要求前後の全対象テーブルを比較する。
-        空ページでは件数照会のみ、結果がある場合は一覧取得も必要とする。
+        同時更新のない合成データを前提とする。
+        件数で判定できる空ページは1 SELECT、記事のあるページは3 SELECT。
+        公開する所属は要求前の保存済みデータと表示順から確認する。
 
         Args:
             params: 一覧APIへ渡すクエリ、リスト値は同名クエリの繰り返し
-            expected_ids: 期待するページ内の報道発表IDを表示順に並べた一覧
+            expected_ids: 期待するページ内の記事IDを公開日・IDの降順に並べた一覧
             total: ページ分割前の絞り込み済み総件数
             total_pages: 期待する総ページ数、0件の場合は0を指定
         """
@@ -178,9 +181,20 @@ class FixedCategoryFilterIntegrationTest(unittest.TestCase):
         def count_operation(
             _connection, _cursor, statement, _parameters, _context, _many
         ) -> None:
-            """SQLAlchemyの実行通知からSQLの操作種別だけを集計"""
+            """HTTP要求区間の実行通知からSQLの操作種別だけを集計
 
-            # SQL本文とパラメーターは記録せず、種別ごとの回数だけ保持する。
+            回数は外側のoperationsへ加算し、SQL本文やパラメーターは保存しない。
+            listenerの登録・解除は呼出し元の_assert_pageが担当する。
+
+            Args:
+                _connection: 実行に使われる接続。未使用
+                _cursor: 実行に使われるDBAPIカーソル。未使用
+                statement: 操作種別を判定するSQL本文
+                _parameters: SQLの実行パラメーター。参照・記録しない
+                _context: SQLAlchemyの実行コンテキスト。未使用
+                _many: executemanyによる実行かを表すフラグ。未使用
+            """
+
             operation = statement.lstrip().partition(" ")[0].upper()
             operations[operation] += 1
 
@@ -203,13 +217,28 @@ class FixedCategoryFilterIntegrationTest(unittest.TestCase):
             row["id"]: row
             for row in before[PressRelease.__tablename__]
         }
+        categories = {
+            row["id"]: row for row in before[FixedCategory.__tablename__]
+        }
         for item, release_id in zip(payload["items"], expected_ids):
             original = originals[release_id]
+            saved_categories = sorted(
+                (
+                    categories[row["fixed_category_id"]]
+                    for row in before[PressReleaseFixedCategory.__tablename__]
+                    if row["press_release_id"] == release_id
+                ),
+                key=lambda category: category["display_order"],
+            )
             self.assertEqual(item, {
                 "title": original["title"],
                 "source_url": original["source_url"],
                 "published_at": original["published_at"].isoformat(),
                 "source_categories": original["source_categories"],
+                "fixed_categories": [
+                    {"slug": category["slug"], "name": category["name"]}
+                    for category in saved_categories
+                ],
             })
         self.assertEqual(payload["pagination"], {
             "page": params.get("page", 1),
@@ -217,7 +246,7 @@ class FixedCategoryFilterIntegrationTest(unittest.TestCase):
             "total_items": total,
             "total_pages": total_pages,
         })
-        self.assertEqual(operations, {"SELECT": 2 if expected_ids else 1})
+        self.assertEqual(operations, {"SELECT": 3 if expected_ids else 1})
         self.assertEqual(self._snapshot(), before)
 
     def test_single_and_multiple_categories_use_saved_classifications(
@@ -312,6 +341,42 @@ class FixedCategoryFilterIntegrationTest(unittest.TestCase):
         self._assert_page(
             {"fixed_category": "air"}, [307, 607, 101], total=3
         )
+
+    def test_missing_memberships_return_empty_arrays_with_definitions_present(
+        self,
+    ) -> None:
+        with self.engine.begin() as connection:
+            connection.execute(delete(PressReleaseFixedCategory))
+        self._assert_page({}, [503, 409, 307, 205, 607, 101], total=6)
+        self._assert_page({"q": "climate 50%_/"}, [503, 307, 101], total=3)
+
+    def test_membership_select_count_is_constant_for_1_10_50_100_articles(
+        self,
+    ) -> None:
+        """ページ内記事数によらず3 SELECTで全所属を返し、DBを更新しないこと"""
+
+        with Session(self.engine) as session:
+            session.execute(delete(PressRelease))
+            for index in range(101):
+                self._add_release(
+                    session, 1000 + index, "N+1検証の合成記事", index // 5 + 1,
+                    ("air", "soil") if index % 2 else ("air",),
+                )
+            session.commit()
+        expected = list(reversed(range(1000, 1101)))
+        for page_size, page in ((10, 1), (50, 1), (100, 1), (100, 2)):
+            with self.subTest(
+                article_count=min(page_size, 101 - (page - 1) * page_size)
+            ):
+                self._assert_page(
+                    {
+                        "fixed_category": "air", "page_size": page_size,
+                        "page": page,
+                    },
+                    expected[(page - 1) * page_size:page * page_size],
+                    total=101,
+                    total_pages=(101 + page_size - 1) // page_size,
+                )
 
     def test_filtered_pagination_has_no_duplicate_or_missing_releases(
         self,

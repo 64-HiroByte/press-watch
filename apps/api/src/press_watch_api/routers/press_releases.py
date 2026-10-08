@@ -6,10 +6,14 @@ from sqlalchemy.orm import Session
 
 from press_watch_api.dependencies import get_db_session
 from press_watch_api.http_errors import database_error_responses
+from press_watch_api.repositories.fixed_category import (
+    list_press_release_fixed_categories,
+)
 from press_watch_api.repositories.press_release import (
     count_press_releases,
     list_press_releases,
 )
+from press_watch_api.schemas.fixed_category import FixedCategoryMembershipItem
 from press_watch_api.schemas.press_release import (
     PressReleaseListItem,
     PressReleaseListResponse,
@@ -83,6 +87,7 @@ def read_press_releases(
 
     カテゴリ内のOR条件とタイトル条件をANDで組み合わせる。
     入力の長さ・形式とカテゴリの前後空白はFastAPIの入力検証で処理済み。
+    検索カテゴリによらず、ページ内の記事の全所属を一括取得し表示順で返す。
     Sessionの生成・終了とDB例外のHTTP応答への変換は既存の共通処理に委ねる。
 
     Args:
@@ -95,6 +100,7 @@ def read_press_releases(
     Returns:
         条件に一致する報道発表一覧と、絞り込み後の総件数・総ページ数
         0件または超過ページでは空のitemsと要求されたページ番号を保持
+        件数取得後に一覧が空になった場合も、取得済みの件数を保持
     """
 
     title_query = q.strip() if q is not None else None
@@ -127,9 +133,28 @@ def read_press_releases(
             fixed_category_slugs=fixed_category_slugs,
         )
 
+    categories_by_release = (
+        list_press_release_fixed_categories(
+            session, [press_release.id for press_release in press_releases]
+        )
+        if press_releases
+        else {}
+    )
+
     return PressReleaseListResponse(
         items=[
-            PressReleaseListItem.model_validate(press_release)
+            PressReleaseListItem(
+                title=press_release.title,
+                source_url=press_release.source_url,
+                published_at=press_release.published_at,
+                source_categories=press_release.source_categories,
+                fixed_categories=[
+                    FixedCategoryMembershipItem.model_validate(category)
+                    for category in categories_by_release.get(
+                        press_release.id, ()
+                    )
+                ],
+            )
             for press_release in press_releases
         ],
         pagination=PressReleasePagination(

@@ -54,6 +54,44 @@ def list_fixed_categories(session: Session) -> tuple[FixedCategory, ...]:
     ))
 
 
+def list_press_release_fixed_categories(
+    session: Session,
+    release_ids: Sequence[int],
+) -> dict[int, tuple[FixedCategory, ...]]:
+    """ページ内の記事の保存済み全所属を1 SELECTで表示順に取得
+
+    検索で指定されたカテゴリには限定せず、保存済みの全所属を対象にする。
+    DB例外は呼び出し元へ伝え、Sessionの終了やトランザクション操作は行わない。
+
+    Args:
+        session: 呼び出し元が管理するDB Session
+        release_ids: 取得したページ内の記事ID。空ならSQLを発行しない
+
+    Returns:
+        記事IDをキー、display_order昇順のカテゴリ定義を値とする辞書
+        所属なしの記事はキーを持たず、空のID指定や所属が全件未登録なら空辞書
+    """
+
+    if not release_ids:
+        return {}
+    rows = session.execute(
+        select(PressReleaseFixedCategory.press_release_id, FixedCategory)
+        .join(
+            FixedCategory,
+            PressReleaseFixedCategory.fixed_category_id == FixedCategory.id,
+        )
+        .where(PressReleaseFixedCategory.press_release_id.in_(release_ids))
+        .order_by(FixedCategory.display_order.asc())
+    )
+    categories_by_release: dict[int, list[FixedCategory]] = {}
+    for release_id, category in rows:
+        categories_by_release.setdefault(release_id, []).append(category)
+    return {
+        release_id: tuple(categories)
+        for release_id, categories in categories_by_release.items()
+    }
+
+
 def create_press_release_fixed_categories(
     session: Session,
     values: Sequence[tuple[int, int]],
