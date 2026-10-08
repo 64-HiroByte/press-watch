@@ -13,7 +13,7 @@ from press_watch_api.repositories import fixed_category as repository
 
 
 class FixedCategoryRepositoryTest(unittest.TestCase):
-    """MockのSessionでモデル生成・flushの呼出しを確認（実SQLは統合テストで検証）"""
+    """Mock Sessionで取得・保存とSQL生成を確認（実SQLは統合テストで検証）"""
 
     def setUp(self) -> None:
         self.session = Mock(spec=Session)
@@ -91,6 +91,47 @@ class FixedCategoryRepositoryTest(unittest.TestCase):
             [(51, "air", "Air", 10), (52, "soil", "Soil", 30)],
         )
         self.session.flush.assert_called_once_with()
+
+    def test_groups_page_memberships_with_one_ordered_select(self) -> None:
+        soil = FixedCategory(id=92, slug="soil", name="土壌", display_order=10)
+        air = FixedCategory(id=51, slug="air", name="大気", display_order=30)
+        self.session.execute.return_value = (
+            (2027, soil), (1009, air), (2027, air),
+        )
+
+        self.assertEqual(
+            repository.list_press_release_fixed_categories(
+                self.session, [1009, 2027, 3001]
+            ),
+            {1009: (air,), 2027: (soil, air)},
+        )
+        self.session.execute.assert_called_once()
+        statement = self.session.execute.call_args.args[0]
+        compiled = statement.compile(dialect=postgresql.dialect())
+        self.assertTrue(statement.is_select)
+        self.assertIn(
+            "WHERE press_release_fixed_categories.press_release_id IN",
+            str(compiled),
+        )
+        self.assertEqual(list(compiled.params.values()), [[1009, 2027, 3001]])
+        self.assertRegex(
+            str(compiled), r"ORDER BY fixed_categories\.display_order ASC\s*$"
+        )
+        self.session.add_all.assert_not_called()
+        self.session.flush.assert_not_called()
+
+    def test_empty_page_ids_do_not_read_memberships(self) -> None:
+        self.assertEqual(
+            repository.list_press_release_fixed_categories(self.session, []), {}
+        )
+        self.session.execute.assert_not_called()
+
+    def test_membership_read_failure_propagates(self) -> None:
+        error = SQLAlchemyError("membership read failure")
+        self.session.execute.side_effect = error
+        with self.assertRaises(SQLAlchemyError) as caught:
+            repository.list_press_release_fixed_categories(self.session, [1009])
+        self.assertIs(caught.exception, error)
 
     def test_adds_keywords_with_supplied_ids_and_flushes(self) -> None:
         repository.create_fixed_category_keywords(
