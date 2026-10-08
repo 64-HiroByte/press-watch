@@ -543,7 +543,7 @@ CIのDB統合テストはGitHub Actions内の一時的なPostgreSQL 17を使い�
 PRでは最新コミットだけでなく、baseからのPR全体の差分を判定します。
 workflow変更を含むPRに文書だけのコミットを追加しても、Pythonテスト3種類は実行対象のままです。
 workflow変更を含むPRでは3種類の実行経路を確認し、省略経路は変更を取り込んだPhaseブランチをbaseにした別のPRで確認します。
-Phase 6-5の実行経路はPR #102とマージ後pushで確認済みで、同構成の省略経路は文書のみの別PRで確認します。
+Phase 6-5の実行経路はPR #102とマージ後push、省略経路は文書のみのPR #103で確認済みです。
 タスクブランチへのpush自体はworkflowの起動対象ではないため、pushだけで省略経路を確認することはできません。
 
 ### Web CIの実行範囲
@@ -571,7 +571,7 @@ ChromiumのLinux依存はActions内で取得し、ブラウザーとテスト生
 新規workflow・ルートOxc設定・CI判定スクリプトの変更は、既存Python CIのAPI・scraper・一時PostgreSQLも実行対象にします。
 実CI確認では対象SHA、実行step、実行・省略理由を確認し、ローカルの判定確認だけで実CIも確認済みとは扱いません。
 実行経路はPR #102とマージ後pushで確認済みです。
-省略経路は、統合済みの`phase-6/frontend`をbaseとする文書のみの別PRで確認します。
+省略経路は、統合済みの`phase-6/frontend`をbaseとする文書のみのPR #103で確認済みです。
 commit・push・PR作成・マージ、GitHubの必須チェック・ruleset変更には、それぞれ定めた承認が必要です。
 
 ### 必須チェックの段階適用
@@ -619,8 +619,9 @@ job全体の成功だけでなく、検証stepが実行されて成功し、Web�
 | --- | --- | --- |
 | PR #102 | `71772f2ae12ab80618ff5e3b1490c9aa44df1308` | [Web checks](https://github.com/64-HiroByte/press-watch/actions/runs/37645292645)・[Python tests](https://github.com/64-HiroByte/press-watch/actions/runs/37645292413) |
 | マージ後の`phase-6/frontend`へのpush | `af34c0d875741b0d12aef098a796de40285b8b76` | [Web checks](https://github.com/64-HiroByte/press-watch/actions/runs/37649495029)・[Python tests](https://github.com/64-HiroByte/press-watch/actions/runs/37649495024) |
+| PR #103（文書のみ・検証省略） | `703b3fce4f26ce0725a3d86d31bb316091e6a647` | [Web checks](https://github.com/64-HiroByte/press-watch/actions/runs/37734517894)・[Python tests](https://github.com/64-HiroByte/press-watch/actions/runs/37734517872) |
 
-PRの各jobがcheckoutしたマージ結果は`81dc6b8a0f0c6127df3de212e952bb1787c70f17`です。
+PR #102の各jobがcheckoutしたマージ結果は`81dc6b8a0f0c6127df3de212e952bb1787c70f17`です。
 その親は当時のbase `2ef556f82fc59f74d5519ad5ba940d243944f7f6`と上記のPR headに一致し、変更判定・空白検査はbaseからこのマージ結果までを比較しました。
 マージ後pushの各jobは実際のマージコミット`af34c0d875741b0d12aef098a796de40285b8b76`をcheckoutし、push前の`2ef556f82fc59f74d5519ad5ba940d243944f7f6`から比較しました。
 両比較範囲にはworkflow・CI判定スクリプト・Webソース・依存の変更が含まれるため、WebとPythonの両方が実行対象です。
@@ -633,11 +634,14 @@ PRの各jobがcheckoutしたマージ結果は`81dc6b8a0f0c6127df3de212e952bb178
   DBのskipは専用runnerでだけ実行する実データスナップショット検証であり、通常CIの対象外です。
 - 画面テストの保証範囲はMock表示と本番`/mock`の404であり、API接続・検索の製品動作は確認していません。
   失敗時artifactアップロードは実CIでは未確認で、上記の成功runでは該当stepが省略されました。
-- 同構成の省略経路は、`phase-6/frontend`をbaseとする文書のみの別PRで確認します。
-  Webの変更判定・空白検査と`Skip Web validation`の成功、環境準備・検証stepの省略を確認します。
-  Pythonの変更判定・空白検査とAPI・scraperの省略stepの成功、環境準備・テストstepの省略、DB統合job全体の省略も確認します。
-  確認済みrunのPR head・base・checkoutしたマージ結果・比較範囲・省略理由・URLを記録し、証拠追記後の最新headのCI確認とは区別します。
-  実確認前は[Phase 6-5](tasks.md#6-5-検証基盤の整備)全体を未完了とします。
+- 同構成の省略経路は、`phase-6/frontend`をbaseとする文書のみの[PR #103](https://github.com/64-HiroByte/press-watch/pull/103)で確認しました。
+  変更判定jobがcheckoutしたマージ結果は`8de12e7006bee5c81caeed4e555ad81598b30558`で、その親はbase `af34c0d875741b0d12aef098a796de40285b8b76`と上記のPR headに一致しました。
+  両workflowの空白検査・変更判定はこのbaseからマージ結果までを比較し、差分が3つのMarkdownのみのためWeb・Pythonとも検証不要と判定しました。
+  Webの`Detect Web changes`と空白検査、`Skip Web validation`は成功し、Web validationのcheckout・環境準備・依存取得・型生成・型チェック・lint・format確認・ビルド・Chromium導入・画面テストは省略されました。
+  Pythonの`Detect changes`と空白検査、`Skip API unit tests`・`Skip scraper unit tests`は成功し、API・scraper検証jobのcheckout・Python／uvの環境準備・テストstepは省略されました。
+  PostgreSQL integrationはjob全体が省略され、runner未割当・stepなしで、PostgreSQLサービスも起動していません。
+  Web validation・API unittest・Scraper unittestの成功は省略通知の正常終了であり、製品テストを実行して成功した結果ではありません。
+  上記の証拠runはDocs追記前のheadを対象とし、追記後の最新headのCI確認はPRと最終報告で別に示します。
 - 文書のみのPRを省略経路の代表例とし、すべての変更組合せを実CIで確認したとは扱いません。
   既存のローカル変更判定16ケースの確認は、実CIの証拠と分けて再利用します。
 
