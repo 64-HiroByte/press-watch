@@ -16,6 +16,45 @@ class DatabaseLifecycleError(Exception):
         super().__init__(operation)
 
 
+def database_error_responses() -> dict[int, dict[str, object]]:
+    """読み取りAPIで共有するDB関連エラーと既定500のOpenAPI定義を生成
+
+    HTTP応答の生成・例外の分類は行わず、routeごとに独立した辞書を返す。
+
+    Returns:
+        500の固定JSON・既定text/plainと、503の固定JSONの応答定義
+    """
+
+    return {
+        500: {
+            "model": ErrorResponse,
+            "description": (
+                "503の条件に該当しないDB設定・初期化・処理・Session終了の失敗は"
+                "固定JSONを返す。"
+                "想定外例外やレスポンスDTOの検証失敗は既定のtext/plainを返す。"
+            ),
+            "content": {
+                "application/json": {"example": {"detail": "Internal server error"}},
+                "text/plain": {
+                    "schema": {"type": "string"},
+                    "example": "Internal Server Error",
+                },
+            },
+        },
+        503: {
+            "model": ErrorResponse,
+            "description": (
+                "SQLAlchemyのTimeoutError、または"
+                "DBAPIError.connection_invalidatedがTrueの場合に固定JSONを返す。"
+                "復旧や再試行の成功は保証しない。"
+            ),
+            "content": {
+                "application/json": {"example": {"detail": "Service unavailable"}},
+            },
+        },
+    }
+
+
 def write_database_diagnostic(
     event: Literal[
         "database_error",
