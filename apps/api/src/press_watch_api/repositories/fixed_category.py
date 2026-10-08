@@ -40,9 +40,18 @@ def delete_press_release_fixed_categories(
 
 
 def list_fixed_categories(session: Session) -> tuple[FixedCategory, ...]:
-    """既存の固定カテゴリをすべて取得"""
+    """保存済みの固定カテゴリを表示順の昇順で取得
 
-    return tuple(session.scalars(select(FixedCategory)))
+    Args:
+        session: 呼び出し元が生成・終了を管理するDB Session
+
+    Returns:
+        表示順で並ぶカテゴリ定義。未登録の場合は空のtuple
+    """
+
+    return tuple(session.scalars(
+        select(FixedCategory).order_by(FixedCategory.display_order.asc())
+    ))
 
 
 def create_press_release_fixed_categories(
