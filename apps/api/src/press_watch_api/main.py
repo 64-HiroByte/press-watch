@@ -5,11 +5,13 @@ from press_watch_api.http_errors import (
     DatabaseLifecycleError,
     database_error_handler,
 )
+from press_watch_api.routers.fixed_categories import router as fixed_categories_router
 from press_watch_api.routers.press_releases import router as press_releases_router
 
 app = FastAPI(title="PressWatch API")
 app.add_exception_handler(SQLAlchemyError, database_error_handler)
 app.add_exception_handler(DatabaseLifecycleError, database_error_handler)
+app.include_router(fixed_categories_router)
 app.include_router(press_releases_router)
 
 

@@ -5,11 +5,11 @@ from pydantic import AfterValidator, Field
 from sqlalchemy.orm import Session
 
 from press_watch_api.dependencies import get_db_session
+from press_watch_api.http_errors import database_error_responses
 from press_watch_api.repositories.press_release import (
     count_press_releases,
     list_press_releases,
 )
-from press_watch_api.schemas.error import ErrorResponse
 from press_watch_api.schemas.press_release import (
     PressReleaseListItem,
     PressReleaseListResponse,
@@ -44,34 +44,7 @@ router = APIRouter(prefix="/press-releases", tags=["press-releases"])
 
 @router.get(
     "",
-    responses={
-        500: {
-            "model": ErrorResponse,
-            "description": (
-                "503の条件に該当しないDB設定・初期化・処理・Session終了の失敗は"
-                "固定JSONを返す。"
-                "想定外例外やレスポンスDTOの検証失敗は既定のtext/plainを返す。"
-            ),
-            "content": {
-                "application/json": {"example": {"detail": "Internal server error"}},
-                "text/plain": {
-                    "schema": {"type": "string"},
-                    "example": "Internal Server Error",
-                },
-            },
-        },
-        503: {
-            "model": ErrorResponse,
-            "description": (
-                "SQLAlchemyのTimeoutError、または"
-                "DBAPIError.connection_invalidatedがTrueの場合に固定JSONを返す。"
-                "復旧や再試行の成功は保証しない。"
-            ),
-            "content": {
-                "application/json": {"example": {"detail": "Service unavailable"}},
-            },
-        },
-    },
+    responses=database_error_responses(),
 )
 def read_press_releases(
     session: Annotated[Session, Depends(get_db_session, scope="function")],

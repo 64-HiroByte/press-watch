@@ -40,6 +40,29 @@ class FixedCategoryRepositoryTest(unittest.TestCase):
         self.session.add_all.assert_not_called()
         self.session.flush.assert_not_called()
 
+    def test_reads_categories_with_display_order_ascending(self) -> None:
+        """Mock Sessionへの昇順SELECTの1回受け渡しと取得結果を確認
+
+        SQL生成だけを検査し、実DBの順序と照会回数は統合テストで確認する。
+        """
+
+        category = FixedCategory(
+            id=92, slug="air", name="大気", display_order=10
+        )
+        self.session.scalars.return_value = (category,)
+
+        self.assertEqual(
+            repository.list_fixed_categories(self.session), (category,)
+        )
+
+        self.session.scalars.assert_called_once()
+        statement = self.session.scalars.call_args.args[0]
+        self.assertTrue(statement.is_select)
+        self.assertRegex(
+            str(statement.compile(dialect=postgresql.dialect())),
+            r"ORDER BY fixed_categories\.display_order(?: ASC)?(?:,|\s*$)",
+        )
+
     def test_returns_categories_after_flush_assigns_ids(self) -> None:
         def assign_ids() -> None:
             """flushによる採番を模擬し、返却時点のID確認に使用"""
