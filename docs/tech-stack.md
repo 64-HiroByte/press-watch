@@ -378,11 +378,14 @@ apps/api/src/press_watch_api/
 │   ├── fixed_category.py
 │   └── press_release.py
 ├── routers/
+│   ├── fixed_categories.py
 │   └── press_releases.py
 ├── schemas/
 │   ├── error.py
+│   ├── fixed_category.py
 │   └── press_release.py
 ├── repositories/
+│   ├── fixed_category.py
 │   └── press_release.py
 └── services/
     └── press_release_save.py
@@ -390,7 +393,7 @@ apps/api/src/press_watch_api/
 
 - `models/`: SQLAlchemy model を置く
 - `dependencies.py`: HTTPリクエストごとのDB Sessionの生成と終了を扱う
-- `http_errors.py`: DB関連例外のHTTP応答への変換と固定診断の出力を扱う
+- `http_errors.py`: DB関連例外のHTTP応答への変換、固定診断の出力、読み取りAPIで共有するOpenAPIエラー応答定義を扱う
 - `routers/`: FastAPIのpath operationとAPIレスポンスの組み立てを置く
 - `schemas/`: Pydantic schema / DTO を置く
 - `repositories/`: DB操作を置く
