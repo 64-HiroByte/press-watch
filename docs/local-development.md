@@ -1106,7 +1106,8 @@ API・Webの製品コード、migration、同梱CSVは変更していません�
 | 資格情報 | Git管理外の`.env.api-validation`、所有者本人・権限600 |
 
 以下の例ではリポジトリを`/Users/hiro/my-projects/press-watch`へ配置していることを前提とします。
-別の配置では、コード中の`repo`だけを実際の絶対パスへ合わせます。
+別の配置では、Pythonコード中の`repo`を実際のリポジトリの絶対パスへ合わせます。
+コンソール起動コマンドの`cd`先もその配下の`apps/api`へ変更し、`PYTHONPATH`には`apps/api/src`の絶対パスを指定します。
 Docker endpoint、DB名、ユーザー、ポートは承認済みの対象として固定し、自動で別の接続先へ切り替えません。
 DB操作・ファイル変更と、専用秘密ファイルの非表示読取り、commit・push・PRの承認は`AGENTS.md`と今回の`task.md`に従います。
 既存の`.env`、Supabase、開発DBの資格情報は使用しません。
