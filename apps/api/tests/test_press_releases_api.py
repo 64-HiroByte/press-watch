@@ -25,6 +25,110 @@ EXPECTED_MAX_PAGE_SIZE = 100
 class PressReleaseListApiTest(unittest.TestCase):
     """報道発表一覧APIのテスト"""
 
+    @patch("press_watch_api.routers.press_releases.count_press_releases", return_value=0)
+    def test_rejects_invalid_publication_dates_before_repository(
+        self, count: Mock,
+    ) -> None:
+        """両日付の不正形式・実在しない日付を422と対応するquery位置で拒否
+
+        Args:
+            count: routerが参照するcount_press_releasesを差し替えるMock
+        """
+
+        invalid_values = (
+            "", "2026-1-02", "2026-01-2", "26-01-02", " 2026-01-02",
+            "2026-01-02 ", "2026-01-02\n", "2026-01-02T00:00:00",
+            "1767312000", "２０２６-０１-０２", "2026-02-29", "2026-04-31",
+            "0000-01-01", "2026-00-01", "2026-01-00", "2026-W01-5",
+        )
+        for field in ("published_from", "published_to"):
+            for value in invalid_values:
+                with self.subTest(field=field, value=value):
+                    response = self.client.get(
+                        "/press-releases", params={field: value}
+                    )
+                    self.assertEqual(response.status_code, 422)
+                    self.assertEqual(
+                        response.json()["detail"][0]["loc"], ["query", field]
+                    )
+        count.assert_not_called()
+        self.memberships.assert_not_called()
+
+    @patch("press_watch_api.routers.press_releases.count_press_releases", return_value=0)
+    def test_rejects_reversed_publication_range(self, count: Mock) -> None:
+        """逆順の公開日を422で拒否し、エラー位置をpublished_toに対応付けること
+
+        Args:
+            count: routerが参照するcount_press_releasesを差し替えるMock
+        """
+
+        response = self.client.get("/press-releases", params={
+            "published_from": "2026-01-04", "published_to": "2026-01-02",
+        })
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(
+            response.json()["detail"][0]["loc"], ["query", "published_to"]
+        )
+        count.assert_not_called()
+
+    def test_openapi_exposes_optional_publication_dates(self) -> None:
+        """両日付を任意のqueryとして公開し、date形式をOpenAPIへ登録すること"""
+
+        parameters = {
+            value["name"]: value
+            for value in app.openapi()["paths"]["/press-releases"]["get"]["parameters"]
+        }
+        for field in ("published_from", "published_to"):
+            with self.subTest(field=field):
+                self.assertIn(field, parameters)
+                parameter = parameters[field]
+                self.assertEqual(parameter["in"], "query")
+                self.assertFalse(parameter["required"])
+                self.assertIn(
+                    {"type": "string", "format": "date"},
+                    parameter["schema"]["anyOf"],
+                )
+
+    @patch("press_watch_api.routers.press_releases.list_press_releases", return_value=())
+    @patch("press_watch_api.routers.press_releases.count_press_releases", return_value=11)
+    def test_passes_converted_publication_bounds_without_complement(
+        self, count: Mock, listing: Mock,
+    ) -> None:
+        """実在日をdateへ変換し、未指定側を補完せず件数・一覧へ同じ条件を渡すこと
+
+        Args:
+            count: routerが参照するcount_press_releasesを差し替えるMock
+            listing: routerが参照するlist_press_releasesを差し替えるMock
+        """
+
+        for lower, upper in (
+            (None, None), (date(2026, 1, 2), None), (None, date(2026, 1, 4)),
+            (date(2026, 1, 2), date(2026, 1, 4)),
+            (date(2024, 2, 29), date(2024, 2, 29)),
+            (date(1, 1, 1), date(9999, 12, 31)), (date(2999, 1, 2), None),
+        ):
+            with self.subTest(lower=lower, upper=upper):
+                count.reset_mock()
+                listing.reset_mock()
+                params = {
+                    "page": 2, "page_size": 10, "q": " 50%_/ ",
+                    "fixed_category": ["air", "soil"],
+                }
+                if lower is not None:
+                    params["published_from"] = lower.isoformat()
+                if upper is not None:
+                    params["published_to"] = upper.isoformat()
+                response = self.client.get("/press-releases", params=params)
+                self.assertEqual(response.status_code, 200)
+                expected = {
+                    "title_query": "50%_/", "fixed_category_slugs": ("air", "soil"),
+                    "published_from": lower, "published_to": upper,
+                }
+                count.assert_called_once_with(self.session, **expected)
+                listing.assert_called_once_with(
+                    self.session, limit=10, offset=10, **expected
+                )
+
     def setUp(self) -> None:
         """APIテスト用のDB Session dependency差し替え"""
 
@@ -55,7 +159,12 @@ class PressReleaseListApiTest(unittest.TestCase):
     def test_returns_all_saved_memberships_for_page_ids(
         self, count_mock: Mock, list_mock: Mock,
     ) -> None:
-        """検索カテゴリ以外の所属も返し、ページ内記事にだけ対応付けること"""
+        """検索カテゴリ以外の所属も返し、ページ内記事にだけ対応付けること
+
+        Args:
+            count_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         count_mock.return_value = 2
         list_mock.return_value = (
@@ -91,12 +200,20 @@ class PressReleaseListApiTest(unittest.TestCase):
     def test_concurrent_empty_list_preserves_count_and_skips_memberships(
         self, count_mock: Mock, list_mock: Mock,
     ) -> None:
-        """件数取得後に一覧が空でも200と要求ページ・総件数を保持すること"""
+        """件数取得後に一覧が空でも200と要求ページ・総件数を保持すること
+
+        Args:
+            count_mock: 一覧取得前の総件数を返す件数repositoryのMock
+            list_mock: 件数取得後の空一覧を返す一覧repositoryのMock
+        """
 
         count_mock.return_value = 11
         list_mock.return_value = ()
         response = self.client.get(
-            "/press-releases", params={"page": 2, "page_size": 10}
+            "/press-releases", params={
+                "page": 2, "page_size": 10,
+                "published_from": "2026-01-02", "published_to": "2026-01-04",
+            },
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {
@@ -109,6 +226,8 @@ class PressReleaseListApiTest(unittest.TestCase):
         self.memberships.assert_not_called()
 
     def test_openapi_requires_memberships_with_only_slug_and_name(self) -> None:
+        """記事の所属配列を必須とし、所属要素は必須のslug・nameだけを公開"""
+
         schemas = app.openapi()["components"]["schemas"]
         item = schemas["PressReleaseListItem"]
         self.assertIn("fixed_categories", item["required"])
@@ -126,7 +245,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_mock: Mock,
         list_mock: Mock,
     ) -> None:
-        """同じカテゴリ条件を件数と一覧へ渡すこと"""
+        """同じカテゴリ条件を件数と一覧へ渡すこと
+
+        Args:
+            count_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         count_mock.return_value = 1
         list_mock.return_value = ()
@@ -150,7 +274,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_mock: Mock,
         list_mock: Mock,
     ) -> None:
-        """空白・空要素・重複を整理し、検索とページ条件を併用すること"""
+        """空白・空要素・重複を整理し、検索とページ条件を併用すること
+
+        Args:
+            count_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         cases = (
             ([], ()),
@@ -218,7 +347,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_mock: Mock,
         list_mock: Mock,
     ) -> None:
-        """形式不正と除去前の上限超過を、DB照会前に422で拒否すること"""
+        """形式不正と除去前の上限超過を、DB照会前に422で拒否すること
+
+        Args:
+            count_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         count_mock.return_value = 0
         cases = [
@@ -278,7 +412,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_mock: Mock,
         list_mock: Mock,
     ) -> None:
-        """絞り込み後の0件と超過ページでは一覧照会を省略すること"""
+        """絞り込み後の0件と超過ページでは一覧照会を省略すること
+
+        Args:
+            count_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         for total, page, total_pages in ((0, 1, 0), (20, 3, 2)):
             with self.subTest(total=total, page=page):
@@ -332,7 +471,11 @@ class PressReleaseListApiTest(unittest.TestCase):
         self,
         count_press_releases_mock: Mock,
     ) -> None:
-        """件数取得のDB例外を固定JSONのHTTP 500として返すこと"""
+        """件数取得のDB例外を固定JSONのHTTP 500として返すこと
+
+        Args:
+            count_press_releases_mock: routerが参照するcount_press_releasesを差し替えるMock
+        """
 
         count_press_releases_mock.side_effect = SQLAlchemyError(
             "synthetic database error"
@@ -346,6 +489,8 @@ class PressReleaseListApiTest(unittest.TestCase):
             self.session,
             title_query=None,
             fixed_category_slugs=(),
+            published_from=None,
+            published_to=None,
         )
         self.assertTrue(
             response.status_code == 500,
@@ -374,7 +519,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """既定のページ条件と公開対象項目だけを返すこと"""
+        """既定のページ条件と公開対象項目だけを返すこと
+
+        Args:
+            count_press_releases_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_press_releases_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         count_press_releases_mock.return_value = 2
         list_press_releases_mock.return_value = (
@@ -427,6 +577,8 @@ class PressReleaseListApiTest(unittest.TestCase):
             self.session,
             title_query=None,
             fixed_category_slugs=(),
+            published_from=None,
+            published_to=None,
         )
         list_press_releases_mock.assert_called_once_with(
             self.session,
@@ -434,6 +586,8 @@ class PressReleaseListApiTest(unittest.TestCase):
             offset=0,
             title_query=None,
             fixed_category_slugs=(),
+            published_from=None,
+            published_to=None,
         )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
@@ -443,7 +597,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """指定ページをoffsetへ変換して一覧取得すること"""
+        """指定ページをoffsetへ変換して一覧取得すること
+
+        Args:
+            count_press_releases_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_press_releases_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         requested_page = 2
         page_size = EXPECTED_MIN_PAGE_SIZE
@@ -469,6 +628,8 @@ class PressReleaseListApiTest(unittest.TestCase):
             offset=expected_offset,
             title_query=None,
             fixed_category_slugs=(),
+            published_from=None,
+            published_to=None,
         )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
@@ -478,7 +639,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """ページサイズで割り切れる件数の前後で総ページ数を正しく返すこと"""
+        """ページサイズで割り切れる件数の前後で総ページ数を正しく返すこと
+
+        Args:
+            count_press_releases_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_press_releases_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         page_size = EXPECTED_DEFAULT_PAGE_SIZE
         expected_full_pages = 2
@@ -516,7 +682,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """0件時は一覧取得を省略して総ページ数0を返すこと"""
+        """0件時は一覧取得を省略して総ページ数0を返すこと
+
+        Args:
+            count_press_releases_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_press_releases_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         count_press_releases_mock.return_value = 0
 
@@ -543,7 +714,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """最終ページ超過時は一覧取得を省略して要求ページを返すこと"""
+        """最終ページ超過時は一覧取得を省略して要求ページを返すこと
+
+        Args:
+            count_press_releases_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_press_releases_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         page_size = EXPECTED_DEFAULT_PAGE_SIZE
         last_page = 2
@@ -578,7 +754,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """最終ページを正しいoffsetへ変換すること"""
+        """最終ページを正しいoffsetへ変換すること
+
+        Args:
+            count_press_releases_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_press_releases_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         page_size = EXPECTED_DEFAULT_PAGE_SIZE
         last_page = 3
@@ -609,6 +790,8 @@ class PressReleaseListApiTest(unittest.TestCase):
             offset=expected_offset,
             title_query=None,
             fixed_category_slugs=(),
+            published_from=None,
+            published_to=None,
         )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
@@ -618,7 +801,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """ページ番号とページサイズの上限値を受け付けること"""
+        """ページ番号とページサイズの上限値を受け付けること
+
+        Args:
+            count_press_releases_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_press_releases_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         count_press_releases_mock.return_value = 0
 
@@ -642,6 +830,8 @@ class PressReleaseListApiTest(unittest.TestCase):
             self.session,
             title_query=None,
             fixed_category_slugs=(),
+            published_from=None,
+            published_to=None,
         )
         list_press_releases_mock.assert_not_called()
 
@@ -652,7 +842,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """ページサイズの上限値をrepositoryの取得件数へ渡すこと"""
+        """ページサイズの上限値をrepositoryの取得件数へ渡すこと
+
+        Args:
+            count_press_releases_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_press_releases_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         total_items = EXPECTED_MAX_PAGE_SIZE + 1
 
@@ -680,6 +875,8 @@ class PressReleaseListApiTest(unittest.TestCase):
             offset=0,
             title_query=None,
             fixed_category_slugs=(),
+            published_from=None,
+            published_to=None,
         )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
@@ -689,7 +886,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """ページ番号とページサイズの下限値を受け付けること"""
+        """ページ番号とページサイズの下限値を受け付けること
+
+        Args:
+            count_press_releases_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_press_releases_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         count_press_releases_mock.return_value = 1
         list_press_releases_mock.return_value = (
@@ -721,6 +923,8 @@ class PressReleaseListApiTest(unittest.TestCase):
             self.session,
             title_query=None,
             fixed_category_slugs=(),
+            published_from=None,
+            published_to=None,
         )
         list_press_releases_mock.assert_called_once_with(
             self.session,
@@ -728,6 +932,8 @@ class PressReleaseListApiTest(unittest.TestCase):
             offset=0,
             title_query=None,
             fixed_category_slugs=(),
+            published_from=None,
+            published_to=None,
         )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
@@ -737,7 +943,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """前後空白を除いたタイトル検索条件を件数と一覧へ渡すこと"""
+        """前後空白を除いたタイトル検索条件を件数と一覧へ渡すこと
+
+        Args:
+            count_press_releases_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_press_releases_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         count_press_releases_mock.return_value = 11
         list_press_releases_mock.return_value = ()
@@ -765,6 +976,8 @@ class PressReleaseListApiTest(unittest.TestCase):
             self.session,
             title_query="水質50%_/",
             fixed_category_slugs=(),
+            published_from=None,
+            published_to=None,
         )
         list_press_releases_mock.assert_called_once_with(
             self.session,
@@ -772,6 +985,8 @@ class PressReleaseListApiTest(unittest.TestCase):
             offset=EXPECTED_MIN_PAGE_SIZE,
             title_query="水質50%_/",
             fixed_category_slugs=(),
+            published_from=None,
+            published_to=None,
         )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
@@ -781,7 +996,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """タイトル検索でも未指定のページサイズを50件とすること"""
+        """タイトル検索でも未指定のページサイズを50件とすること
+
+        Args:
+            count_press_releases_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_press_releases_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         count_press_releases_mock.return_value = 51
         list_press_releases_mock.return_value = ()
@@ -805,6 +1025,8 @@ class PressReleaseListApiTest(unittest.TestCase):
             self.session,
             title_query="水質",
             fixed_category_slugs=(),
+            published_from=None,
+            published_to=None,
         )
         list_press_releases_mock.assert_called_once_with(
             self.session,
@@ -812,6 +1034,8 @@ class PressReleaseListApiTest(unittest.TestCase):
             offset=0,
             title_query="水質",
             fixed_category_slugs=(),
+            published_from=None,
+            published_to=None,
         )
 
     @patch("press_watch_api.routers.press_releases.list_press_releases")
@@ -821,7 +1045,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """空文字列と空白だけの検索条件を未指定として扱うこと"""
+        """空文字列と空白だけの検索条件を未指定として扱うこと
+
+        Args:
+            count_press_releases_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_press_releases_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         count_press_releases_mock.return_value = 0
 
@@ -837,6 +1066,8 @@ class PressReleaseListApiTest(unittest.TestCase):
                     self.session,
                     title_query=None,
                     fixed_category_slugs=(),
+                    published_from=None,
+                    published_to=None,
                 )
                 list_press_releases_mock.assert_not_called()
 
@@ -850,7 +1081,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """100文字のタイトル検索条件を受け付けること"""
+        """100文字のタイトル検索条件を受け付けること
+
+        Args:
+            count_press_releases_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_press_releases_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         title_query = "水" * 100
         count_press_releases_mock.return_value = 0
@@ -865,6 +1101,8 @@ class PressReleaseListApiTest(unittest.TestCase):
             self.session,
             title_query=title_query,
             fixed_category_slugs=(),
+            published_from=None,
+            published_to=None,
         )
         list_press_releases_mock.assert_not_called()
 
@@ -875,7 +1113,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """101文字のタイトル検索条件をHTTP 422で拒否すること"""
+        """101文字のタイトル検索条件をHTTP 422で拒否すること
+
+        Args:
+            count_press_releases_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_press_releases_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         for title_query in ("水" * 101, " " * 101):
             with self.subTest(title_query=title_query):
@@ -895,7 +1138,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """NUL文字を含むタイトル検索条件をHTTP 422で拒否すること"""
+        """NUL文字を含むタイトル検索条件をHTTP 422で拒否すること
+
+        Args:
+            count_press_releases_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_press_releases_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         response = self.client.get(
             "/press-releases",
@@ -913,7 +1161,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """タイトル検索結果が0件の場合は一覧取得を省略すること"""
+        """タイトル検索結果が0件の場合は一覧取得を省略すること
+
+        Args:
+            count_press_releases_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_press_releases_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         count_press_releases_mock.return_value = 0
 
@@ -929,6 +1182,8 @@ class PressReleaseListApiTest(unittest.TestCase):
             self.session,
             title_query="該当しない語",
             fixed_category_slugs=(),
+            published_from=None,
+            published_to=None,
         )
         list_press_releases_mock.assert_not_called()
 
@@ -939,7 +1194,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """検索後の最終ページ超過時は一覧取得を省略すること"""
+        """検索後の最終ページ超過時は一覧取得を省略すること
+
+        Args:
+            count_press_releases_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_press_releases_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         count_press_releases_mock.return_value = 21
 
@@ -959,6 +1219,8 @@ class PressReleaseListApiTest(unittest.TestCase):
             self.session,
             title_query="水質",
             fixed_category_slugs=(),
+            published_from=None,
+            published_to=None,
         )
         list_press_releases_mock.assert_not_called()
 
@@ -969,7 +1231,12 @@ class PressReleaseListApiTest(unittest.TestCase):
         count_press_releases_mock: Mock,
         list_press_releases_mock: Mock,
     ) -> None:
-        """ページ条件の下限未満と上限超過をHTTP 422で拒否すること"""
+        """ページ条件の下限未満と上限超過をHTTP 422で拒否すること
+
+        Args:
+            count_press_releases_mock: routerが参照するcount_press_releasesを差し替えるMock
+            list_press_releases_mock: routerが参照するlist_press_releasesを差し替えるMock
+        """
 
         count_press_releases_mock.return_value = 0
         invalid_params = (

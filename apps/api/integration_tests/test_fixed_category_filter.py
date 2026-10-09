@@ -1,4 +1,4 @@
-"""保存済み分類を使う一覧APIを、専用PostgreSQLと合成データで検証"""
+"""公開日と保存済み分類で絞り込む一覧APIを、専用PostgreSQLと合成データで検証"""
 
 from collections import Counter
 from datetime import UTC, date, datetime
@@ -32,7 +32,69 @@ _SOURCE_URL_PREFIX = "https://example.test/press/"
 
 
 class FixedCategoryFilterIntegrationTest(unittest.TestCase):
-    """HTTPからrepositoryを通し、全所属・表示順・照会数・DB非更新を確認"""
+    """HTTPからrepositoryを通し、日付境界・全所属・表示順・照会数・DB非更新を確認"""
+
+    def test_publication_range_includes_boundaries_and_supports_optional_sides(
+        self,
+    ) -> None:
+        """実DBで公開日の両端・片側・未指定・同日・0件の一覧契約を確認
+
+        _assert_pageを通して、期待する記事・件数・所属・照会数とDB非更新を確認する。
+        """
+
+        cases = (
+            (
+                {"published_from": "2026-01-02", "published_to": "2026-01-04"},
+                [409, 307, 205, 607],
+            ),
+            ({"published_from": "2026-01-02"}, [503, 409, 307, 205, 607]),
+            ({"published_to": "2026-01-04"}, [409, 307, 205, 607, 101]),
+            (
+                {"published_from": "2026-01-03", "published_to": "2026-01-03"},
+                [307, 205],
+            ),
+            ({}, [503, 409, 307, 205, 607, 101]),
+            ({"published_from": "2026-01-06", "published_to": "2026-01-07"}, []),
+        )
+        for params, expected in cases:
+            with self.subTest(params=params):
+                self._assert_page(
+                    params, expected, total=len(expected),
+                    total_pages=1 if expected else 0,
+                )
+
+    def test_publication_range_combines_title_and_category_or_with_and(self) -> None:
+        """日付・タイトル・所属のいずれかだけ不一致の行を除外し、全所属を保持"""
+
+        self._assert_page({
+            "published_from": "2026-01-02", "published_to": "2026-01-05",
+            "q": "50%_/", "fixed_category": ["air", "soil"],
+        }, [307, 607], total=2)
+
+    def test_publication_range_filters_before_count_and_pagination(self) -> None:
+        """範囲外の同じタイトル・所属を除外して、同日ID順と全ページを確認"""
+
+        with Session(self.engine) as session:
+            for index in range(21):
+                self._add_release(
+                    session, 1000 + index, "Date page 50%_/", 2 + index // 7,
+                    ("air", "soil") if index % 2 == 0 else ("air",),
+                )
+            for release_id, day in ((2000, 1), (2001, 5)):
+                self._add_release(
+                    session, release_id, "Date page 50%_/", day, ("air",)
+                )
+            session.commit()
+        expected_pages = (
+            list(range(1020, 1010, -1)), list(range(1010, 1000, -1)), [1000], [],
+        )
+        for page, expected in enumerate(expected_pages, start=1):
+            with self.subTest(page=page):
+                self._assert_page({
+                    "published_from": "2026-01-02", "published_to": "2026-01-04",
+                    "q": "Date page 50%_/", "fixed_category": ["air", "soil"],
+                    "page_size": 10, "page": page,
+                }, expected, total=21, total_pages=3)
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -42,7 +104,11 @@ class FixedCategoryFilterIntegrationTest(unittest.TestCase):
         cls.addClassCleanup(cls.engine.dispose)
 
     def setUp(self) -> None:
-        """Sessionの接続先だけを差し替え、各テスト用の合成データを投入"""
+        """実dependencyの接続先だけを専用DBへ差し替え、合成データを投入
+
+        Sessionの生成・終了は実dependencyを通し、factoryだけをpatchする。
+        データ削除とpatch・TestClientの解除は、登録したunittestのcleanupに委ねる。
+        """
 
         self.addCleanup(self._clear_test_data)
         self.enterContext(patch(
@@ -345,6 +411,8 @@ class FixedCategoryFilterIntegrationTest(unittest.TestCase):
     def test_missing_memberships_return_empty_arrays_with_definitions_present(
         self,
     ) -> None:
+        """定義があっても所属のない記事は、未絞り込み・タイトル検索とも空の所属配列"""
+
         with self.engine.begin() as connection:
             connection.execute(delete(PressReleaseFixedCategory))
         self._assert_page({}, [503, 409, 307, 205, 607, 101], total=6)

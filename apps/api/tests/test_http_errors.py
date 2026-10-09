@@ -27,6 +27,12 @@ class DatabaseErrorHttpTest(unittest.TestCase):
     """実dependencyとMock Sessionを通したDBエラー応答のテスト"""
 
     def setUp(self) -> None:
+        """実dependencyを残してfactoryとrepositoryをMockへ差し替え、診断を捕捉
+
+        factory・repositoryのpatchとstdout・stderrの差し替えは、
+        addCleanupまたはenterContextで登録したcleanupが解除する。
+        """
+
         self.stderr = self.enterContext(redirect_stderr(io.StringIO()))
         self.stdout = self.enterContext(redirect_stdout(io.StringIO()))
         self.session = Mock(spec=Session)
@@ -148,6 +154,8 @@ class DatabaseErrorHttpTest(unittest.TestCase):
         )
 
     def test_count_list_and_memberships_classify_database_errors(self) -> None:
+        """各取得段階のDB例外を固定JSONの500・503へ分類し、Sessionを終了"""
+
         cases = (
             ("pool_timeout", SQLAlchemyTimeoutError(INTERNAL_MARKER), 503),
             (
@@ -238,6 +246,8 @@ class DatabaseErrorHttpTest(unittest.TestCase):
         self.list_releases.assert_not_called()
 
     def test_initialization_failures_return_safe_errors_without_queries(self) -> None:
+        """factory取得・Session生成の失敗を安全な500・503へ変換し、照会を省略"""
+
         cases = (
             ("configuration", RuntimeError(INTERNAL_MARKER), 500),
             ("invalid_configuration", ValueError(INTERNAL_MARKER), 500),
@@ -263,14 +273,25 @@ class DatabaseErrorHttpTest(unittest.TestCase):
                     self.session.close.assert_not_called()
 
     def test_initialization_failure_precedes_invalid_query(self) -> None:
+        """ページ・日付が不正でも初期化失敗の500を優先し、照会とcloseを省略"""
+
         self.get_session_factory.side_effect = RuntimeError(INTERNAL_MARKER)
 
-        response = self._get_response(params={"page": 0})
-
-        self._assert_error_response(response, 500)
-        self.count.assert_not_called()
+        for params in (
+            {"page": 0}, {"published_from": "2026-1-02"},
+            {"published_to": "2026-02-29"},
+            {"published_from": "2026-01-04", "published_to": "2026-01-02"},
+        ):
+            with self.subTest(params=params):
+                response = self._get_response(params=params)
+                self._assert_error_response(response, 500)
+                self.count.assert_not_called()
+                self.list_releases.assert_not_called()
+                self.session.close.assert_not_called()
 
     def test_session_closes_before_response_start(self) -> None:
+        """実dependencyが正常応答の送信開始前にSessionを1回closeすること"""
+
         close_counts = []
 
         async def observed_app(scope: Scope, receive: Receive, send: Send) -> None:
@@ -304,6 +325,8 @@ class DatabaseErrorHttpTest(unittest.TestCase):
         self.session.rollback.assert_not_called()
 
     def test_close_failure_returns_safe_error(self) -> None:
+        """closeだけが失敗した場合は例外の種類に応じた固定JSONの500・503を返すこと"""
+
         cases = (
             ("sqlalchemy", SQLAlchemyError(INTERNAL_MARKER), 500),
             ("pool_timeout", SQLAlchemyTimeoutError(INTERNAL_MARKER), 503),
@@ -332,6 +355,8 @@ class DatabaseErrorHttpTest(unittest.TestCase):
                 self.session.rollback.assert_not_called()
 
     def test_query_error_takes_precedence_over_close_error(self) -> None:
+        """件数・所属取得のDB例外をclose失敗より優先し、両失敗を固定診断で区別"""
+
         cases = (
             (
                 "query_500",
@@ -368,6 +393,8 @@ class DatabaseErrorHttpTest(unittest.TestCase):
                     )
 
     def test_unexpected_query_error_is_not_replaced_by_close_error(self) -> None:
+        """close失敗でも元の想定外例外を伝え、終了失敗の例外連鎖を追加しないこと"""
+
         query_error = RuntimeError(INTERNAL_MARKER)
         self.count.side_effect = query_error
         self.session.close.side_effect = SQLAlchemyTimeoutError(INTERNAL_MARKER)
@@ -393,6 +420,8 @@ class DatabaseErrorHttpTest(unittest.TestCase):
         )
 
     def test_validation_error_takes_precedence_over_close_error(self) -> None:
+        """入力検証とclose失敗が重なっても元の422と本文を保持し、照会を省略"""
+
         baseline = self._get_response(params={"page": 0})
         self.session.close.reset_mock()
         self.session.close.side_effect = SQLAlchemyTimeoutError(INTERNAL_MARKER)
@@ -412,6 +441,8 @@ class DatabaseErrorHttpTest(unittest.TestCase):
         self.session.rollback.assert_not_called()
 
     def test_diagnostics_contain_only_fixed_events(self) -> None:
+        """DB処理・初期化・終了の失敗を固定イベントだけで診断し、内部値を出力しないこと"""
+
         query_error = DBAPIError(
             INTERNAL_MARKER,
             {"value": INTERNAL_MARKER},
@@ -460,6 +491,8 @@ class DatabaseErrorHttpTest(unittest.TestCase):
                 )
 
     def test_diagnostic_write_and_flush_failures_do_not_change_response(self) -> None:
+        """診断のwrite・flushが失敗しても元のDBエラー応答を保持し、出力を再試行しないこと"""
+
         for stage in ("count", "factory", "close"):
             for operation in ("write", "flush"):
                 with self.subTest(stage=stage, operation=operation):
@@ -493,6 +526,8 @@ class DatabaseErrorHttpTest(unittest.TestCase):
                     )
 
     def test_diagnostic_failure_preserves_original_query_exception(self) -> None:
+        """closeと診断出力が失敗しても元の想定外例外を保持し、例外連鎖を追加しないこと"""
+
         error = RuntimeError(INTERNAL_MARKER)
         self.count.side_effect = error
         self.session.close.side_effect = SQLAlchemyError(INTERNAL_MARKER)
