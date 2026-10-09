@@ -1162,6 +1162,7 @@ env -i PATH="$PATH" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" LANG="${LANG:-en_US.UT
 
 ```python
 import atexit
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -1186,6 +1187,24 @@ docker = ['docker', '--context', 'desktop-linux']
 compose_args = [*docker, 'compose', '--project-name', 'press-watch-api-validation', '--file', str(repo / 'infra/compose.validation.yml'), '--env-file', str(repo / '.env.api-validation')]
 api_process = None
 db_started = False
+cleanup_depth = 0
+pending_exit = None
+
+@contextmanager
+def defer_exit(*, raise_exit=True):
+    """停止処理中の終了要求を保持し、最外の処理完了後に終了
+
+    Args:
+        raise_exit: Python終了処理内ではFalseとし、重ねて終了例外を発生させない
+    """
+    global cleanup_depth
+    cleanup_depth += 1
+    try:
+        yield
+    finally:
+        cleanup_depth -= 1
+        if cleanup_depth == 0 and pending_exit is not None and raise_exit:
+            raise SystemExit(pending_exit)
 
 def raw_run(args, cwd=repo, env=base_env):
     """固定環境で実行し、出力を表示せずメモリへ保持する。"""
@@ -1203,19 +1222,20 @@ def raw_run(args, cwd=repo, env=base_env):
 
 def terminate_owned(process):
     """今回作成したプロセスグループを終了し、親プロセスを回収する。"""
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-    try:
-        process.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        pass
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    process.wait(timeout=5)
+    with defer_exit():
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=5)
 
 def check_context():
     """操作前にローカルDocker endpointを照合する。"""
@@ -1235,27 +1255,33 @@ def compose(*args):
 def stop():
     """今回のAPIグループを終了し、専用DBを停止する。ボリュームは保持する。"""
     global api_process, db_started
-    try:
-        if api_process is not None:
-            terminate_owned(api_process)
-        api_process = None
-    finally:
-        if db_started:
-            check_context()
-            raw_run([*compose_args, 'stop', '--timeout', '10', 'db'])
-            db_started = False
+    with defer_exit():
+        try:
+            if api_process is not None:
+                terminate_owned(api_process)
+            api_process = None
+        finally:
+            if db_started:
+                check_context()
+                raw_run([*compose_args, 'stop', '--timeout', '10', 'db'])
+                db_started = False
 
-def cleanup():
-    """停止と接続終了を試み、失敗の詳細を表示せず未確認状態を知らせる。"""
-    try:
-        stop()
-    except BaseException:
-        print('APIまたは専用DBの停止を確認できません。対象の状態を確認してください。')
-    try:
-        if 'db' in globals():
-            db.dispose()
-    except BaseException:
-        print('DB接続の終了を確認できません。')
+def cleanup(*, exiting=False):
+    """停止と接続終了を試み、失敗の詳細を表示せず未確認状態を通知
+
+    Args:
+        exiting: atexitからの呼出しではTrueとし、終了例外を重ねず処理を完了する
+    """
+    with defer_exit(raise_exit=not exiting):
+        try:
+            stop()
+        except BaseException:
+            print('APIまたは専用DBの停止を確認できません。対象の状態を確認してください。')
+        try:
+            if 'db' in globals():
+                db.dispose()
+        except BaseException:
+            print('DB接続の終了を確認できません。')
 
 def safe_exception(error_type, error, traceback):
     """例外詳細を表示せず、停止を試みて未確認状態を明示する。"""
@@ -1263,14 +1289,18 @@ def safe_exception(error_type, error, traceback):
     cleanup()
 
 def handle_signal(signum, frame):
-    """終了要求をSystemExitへ変換し、コマンド回収と終了時の停止へつなぐ。"""
-    for value in (signal.SIGTERM, signal.SIGHUP):
-        signal.signal(value, signal.SIG_IGN)
-    raise SystemExit(128 + signum)
+    """停止中の終了要求を保持し、停止中以外は通常の中断へ接続"""
+    global pending_exit
+    if signum == signal.SIGINT and cleanup_depth == 0 and pending_exit is None:
+        raise KeyboardInterrupt
+    if pending_exit is None:
+        pending_exit = 128 + signum
+    if cleanup_depth == 0:
+        raise SystemExit(pending_exit)
 
 sys.excepthook = safe_exception
-atexit.register(cleanup)
-for value in (signal.SIGTERM, signal.SIGHUP):
+atexit.register(cleanup, exiting=True)
+for value in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
     signal.signal(value, handle_signal)
 fd = os.open(repo / '.env.api-validation', os.O_RDONLY | os.O_NOFOLLOW)
 with os.fdopen(fd, 'r', encoding='ascii') as source:
@@ -1439,6 +1469,8 @@ print(result['pagination'])
 ### 停止・再起動と確認実績
 
 通常終了・例外・コマンド実行中のCtrl+C・SIGTERM・SIGHUPによる中断では、今回のコマンドとAPIを終了してから専用DBの停止を試みます。
+プロセス回収・DB停止・接続終了の途中に届いたCtrl+C・SIGTERM・SIGHUPは終了要求として保持し、停止処理を終えてから終了します。
+繰り返しの終了要求も停止処理へ割り込ませず、Pythonが既に終了中の場合はatexitの処理を完了して終了します。
 Ctrl+C後にコンソールが継続している場合も、終了時は`stop()`・`db.dispose()`を実行してからコンソールを閉じます。
 SIGKILL・OSやDockerの強制停止など、Pythonが終了処理を実行できない場合は自動停止を保証できません。
 この場合は、次回の操作前に専用project・コンテナ・今回起動したプロセス・ポートを照合し、残留した専用処理を停止してから保存状態を確認します。
