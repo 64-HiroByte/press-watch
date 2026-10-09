@@ -26,6 +26,12 @@ class HttpErrorRegressionTest(unittest.TestCase):
     """DBエラー処理の追加後も既存のHTTP契約を維持すること"""
 
     def setUp(self) -> None:
+        """実dependencyのfactoryとrepositoryをMockへ差し替え、診断を捕捉
+
+        Sessionの終了・例外優先順位は実dependencyを通して確認する。
+        patchとstderrの差し替えはenterContextで登録したcleanupが解除する。
+        """
+
         self.stderr = self.enterContext(redirect_stderr(io.StringIO()))
         self.session = Mock(spec=Session)
         self.session_factory = Mock(return_value=self.session)
@@ -254,6 +260,40 @@ class HttpErrorRegressionTest(unittest.TestCase):
                     )
                     self._assert_session_closed()
 
+    def test_publication_validation_survives_close_failure(self) -> None:
+        """実dependencyのclose失敗でも日付形式・実在日・逆順の422を保持"""
+
+        cases = (
+            ({"published_from": "2026-1-02"}, "published_from"),
+            ({"published_to": "2026-02-29"}, "published_to"),
+            (
+                {"published_from": "2026-01-04", "published_to": "2026-01-02"},
+                "published_to",
+            ),
+        )
+        for params, field in cases:
+            with self.subTest(params=params):
+                self.session.close.side_effect = None
+                baseline = self._request(params=params)
+                self.assertEqual(baseline.status_code, 422)
+                self.assertEqual(
+                    self._json(baseline)["detail"][0]["loc"], ["query", field]
+                )
+                self._assert_session_closed()
+                self.session.reset_mock()
+                self.stderr.seek(0)
+                self.stderr.truncate(0)
+                self.session.close.side_effect = SQLAlchemyError(INTERNAL_MARKER)
+                response = self._request(params=params)
+                self.assertEqual(response.status_code, 422)
+                self.assertEqual(self._json(response), self._json(baseline))
+                self._assert_session_closed()
+                self.assertEqual(self.stderr.getvalue(), "database_cleanup_failed\n")
+                self.count.assert_not_called()
+                self.list_releases.assert_not_called()
+                self.memberships.assert_not_called()
+                self.session.reset_mock()
+
     def test_fixed_category_validation_survives_close_failure(self) -> None:
         """Session終了失敗でもカテゴリ入力の422・位置・種別を維持"""
 
@@ -296,6 +336,8 @@ class HttpErrorRegressionTest(unittest.TestCase):
                 )
 
     def test_liveness_and_http_errors_do_not_initialize_database(self) -> None:
+        """liveness・404・405の既存応答を保持し、Session初期化・照会を省略"""
+
         self.get_session_factory.side_effect = RuntimeError(INTERNAL_MARKER)
         cases = (
             ("GET", "/", 200, {"service": "press-watch-api", "status": "ready"}),

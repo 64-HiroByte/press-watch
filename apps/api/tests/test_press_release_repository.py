@@ -24,6 +24,53 @@ from api_test_constants import ENV_PRESS_RELEASE_URL_1 as SOURCE_URL_1
 class PressReleaseRepositoryTest(unittest.TestCase):
     """報道発表repositoryのテスト"""
 
+    def test_publication_bounds_are_inclusive_bound_conditions_for_both_queries(
+        self,
+    ) -> None:
+        """件数・一覧の包含境界と日付バインド・共通条件をSQL生成で確認
+
+        未指定側の日付条件を生成しないことも確認する。
+        Mock SessionからSQL式を取得する検証であり、実DB上の照合は行わない。
+        """
+
+        for lower, upper in (
+            (None, None), (date(2026, 1, 2), None), (None, date(2026, 1, 4)),
+            (date(2026, 1, 2), date(2026, 1, 4)),
+            (date(2024, 2, 29), date(2024, 2, 29)),
+        ):
+            with self.subTest(lower=lower, upper=upper):
+                session = Mock(spec=Session)
+                session.scalar.return_value = 1
+                session.scalars.return_value = ()
+                kwargs = {
+                    "title_query": "50%_/", "fixed_category_slugs": ("air", "soil"),
+                    "published_from": lower, "published_to": upper,
+                }
+                count_press_releases(session, **kwargs)
+                list_press_releases(session, limit=10, offset=20, **kwargs)
+                conditions = []
+                for operation in (session.scalar, session.scalars):
+                    statement = operation.call_args.args[0]
+                    compiled = statement.whereclause.compile(
+                        dialect=postgresql.dialect()
+                    )
+                    sql = str(compiled)
+                    conditions.append((sql, list(compiled.params.values())))
+                    for bound, operator in ((lower, ">="), (upper, "<=")):
+                        predicate = f"press_releases.published_at {operator}"
+                        if bound is None:
+                            self.assertNotIn(predicate, sql)
+                        else:
+                            self.assertIn(predicate, sql)
+                            self.assertIn(bound, compiled.params.values())
+                            self.assertNotIn(bound.isoformat(), sql)
+                    self.assertIn("ILIKE", sql)
+                    self.assertIn("EXISTS", sql)
+                self.assertEqual(conditions[0], conditions[1])
+                session.commit.assert_not_called()
+                session.rollback.assert_not_called()
+                session.close.assert_not_called()
+
     def test_lists_only_ids_and_titles_in_id_order_after_cursor(self) -> None:
         """初回・IDが0・通常の継続取得で、必要列と取得順・上限・検索条件を確認"""
 

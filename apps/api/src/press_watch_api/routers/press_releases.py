@@ -1,7 +1,10 @@
+from datetime import date
+import re
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import AfterValidator, Field
+from fastapi.exceptions import RequestValidationError
+from pydantic import AfterValidator, BeforeValidator, Field
 from sqlalchemy.orm import Session
 
 from press_watch_api.dependencies import get_db_session
@@ -43,6 +46,28 @@ _FixedCategoryQueryValue = Annotated[
 ]
 
 
+def _parse_publication_date(value: str) -> date:
+    """ASCIIのYYYY-MM-DDに完全一致する実在日を変換
+
+    Args:
+        value: 空白除去や補完を行わない日付クエリの入力値
+
+    Returns:
+        形式と実在日の検証を通った公開日
+
+    Raises:
+        ValueError: 形式不一致または実在しない日付。入力検証の422へ接続
+    """
+
+    if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+        raise ValueError("日付はYYYY-MM-DD形式で指定してください")
+    return date.fromisoformat(value)
+
+
+_PublicationDateQueryValue = Annotated[
+    date, BeforeValidator(_parse_publication_date)
+]
+
 router = APIRouter(prefix="/press-releases", tags=["press-releases"])
 
 
@@ -78,15 +103,30 @@ def read_press_releases(
                 f"{FIXED_CATEGORY_SLUG_PATTERN}に完全一致させる。"
                 "空要素と重複は除外し、未指定・全要素空は絞り込まない。"
                 "形式不正・上限超過は422、未定義slugは一致なしとして扱う。"
-                "qとの組み合わせはAND条件。"
+                "q・公開日との組み合わせはAND条件。"
             ),
         ),
     ] = None,
+    published_from: Annotated[
+        _PublicationDateQueryValue | None,
+        Query(description=(
+            "公開日の下限（当日を含む）。ASCIIのYYYY-MM-DDの実在日。"
+            "未指定は下限制限なし。形式不正・実在しない日付は422。"
+        )),
+    ] = None,
+    published_to: Annotated[
+        _PublicationDateQueryValue | None,
+        Query(description=(
+            "公開日の上限（当日を含む）。ASCIIのYYYY-MM-DDの実在日。"
+            "未指定は上限制限なし。形式不正・実在しない日付・下限より前は422。"
+        )),
+    ] = None,
 ) -> PressReleaseListResponse:
-    """保存済み報道発表をタイトルと固定カテゴリで絞り込み、ページ単位で取得
+    """保存済み報道発表をタイトル・固定カテゴリ・公開日で絞り込み、ページ単位で取得
 
-    カテゴリ内のOR条件とタイトル条件をANDで組み合わせる。
+    カテゴリ内のOR条件とタイトル・公開日の条件をANDで組み合わせる。
     入力の長さ・形式とカテゴリの前後空白はFastAPIの入力検証で処理済み。
+    公開日の両端を含め、逆順は拒否し、日付の入れ替えや未指定側の補完は行わない。
     検索カテゴリによらず、ページ内の記事の全所属を一括取得し表示順で返す。
     Sessionの生成・終了とDB例外のHTTP応答への変換は既存の共通処理に委ねる。
 
@@ -96,12 +136,29 @@ def read_press_releases(
         page_size: 1ページに含める最大件数
         q: タイトルの部分一致検索語。前後空白を除去し、空なら検索未指定
         fixed_category: 前後空白を除去済みのslug列。空要素と重複を除いて使用
+        published_from: 検証・変換済みの下限日。Noneなら下限制限なし
+        published_to: 検証・変換済みの上限日。Noneなら上限制限なし
 
     Returns:
         条件に一致する報道発表一覧と、絞り込み後の総件数・総ページ数
         0件または超過ページでは空のitemsと要求されたページ番号を保持
         件数取得後に一覧が空になった場合も、取得済みの件数を保持
+
+    Raises:
+        RequestValidationError: 下限が上限より新しい場合。published_toの422として応答
     """
+
+    if (
+        published_from is not None
+        and published_to is not None
+        and published_from > published_to
+    ):
+        raise RequestValidationError([{
+            "type": "value_error",
+            "loc": ("query", "published_to"),
+            "msg": "公開日の上限は下限以降で指定してください",
+            "input": published_to.isoformat(),
+        }])
 
     title_query = q.strip() if q is not None else None
     if not title_query:
@@ -115,6 +172,8 @@ def read_press_releases(
         session,
         title_query=title_query,
         fixed_category_slugs=fixed_category_slugs,
+        published_from=published_from,
+        published_to=published_to,
     )
     total_pages = (
         (total_items + page_size - 1) // page_size
@@ -131,6 +190,8 @@ def read_press_releases(
             offset=offset,
             title_query=title_query,
             fixed_category_slugs=fixed_category_slugs,
+            published_from=published_from,
+            published_to=published_to,
         )
 
     categories_by_release = (
