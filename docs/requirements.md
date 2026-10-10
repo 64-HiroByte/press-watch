@@ -322,7 +322,8 @@ Phase 6-6で、分離したローカルPostgreSQL 17へ既存migration・seed・
 Phase 6-7で実APIによる一覧表示・取得状態・再試行を実装し、専用PostgreSQL 17の合成データを実FastAPI経由でWebへ表示できることを確認済みである。
 障害・空状態・復旧の確認範囲は[Phase 6-7のローカル確認実績](local-development.md#phase-6-7のローカル確認実績)を参照する。
 Phase 6-8でAPIの件数・ページ情報に基づくページ送りとページ変更時の条件・下書き保持を実装した。
-検証済みの範囲と実API確認の保留は[Phase 6-8のローカル確認実績](local-development.md#phase-6-8のローカル確認実績)を参照する。
+専用PostgreSQL 17・実FastAPIを使い、画面上の1→2→1ページの往復とDBの前後不変を確認済みである。
+応答制御と実APIでの確認範囲は[Phase 6-8のローカル確認実績](local-development.md#phase-6-8のローカル確認実績)を参照する。
 通常の検索・リセット・カテゴリ選択と全操作の結合確認はPhase 6-9〜6-11で扱う。
 これらのAPIの詳細な契約はPhase 6-4で確定済みであり、要件と固定カテゴリ設計に記録した。
 既存APIの`source_categories`は維持し、画面側で使用しない。
