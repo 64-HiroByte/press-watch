@@ -216,17 +216,17 @@ formatはWebの対応ソース・CSS・JSONを対象とし、2スペース、ダ
 import・package.jsonキー・Tailwindクラスの並べ替えは無効です。
 Markdown、Next.jsの生成ファイル、依存とビルド・テスト生成物は共有設定で除外します。
 
-既存のMock・テーマ初期化・共通Label部品を維持するため、次の6ルールを該当する7ファイルに限定して例外にします。
+Mock・テーマ初期化・共通Label部品と一覧のスクロール・ドロワー操作を維持するため、次の6ルールを該当する8ファイルに限定して例外にします。
 例外は`.oxlintrc.json`の`overrides`へ置き、その他のファイルでは同じルールを有効にします。
 
 | ルール | 対象（`apps/web/`からの相対パス） | 理由 |
 | --- | --- | --- |
-| `react/set-state-in-effect` | `components/theme-selector.tsx`、`components/mock/theme-toggle.tsx`、`components/mock/workbench.tsx` | hydration後のテーマ表示と画面幅の初期化で使う状態更新を維持する |
-| `jsx-a11y/prefer-tag-over-role` | `components/mock/category-toggles.tsx`、`components/mock/theme-toggle.tsx`、`components/mock/workbench.tsx`、`app/mock/page.tsx` | 現Mockの名前付きgroup・region・searchと、対応するCSSを維持する |
+| `react/set-state-in-effect` | `components/theme-selector.tsx`、`components/press-releases/theme-toggle.tsx`、`components/mock/workbench.tsx` | hydration後のテーマ表示と画面幅の初期化で使う状態更新を維持する |
+| `jsx-a11y/prefer-tag-over-role` | `components/mock/category-toggles.tsx`、`components/press-releases/theme-toggle.tsx`、`components/mock/workbench.tsx`、`app/mock/page.tsx`、`components/press-releases/scroll-region.tsx` | テーマ・Mockの名前付きgroup・searchと、製品・Mockで共用する一覧のregion、対応するCSSを維持する |
 | `jsx-a11y/label-has-associated-control` | `components/ui/label.tsx` | 共通部品の`htmlFor`をprops経由で受け取り、呼び出し側で入力欄と対応させる |
 | `jsx-a11y/click-events-have-key-events` | `components/mock/workbench.tsx` | 見本内のリンクから伝播するclickを受けて遷移を止める既存処理を維持する |
-| `jsx-a11y/no-noninteractive-tabindex` | `components/mock/workbench.tsx` | 名前付き一覧領域へフォーカスし、キーボードでスクロールできる構成を維持する |
-| `jsx-a11y/no-noninteractive-element-interactions` | `components/mock/workbench.tsx`、`components/mock/sidebar-filters.tsx` | 見本内の遷移抑止と、dialogの背景クリック・フォーカス制御を維持する |
+| `jsx-a11y/no-noninteractive-tabindex` | `components/press-releases/scroll-region.tsx` | 名前付き一覧領域へフォーカスし、キーボードでスクロールできる構成を維持する |
+| `jsx-a11y/no-noninteractive-element-interactions` | `components/mock/workbench.tsx`、`components/press-releases/sidebar-filters.tsx` | 見本内の遷移抑止と、dialogの背景クリック・フォーカス制御を維持する |
 
 ファイル単位の例外なので、そのファイルへ今後追加するコードにも適用されます。
 後続の製品実装で対象部品を変更する際は、必要性を見直し、入力ラベル・キーボード操作・フォーカスを画面テストと実操作で確認します。
