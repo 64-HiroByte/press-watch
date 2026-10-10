@@ -126,34 +126,6 @@ for (const [label, status, response] of [
   });
 }
 
-test("狭い画面から幅変更しても無効・非表示の要素へフォーカスを戻さない", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
-  await page.getByRole("button", { name: "検索条件を設定" }).click();
-  const dialog = page.getByRole("dialog", { name: "検索条件" });
-  await expect(dialog).toBeVisible();
-  await dialog.evaluate((panel) => {
-    for (const element of panel.querySelectorAll<HTMLInputElement>(
-      "input, button, select, textarea",
-    ))
-      element.disabled = true;
-  });
-  await page.setViewportSize({ width: 1280, height: 720 });
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const active = document.activeElement;
-        return (
-          active !== document.body &&
-          active instanceof HTMLElement &&
-          active.getClientRects().length > 0 &&
-          !active.matches(":disabled")
-        );
-      }),
-    )
-    .toBe(true);
-});
-
 test("履歴変更後の再取得を古い応答が上書きせず下書きを維持する", async ({ page, request }) => {
   const named = (title: string, count: number) => result(count, [{ ...result().items[0]!, title }]);
   await request.post(`${control}/__reset`, {

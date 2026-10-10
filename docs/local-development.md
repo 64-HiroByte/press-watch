@@ -344,7 +344,7 @@ PLAYWRIGHT_BROWSERS_PATH="$PWD/tmp/playwright/browsers" pnpm --filter @press-wat
 
 ### Phase 6-7のローカル確認実績
 
-秘密ファイルを含まない検証コピーでfrozen install、`pnpm typegen:web`・`pnpm typecheck:web`・`pnpm lint:web`・`pnpm format:check:web`・`pnpm build:web`・`pnpm test:web`を実行し、画面テスト84件が成功しました。
+秘密ファイルを含まない検証コピーでfrozen install、`pnpm typegen:web`・`pnpm typecheck:web`・`pnpm lint:web`・`pnpm format:check:web`・`pnpm build:web`・`pnpm test:web`を実行し、画面テスト83件が成功しました。
 正常表示・取得失敗・片側失敗・不正応答・空状態・復旧の観測可能な単位で、実装前のassertion失敗と実装後の成功を確認しています。
 実装後に追加した安全性・履歴・要求数の回帰確認と、実API検証はこのRED／GREENの記録とは区別します。
 
