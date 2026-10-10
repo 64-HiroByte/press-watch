@@ -344,7 +344,7 @@ PLAYWRIGHT_BROWSERS_PATH="$PWD/tmp/playwright/browsers" pnpm --filter @press-wat
 
 ### Phase 6-7のローカル確認実績
 
-秘密ファイルを含まない検証コピーでfrozen install、`pnpm typegen:web`・`pnpm typecheck:web`・`pnpm lint:web`・`pnpm format:check:web`・`pnpm build:web`・`pnpm test:web`を実行し、画面テスト83件が成功しました。
+秘密ファイルを含まない検証コピーでfrozen install、`pnpm typegen:web`・`pnpm typecheck:web`・`pnpm lint:web`・`pnpm format:check:web`・`pnpm build:web`・`pnpm test:web`を実行し、画面テスト85件が成功しました。
 正常表示・取得失敗・片側失敗・不正応答・空状態・復旧の観測可能な単位で、実装前のassertion失敗と実装後の成功を確認しています。
 実装後に追加した安全性・履歴・要求数の回帰確認と、実API検証はこのRED／GREENの記録とは区別します。
 
@@ -354,6 +354,7 @@ PLAYWRIGHT_BROWSERS_PATH="$PWD/tmp/playwright/browsers" pnpm --filter @press-wat
   テストのcleanupより前に接続が中断され、成功側を保持し、手動再取得の2要求で復旧しました。
 - 同じURLの再取得、件数差からの再取得、履歴の戻る／進む、遅延した旧応答の完了を確認しました。
   旧一覧・件数・ページ情報を取得中に隠し、再取得では下書き・URL・履歴を維持します。
+  日付422の修正では個別解除後のカテゴリ条件（指定なしを含む）を維持し、不正URLのカテゴリ入力は修正値がURLとAPI要求へ反映されることを確認しました。
 - 有効なAPI接続先を設定したビルドでも、応答制御サーバーへの要求は0でした。
   未設定・不正接続先の5ケースも要求0で両取得失敗になり、有効な接続先の実行時だけ2要求になりました。
 - Mockの通常・失敗表示、文字サイズ・テーマ・ドロワーと、productionの開発専用ページのHTTP 404を確認しました。

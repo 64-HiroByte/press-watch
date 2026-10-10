@@ -339,10 +339,11 @@ for (const action of ["すべての条件を解除", "unknownを解除", "1ペ�
   });
 }
 
-test("不正条件を修正しページ1へ履歴追加する", async ({ page }) => {
-  await page.goto("/?q=one&q=two&page=0");
+test("不正条件を修正しページ1へ履歴追加する", async ({ page, request }) => {
+  await page.goto("/?q=one&q=two&fixed_category=Invalid&page=0");
   await expect(page.getByRole("button", { name: "条件を修正して適用" })).toBeVisible();
   await page.getByLabel("キーワード", { exact: true }).fill("修正値");
+  await page.getByLabel("カテゴリslug（1行に1個）", { exact: true }).fill("soil");
   await page.getByLabel("ページ", { exact: true }).fill("1");
   await page.getByRole("button", { name: "条件を修正して適用" }).click();
   await expect(page).toHaveURL(
@@ -350,6 +351,10 @@ test("不正条件を修正しページ1へ履歴追加する", async ({ page })
   );
   expect(new URL(page.url()).searchParams.get("q")).toBe("修正値");
   await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
+  expect(new URL(page.url()).searchParams.getAll("fixed_category")).toEqual(["soil"]);
+  const calls = await (await request.get(`${control}/__requests`)).json();
+  const listCall = calls.find((call: { path: string }) => call.path === "/press-releases");
+  expect(new URLSearchParams(listCall.query).getAll("fixed_category")).toEqual(["soil"]);
 });
 
 test("ドロワー内の修正は不正時に保持し成功時に閉じる", async ({ page, request }) => {
@@ -456,6 +461,43 @@ test("日付422を両入力へ関連付け修正する", async ({ page, request 
   await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
   await expect(page.getByText("秘密の内部文言")).toHaveCount(0);
 });
+
+for (const remaining of [[], ["air"]]) {
+  test(`日付422の修正で解除済みカテゴリを復活させない ${remaining.length ? "既知カテゴリを維持" : "カテゴリ指定なし"}`, async ({
+    page,
+    request,
+  }) => {
+    await request.post(`${control}/__reset`, {
+      data: {
+        "/press-releases": [
+          {},
+          { status: 422, body: { detail: [{ loc: ["query", "published_to"] }] } },
+          {},
+        ],
+      },
+    });
+    const query = new URLSearchParams();
+    for (const slug of [...remaining, "unknown"]) query.append("fixed_category", slug);
+    query.set("published_from", "2026-01-01");
+    query.set("published_to", "2026-01-05");
+    await page.goto(`/?${query}`);
+    await page.getByRole("button", { name: "unknownを解除", exact: true }).click();
+    await expect(page.getByLabel("終了日", { exact: true })).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    expect(new URL(page.url()).searchParams.getAll("fixed_category")).toEqual(remaining);
+    await page.getByLabel("終了日", { exact: true }).fill("2026-01-06");
+    await page.getByRole("button", { name: "条件を修正して適用", exact: true }).click();
+    await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
+    expect(new URL(page.url()).searchParams.getAll("fixed_category")).toEqual(remaining);
+    const calls = await (await request.get(`${control}/__requests`)).json();
+    const last = calls.filter((call: { path: string }) => call.path === "/press-releases").at(-1);
+    const sent = new URLSearchParams(last.query);
+    expect(sent.getAll("fixed_category")).toEqual(remaining);
+    expect(sent.get("published_to")).toBe("2026-01-06");
+  });
+}
 
 test.beforeEach(async ({ request }) => {
   const response = await request.post(`${control}/__reset`, { data: {} });

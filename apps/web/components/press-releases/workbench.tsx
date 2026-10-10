@@ -145,7 +145,9 @@ export function ListWorkbench({ query, options, dateError, outOfRange, summary, 
       q: draft.q,
       published_from: draft.from || undefined,
       published_to: draft.to || undefined,
-      fixed_category: draft.categories.split("\n"),
+      fixed_category: query.errors.length
+        ? draft.categories.split("\n")
+        : query.conditions.categories,
       page: draft.page || undefined,
     });
     if (corrected.errors.length) {
