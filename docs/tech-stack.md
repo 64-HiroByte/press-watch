@@ -212,8 +212,10 @@ Phase 6-2ではNeutralを初期テーマとし、ライト・ダーク・シス�
 
 ### 一覧の取得とServer／Client境界
 
-Phase 6-4で合意した設計であり、実装はPhase 6-7以降で行う。
-現Webには製品のAPI取得処理がないため、既存の接続実績として扱わない。
+Phase 6-4で合意した取得設計をPhase 6-7の一覧へ実装した。
+Serverの入口は`apps/web/app/(list)/page.tsx`、取得・応答検証は`apps/web/lib/press-releases-api.ts`、URL検証は`apps/web/lib/press-release-query.ts`に置く。
+再試行・復旧操作と下書きは`apps/web/components/press-releases/workbench.tsx`で扱い、Serverの一覧・件数表示を子として渡す。
+通常の検索・リセット・カテゴリ選択・ページ送りはPhase 6-8〜6-10へ残す。
 FastAPIが入力検証・検索・DB取得を担当し、Next.jsサーバーが`GET /press-releases`と`GET /fixed-categories`を共通の取得方針で呼び出す。
 ブラウザはキーワード・日付の下書き、カテゴリ操作、URLへの反映、テーマ・文字サイズ・ドロワーを担当する。
 一覧の取得・描画はServer側を基本とし、入力状態と操作に必要な部分だけをClient側へ置く。
@@ -232,6 +234,13 @@ FastAPIが入力検証・検索・DB取得を担当し、Next.jsサーバーが`
   記事ごとの取得、未分類・最古日・保存データ全体の有無を調べる追加要求を行わない。
 - 連続操作では現在のURLと取得処理に対応する結果だけを表示する。
   同じURLでの再検索・再試行も区別し、古い取得結果で新しい結果や下書きを上書きしない。
+
+接続先はサーバー専用の`PRESSWATCH_API_BASE_URL`で固定し、URLクエリやブラウザから選ばせない。
+DB資格情報をNext.jsへ渡さず、未設定・不正な接続先は取得失敗として表示する。
+HTTP／HTTPS、userinfoなし、クエリ・fragmentなしの接続先だけを使用し、APIのリダイレクトを追わない。
+応答の型・日付・件数・カテゴリ・HTTP／HTTPSの詳細リンクを検証し、内部例外やAPIのエラー本文を画面・ログへ出さない。
+一覧ルートは動的取得とし、ビルド時にAPIへ接続しない。
+`loading.tsx`は一覧のroute group内に限定し、development専用ページのproductionでのHTTP 404を維持する。
 
 Serverでの取得とキャッシュは[Next.jsのデータ取得](https://nextjs.org/docs/app/getting-started/fetching-data)と[fetch](https://nextjs.org/docs/app/api-reference/functions/fetch)、履歴と再取得は[useRouter](https://nextjs.org/docs/app/api-reference/functions/use-router)を参照する。
 10秒の期限は本文読み取りを含む標準の中断機構で実装し、取得ライブラリの追加を前提にしない。
