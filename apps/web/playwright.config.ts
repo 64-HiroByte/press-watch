@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { resolve } from "node:path";
 
 const devURL = "http://127.0.0.1:3105";
 const productionURL = "http://127.0.0.1:3106";
@@ -24,22 +25,34 @@ export default defineConfig({
     },
     {
       name: "production-smoke",
-      testMatch: "production.spec.ts",
+      testMatch: ["production.spec.ts", "list.spec.ts"],
       use: { baseURL: productionURL },
     },
   ],
   webServer: [
     {
+      command: "node tests/support/api-server.mjs",
+      url: "http://127.0.0.1:3107/__ready",
+      reuseExistingServer: false,
+      timeout: 10_000,
+    },
+    {
       command: "pnpm dev --hostname 127.0.0.1 --port 3105",
-      url: devURL,
+      url: `${devURL}/third-party-notices.txt`,
       env: { NODE_ENV: "development", NEXT_TELEMETRY_DISABLED: "1" },
       reuseExistingServer: false,
       timeout: 120_000,
     },
     {
       command: "pnpm start --hostname 127.0.0.1 --port 3106",
-      url: productionURL,
-      env: { NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1" },
+      url: `${productionURL}/third-party-notices.txt`,
+      env: {
+        NODE_ENV: "production",
+        NEXT_TELEMETRY_DISABLED: "1",
+        PRESSWATCH_API_BASE_URL: "http://127.0.0.1:3107",
+        NODE_OPTIONS: `--require ${resolve("tests/support/server-clock.cjs")}`,
+        PRESSWATCH_TEST_CLOCK_FILE: resolve("../../tmp/playwright/server-clock.json"),
+      },
       reuseExistingServer: false,
       timeout: 120_000,
     },

@@ -21,7 +21,7 @@
     {
       "files": [
         "apps/web/components/theme-selector.tsx",
-        "apps/web/components/mock/theme-toggle.tsx",
+        "apps/web/components/press-releases/theme-toggle.tsx",
         "apps/web/components/mock/workbench.tsx"
       ],
       "rules": {
@@ -31,7 +31,7 @@
     {
       "files": [
         "apps/web/components/mock/category-toggles.tsx",
-        "apps/web/components/mock/theme-toggle.tsx",
+        "apps/web/components/press-releases/theme-toggle.tsx",
         "apps/web/components/mock/workbench.tsx",
         "apps/web/app/mock/page.tsx"
       ],
@@ -48,17 +48,23 @@
     {
       "files": ["apps/web/components/mock/workbench.tsx"],
       "rules": {
-        "jsx-a11y/click-events-have-key-events": "off",
-        "jsx-a11y/no-noninteractive-tabindex": "off"
+        "jsx-a11y/click-events-have-key-events": "off"
       }
     },
     {
       "files": [
         "apps/web/components/mock/workbench.tsx",
-        "apps/web/components/mock/sidebar-filters.tsx"
+        "apps/web/components/press-releases/sidebar-filters.tsx"
       ],
       "rules": {
         "jsx-a11y/no-noninteractive-element-interactions": "off"
+      }
+    },
+    {
+      "files": ["apps/web/components/press-releases/scroll-region.tsx"],
+      "rules": {
+        "jsx-a11y/no-noninteractive-tabindex": "off",
+        "jsx-a11y/prefer-tag-over-role": "off"
       }
     }
   ]

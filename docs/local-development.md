@@ -216,17 +216,17 @@ formatはWebの対応ソース・CSS・JSONを対象とし、2スペース、ダ
 import・package.jsonキー・Tailwindクラスの並べ替えは無効です。
 Markdown、Next.jsの生成ファイル、依存とビルド・テスト生成物は共有設定で除外します。
 
-既存のMock・テーマ初期化・共通Label部品を維持するため、次の6ルールを該当する7ファイルに限定して例外にします。
+Mock・テーマ初期化・共通Label部品と一覧のスクロール・ドロワー操作を維持するため、次の6ルールを該当する8ファイルに限定して例外にします。
 例外は`.oxlintrc.json`の`overrides`へ置き、その他のファイルでは同じルールを有効にします。
 
 | ルール | 対象（`apps/web/`からの相対パス） | 理由 |
 | --- | --- | --- |
-| `react/set-state-in-effect` | `components/theme-selector.tsx`、`components/mock/theme-toggle.tsx`、`components/mock/workbench.tsx` | hydration後のテーマ表示と画面幅の初期化で使う状態更新を維持する |
-| `jsx-a11y/prefer-tag-over-role` | `components/mock/category-toggles.tsx`、`components/mock/theme-toggle.tsx`、`components/mock/workbench.tsx`、`app/mock/page.tsx` | 現Mockの名前付きgroup・region・searchと、対応するCSSを維持する |
+| `react/set-state-in-effect` | `components/theme-selector.tsx`、`components/press-releases/theme-toggle.tsx`、`components/mock/workbench.tsx` | hydration後のテーマ表示と画面幅の初期化で使う状態更新を維持する |
+| `jsx-a11y/prefer-tag-over-role` | `components/mock/category-toggles.tsx`、`components/press-releases/theme-toggle.tsx`、`components/mock/workbench.tsx`、`app/mock/page.tsx`、`components/press-releases/scroll-region.tsx` | テーマ・Mockの名前付きgroup・searchと、製品・Mockで共用する一覧のregion、対応するCSSを維持する |
 | `jsx-a11y/label-has-associated-control` | `components/ui/label.tsx` | 共通部品の`htmlFor`をprops経由で受け取り、呼び出し側で入力欄と対応させる |
 | `jsx-a11y/click-events-have-key-events` | `components/mock/workbench.tsx` | 見本内のリンクから伝播するclickを受けて遷移を止める既存処理を維持する |
-| `jsx-a11y/no-noninteractive-tabindex` | `components/mock/workbench.tsx` | 名前付き一覧領域へフォーカスし、キーボードでスクロールできる構成を維持する |
-| `jsx-a11y/no-noninteractive-element-interactions` | `components/mock/workbench.tsx`、`components/mock/sidebar-filters.tsx` | 見本内の遷移抑止と、dialogの背景クリック・フォーカス制御を維持する |
+| `jsx-a11y/no-noninteractive-tabindex` | `components/press-releases/scroll-region.tsx` | 名前付き一覧領域へフォーカスし、キーボードでスクロールできる構成を維持する |
+| `jsx-a11y/no-noninteractive-element-interactions` | `components/mock/workbench.tsx`、`components/press-releases/sidebar-filters.tsx` | 見本内の遷移抑止と、dialogの背景クリック・フォーカス制御を維持する |
 
 ファイル単位の例外なので、そのファイルへ今後追加するコードにも適用されます。
 後続の製品実装で対象部品を変更する際は、必要性を見直し、入力ラベル・キーボード操作・フォーカスを画面テストと実操作で確認します。
@@ -276,7 +276,7 @@ TypeScript・TSXのそれぞれで、保存時の整形と未使用変数のlint
 
 Playwright 1.63.0をWebの開発依存へ置き、Chromium、1280×720、1 worker、リトライ0で実行します。
 `dev-mock`はdevelopmentの通常一覧と既存の取得失敗表示への切替を確認します。
-`production-smoke`はproductionのトップページと`/mock`の404を確認します。
+`production-smoke`はproductionの実API取得を応答制御サーバーへ接続し、一覧・取得状態・入力境界・復旧・要求数と`/mock`・`/ui-foundation`のHTTP 404を確認します。
 対象ファイルと接続先はprojectごとに指定し、Mockの公開ガードを維持します。
 
 秘密ファイルを自動読込みさせずに検証するときは、必要なファイルだけを一時環境へコピーします。
@@ -299,15 +299,75 @@ pnpm test:web
 
 `test:web`は現在のソースで本番ビルド済みであることを前提とします。
 Web側の`pnpm test`も同じ専用ブラウザー保存先を使い、取得時は共有キャッシュの旧版を削除する処理を無効にします。
-Playwrightが開発サーバーを`127.0.0.1:3105`、本番サーバーを`127.0.0.1:3106`で起動し、`/`で準備完了を確認します。
+Playwrightが応答制御サーバーを`127.0.0.1:3107`、開発サーバーを`127.0.0.1:3105`、本番サーバーを`127.0.0.1:3106`で起動します。
+Webの準備完了はAPI取得を発生させない`/third-party-notices.txt`、応答制御サーバーは`/__ready`で確認します。
 既存サーバーは再利用せず、ポート占有時は失敗させます。
-終了後は両ポートに待受プロセスが残っていないことを確認します。
+終了後は3105・3106・3107番に待受プロセスが残っていないことを確認します。
 
 CIでは`test.only`・`test.describe.only`を`forbidOnly`で拒否します。
 traceは`retain-on-failure`、スクリーンショットは`only-on-failure`とし、出力先はルートの`tmp/playwright/test-results`です。
-現在のMockはAPIを呼ばないため、これらは検索・API取得の製品テストではありません。
-後続のAPI応答を制御する画面テストは、Server側の取得にも応答できる検証用HTTPサーバー等を使い、実API・DBとの結合確認と分けます。
+MockはAPIを呼びません。
+製品テストでは`tests/support/api-server.mjs`がNext.jsサーバーからの通信を記録し、片側失敗・0件・不正応答・ヘッダー／本文停止・遅延応答を制御します。
+本番テストサーバーには`tests/support/server-clock.cjs`を読み込み、日跨ぎの履歴復元テスト中だけNext.jsとブラウザーの日時を合わせて変更します。
+Next.jsの時刻は`tmp/playwright/server-clock.json`が存在する間だけ変更し、通信期限に使う時間は進め続け、テスト終了時にファイルを削除します。
+`pnpm test:web`は専用DBや資格情報を使用せず、実API・DBとの結合確認とは別の検証です。
 ブラウザーのリクエスト差し替えだけでServer側の通信を制御できたとは扱いません。
+
+### 製品一覧の接続先と実API画面テスト
+
+一覧はNext.jsサーバー専用の`PRESSWATCH_API_BASE_URL`を起動時に設定します。
+未設定・不正な値は取得失敗になり、Mockへ置き換えません。
+`NEXT_PUBLIC_`の設定は作らず、DB資格情報もWebへ渡しません。
+API接続先のクエリ・fragment・userinfoとリダイレクトは許可しません。
+ビルドはAPIへ接続せず、正常な条件の1回の取得で一覧と選択肢を最大2要求、`cache: "no-store"`、本文読み取りまで各10秒で取得します。
+
+通常の検証は上記の秘密ファイルを含まない一時Webコピーで実行します。
+起動環境も`env -i`等で必要なPATH・HOME・TMPDIR・localeとプロセス固有の設定だけに限定し、npmのユーザー／global設定を`/dev/null`にします。
+この環境でVoltaのpnpm shimが起動できない場合は、承認版のpnpm 12.8.1本体とNode.js 24.21.0をそのプロセスのPATHへ指定します。
+プロジェクト・グローバルのツール設定は変更しません。
+
+実APIの画面確認は[専用PostgreSQL 17の手順](#phase-6の接続検証用postgresql-17)で保存済みDBを再利用します。
+専用DB・APIの起動と読取り専用利用の承認、`.env.api-validation`だけを非表示で読む別承認を受け、metadataを照合してから起動します。
+既存コンソールの`compose('up', '--detach', '--wait', '--wait-timeout', '60', 'db')`を用い、identity・revision・schema・CSV定義・fixture原本と全所属を読取り専用で照合した後、`start_api()`を実行します。
+保存済みデータの再利用だけを承認した場合、初回準備・migration・seed・保存・再分類を再実行しません。
+不整合があれば停止し、復旧の書込みは別途確認します。
+
+秘密ファイルを含まない検証環境で本番ビルド後、専用APIが`127.0.0.1:8001`で起動している間だけ次を手動実行します。
+ブラウザー保存先は上記の導入手順と揃えます。
+
+```bash
+PLAYWRIGHT_BROWSERS_PATH="$PWD/tmp/playwright/browsers" pnpm --filter @press-watch/web exec playwright test --config playwright.real.config.ts
+```
+
+このconfigはWebだけを`127.0.0.1:3108`で起動・終了し、API接続先を8001番に固定します。
+通常の`pnpm test:web`やCIから実APIテストを自動実行しません。
+検証前後に業務4テーブルの全列・所属が不変であることを非表示で比較し、利用後は`stop()`・`db.dispose()`と3108・8001・55433番の待受け解放を確認します。
+資格情報・永続ボリュームを保持し、fixtureのリンク先へHTTP要求を行いません。
+
+### Phase 6-7のローカル確認実績
+
+秘密ファイルを含まない検証コピーでfrozen install、`pnpm typegen:web`・`pnpm typecheck:web`・`pnpm lint:web`・`pnpm format:check:web`・`pnpm build:web`・`pnpm test:web`を実行し、画面テスト85件が成功しました。
+正常表示・取得失敗・片側失敗・不正応答・空状態・復旧の観測可能な単位で、実装前のassertion失敗と実装後の成功を確認しています。
+実装後に追加した安全性・履歴・要求数の回帰確認と、実API検証はこのRED／GREENの記録とは区別します。
+
+- 応答制御サーバーに到着したNext.jsからの要求を数え、記事0・1・50件とも初回は一覧1＋選択肢1、手動再取得後の累計は4要求でした。
+  正規化待ちのURLでは0要求、不正条件では選択肢1要求だけ、正規化後の1取得単位は2要求であり、記事ごとの要求や自動再試行はありません。
+- 各APIのヘッダー無応答・本文停止の4ケースは、到着から中断まで9.5〜12秒のassertionを満たしました。
+  テストのcleanupより前に接続が中断され、成功側を保持し、手動再取得の2要求で復旧しました。
+- 同じURLの再取得、件数差からの再取得、履歴の戻る／進む、遅延した旧応答の完了を確認しました。
+  旧一覧・件数・ページ情報を取得中に隠し、再取得では下書き・URL・履歴を維持します。
+  日付422の修正では個別解除後のカテゴリ条件（指定なしを含む）を維持し、不正URLのカテゴリ入力は修正値がURLとAPI要求へ反映されることを確認しました。
+- 有効なAPI接続先を設定したビルドでも、応答制御サーバーへの要求は0でした。
+  未設定・不正接続先の5ケースも要求0で両取得失敗になり、有効な接続先の実行時だけ2要求になりました。
+- Mockの通常・失敗表示、文字サイズ・テーマ・ドロワーと、productionの開発専用ページのHTTP 404を確認しました。
+  共用CSSの抽出は採用済み555宣言を照合し、製品の失敗・空状態にも採用済みの装飾を引き継ぎました。
+
+専用PostgreSQL 17・実FastAPI・Webの手動画面テストでは、総件数62、1ページ目50件・2ページ目12件、API順序・全文タイトル・リンク・公開日・10選択肢・全所属を照合しました。
+所属なし1記事と、土壌検索／大気絞り込みでもair・soilの両所属を表示する記事、条件付き0件を確認しています。
+schema・revision・CSV定義・fixture原本と所属を読取り専用で照合し、業務4テーブルの全列・所属が検証前後で不変であることを確認しました。
+専用API・DBと所有するWeb・応答制御サーバーは停止し、資格情報・永続ボリュームは保持しています。
+障害・正常0選択肢・件数差は応答制御で確認したもので、実DBを変更して再現していません。
+通常検索・カテゴリ変更・ページ送り本体は後続タスク、Supabase・開発DB・実データと今回の変更の実CIは未確認です。
 
 ### UI基盤の確認
 
@@ -483,7 +543,8 @@ curl --get 'http://127.0.0.1:8000/press-releases' \
 空文字列・前後空白・時刻付き・桁不足・実在しない日付は422です。
 下限が上限より新しい場合も422となり、エラー位置は`["query", "published_to"]`です。
 APIでは日付の入れ替えや今日・最古日の補完を行いません。
-Webの入力補助は後続タスクであり、[公開日の入力補助](frontend-ui.md#公開日の入力補助)を参照してください。
+WebではURL復元と不正条件の修正時に日付を正規化します。
+通常検索の入力補助は後続タスクであり、[公開日の入力補助](frontend-ui.md#公開日の入力補助)を参照してください。
 
 日付・タイトル・カテゴリの条件はANDで組み合わせ、カテゴリ間はORです。
 件数と一覧へ同じ条件を適用し、絞り込み後に公開日・IDの降順でページを分割します。
@@ -517,7 +578,8 @@ curl 'http://127.0.0.1:8000/fixed-categories'
 
 表示順・正常0件・1 SELECT・DB非更新の実DB確認は、合成データを使う[テスト専用PostgreSQL 17](#postgresql-17-db統合テストを実行する)で行っています。
 開発DB・Supabaseへの固定カテゴリmigration・seedの適用と実データの再分類は[未確認](db-migrations.md#実行方針)です。
-定義0件でも既存APIの未絞り込み一覧・タイトル検索は利用できますが、Webの接続と状態表示は後続タスクです。
+定義0件でも既存APIの未絞り込み一覧・タイトル検索は利用できます。
+Webは成功した一覧と条件を保持して「カテゴリ選択肢が未登録」と表示し、条件変更を止めて再取得を可能にします。
 
 ## API unittestを実行する
 
@@ -1091,9 +1153,9 @@ postgresql+psycopg://presswatch:${POSTGRES_PASSWORD}@db:5432/presswatch
 
 ## Phase 6の接続検証用PostgreSQL 17
 
-後続のWeb実装では、開発DBと分離した`infra/compose.validation.yml`のDBを再利用します。
+Webの実API確認では、開発DBと分離した`infra/compose.validation.yml`のDBを再利用します。
 このDBは合成データ専用であり、一時的なDB統合テストのrunnerを向けません。
-API・Webの製品コード、migration、同梱CSVは変更していません。
+以下のDB準備手順はAPIの製品コード、migration、同梱CSVを変更しません。
 
 | 対象 | 設定 |
 | --- | --- |
