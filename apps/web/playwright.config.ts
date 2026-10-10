@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { resolve } from "node:path";
 
 const devURL = "http://127.0.0.1:3105";
 const productionURL = "http://127.0.0.1:3106";
@@ -49,6 +50,8 @@ export default defineConfig({
         NODE_ENV: "production",
         NEXT_TELEMETRY_DISABLED: "1",
         PRESSWATCH_API_BASE_URL: "http://127.0.0.1:3107",
+        NODE_OPTIONS: `--require ${resolve("tests/support/server-clock.cjs")}`,
+        PRESSWATCH_TEST_CLOCK_FILE: resolve("../../tmp/playwright/server-clock.json"),
       },
       reuseExistingServer: false,
       timeout: 120_000,

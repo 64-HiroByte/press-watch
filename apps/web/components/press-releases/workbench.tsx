@@ -96,9 +96,10 @@ export function ListWorkbench({ query, options, dateError, outOfRange, summary, 
 
   useEffect(() => {
     if (normalizing)
-      startTransition(() =>
-        router.replace(query.canonical ? `/?${query.canonical}` : "/", { scroll: false }),
-      );
+      startTransition(() => {
+        setNavigationURL(query.canonical);
+        router.replace(query.canonical ? `/?${query.canonical}` : "/", { scroll: false });
+      });
   }, [normalizing, query.canonical, router]);
 
   useEffect(() => {

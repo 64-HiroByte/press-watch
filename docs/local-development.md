@@ -308,6 +308,8 @@ CIでは`test.only`・`test.describe.only`を`forbidOnly`で拒否します。
 traceは`retain-on-failure`、スクリーンショットは`only-on-failure`とし、出力先はルートの`tmp/playwright/test-results`です。
 MockはAPIを呼びません。
 製品テストでは`tests/support/api-server.mjs`がNext.jsサーバーからの通信を記録し、片側失敗・0件・不正応答・ヘッダー／本文停止・遅延応答を制御します。
+本番テストサーバーには`tests/support/server-clock.cjs`を読み込み、日跨ぎの履歴復元テスト中だけNext.jsとブラウザーの日時を合わせて変更します。
+Next.jsの時刻は`tmp/playwright/server-clock.json`が存在する間だけ変更し、通信期限に使う時間は進め続け、テスト終了時にファイルを削除します。
 `pnpm test:web`は専用DBや資格情報を使用せず、実API・DBとの結合確認とは別の検証です。
 ブラウザーのリクエスト差し替えだけでServer側の通信を制御できたとは扱いません。
 

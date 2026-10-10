@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import type { ListData } from "@/lib/press-releases-api";
 
 const control = "http://127.0.0.1:3107";
@@ -185,6 +187,59 @@ test("履歴変更後の再取得を古い応答が上書きせず下書きを�
   await expect(page).toHaveURL((url) => !url.searchParams.has("fixed_category"));
   await expect(page.getByLabel("キーワード", { exact: true })).toHaveValue("履歴");
   await expect(page.getByRole("button", { name: "再取得", exact: true })).toBeEnabled();
+});
+
+test("日付をまたぐ履歴復元の正規化後に一覧と再取得が使える", async ({ page }) => {
+  const clockFile = resolve("../../tmp/playwright/server-clock.json");
+  async function setDate(date: string) {
+    const now = Date.parse(date);
+    await mkdir(dirname(clockFile), { recursive: true });
+    await writeFile(`${clockFile}.tmp`, JSON.stringify({ now, startedAt: Date.now() }));
+    await rename(`${clockFile}.tmp`, clockFile);
+    await page.clock.setFixedTime(new Date(now));
+  }
+  try {
+    await setDate("2026-10-10T03:00:00Z");
+    await page.goto("/?published_from=2026-10-11");
+    await expect(page.getByText("開始日だけを指定する場合は今日以前にしてください")).toBeVisible();
+    await page.getByRole("button", { name: "すべての条件を解除", exact: true }).click();
+    await expect(page).toHaveURL((url) => url.search === "");
+    await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
+
+    await setDate("2026-10-11T03:00:00Z");
+    await page.goBack({ waitUntil: "commit" });
+    await expect
+      .poll(
+        async () =>
+          new URL(page.url()).searchParams.has("published_to") ||
+          (await page.getByText("開始日だけを指定する場合は今日以前にしてください").isVisible()),
+      )
+      .toBe(true);
+    // 履歴キャッシュに前日の入力エラーが残る場合も、利用者の再取得で復旧する。
+    if (!new URL(page.url()).searchParams.has("published_to"))
+      await page.getByRole("button", { name: "再取得", exact: true }).click();
+    await expect(page).toHaveURL((url) => url.searchParams.get("published_to") === "2026-10-11");
+    await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
+    await expect(page.getByLabel("終了日", { exact: true })).toHaveValue("2026-10-11");
+    const canonicalURL = page.url();
+    await page.getByLabel("キーワード", { exact: true }).fill("保持する下書き");
+    await page.getByRole("button", { name: "再取得", exact: true }).click();
+    await expect(page.getByRole("button", { name: "再取得", exact: true })).toBeEnabled();
+    await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
+    await expect(page.getByLabel("キーワード", { exact: true })).toHaveValue("保持する下書き");
+    expect(page.url()).toBe(canonicalURL);
+
+    await page.goForward({ waitUntil: "commit" });
+    await expect(page).toHaveURL((url) => url.search === "");
+    await setDate("2026-10-12T03:00:00Z");
+    await page.goBack({ waitUntil: "commit" });
+    await expect(page).toHaveURL(canonicalURL);
+    await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
+    await expect(page.getByLabel("終了日", { exact: true })).toHaveValue("2026-10-11");
+  } finally {
+    await rm(clockFile, { force: true });
+    await rm(`${clockFile}.tmp`, { force: true });
+  }
 });
 
 test("不正URLでは一覧取得せず修正を案内する", async ({ page, request }) => {
