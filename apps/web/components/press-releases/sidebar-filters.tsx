@@ -69,9 +69,15 @@ export function SidebarFilters({
 
   useEffect(() => {
     const panel = panelRef.current;
+    const trigger = triggerRef.current;
     if (!panel) return;
     const narrowScreen = window.matchMedia("(width < 768px)");
     let wasNarrow: boolean | undefined;
+
+    function forgetTriggerFocus(event: FocusEvent) {
+      // 幅変更でトリガーが隠れ、bodyへ戻った場合のフォーカス復元は残す。
+      if (event.relatedTarget) lastFilterFocus.current = null;
+    }
 
     function syncLayout() {
       if (!panel) return;
@@ -125,8 +131,10 @@ export function SidebarFilters({
     }
 
     syncLayout();
+    trigger?.addEventListener("blur", forgetTriggerFocus);
     window.addEventListener("resize", syncLayout);
     return () => {
+      trigger?.removeEventListener("blur", forgetTriggerFocus);
       window.removeEventListener("resize", syncLayout);
       restoreTriggerFocus.current = false;
       if (panel.open) panel.close();
