@@ -54,12 +54,6 @@ export function ListResults({
             }))}
           />
         )}
-        <footer className="release-pagination">
-          <span className="release-page-description">
-            {pagination.page} / {pagination.total_pages}ページ
-          </span>
-          <span>ページ送りは後続フェーズで実装します。</span>
-        </footer>
       </section>
     </>
   );

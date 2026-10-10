@@ -23,6 +23,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
         list.data.pagination.page > list.data.pagination.total_pages
       }
       summary={<ListSummary list={list} />}
+      pagination={list?.ok ? list.data.pagination : null}
     >
       <ListResults list={list} conditions={query.conditions} />
     </ListWorkbench>

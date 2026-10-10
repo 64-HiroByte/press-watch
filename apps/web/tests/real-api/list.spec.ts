@@ -7,7 +7,7 @@ type Item = {
   fixed_categories: { slug: string; name: string }[];
 };
 
-test("専用実APIの順序・全文タイトル・リンク・日付・全所属と未分類を表示する", async ({
+test("専用実APIのページ送りを往復し順序・全文タイトル・リンク・日付・全所属と未分類を表示する", async ({
   page,
   request,
 }) => {
@@ -17,13 +17,23 @@ test("専用実APIの順序・全文タイトル・リンク・日付・全所�
   });
   const categories = await (await request.get("http://127.0.0.1:8001/fixed-categories")).json();
   expect(categories.items).toHaveLength(10);
-  for (const number of [1, 2]) {
+  await page.goto("/");
+  for (const [index, number] of [1, 2, 1].entries()) {
     const response = await request.get(`http://127.0.0.1:8001/press-releases?page=${number}`);
     expect(response.ok()).toBe(true);
     const data = await response.json();
     expect(data.pagination.total_items).toBe(62);
     expect(data.items).toHaveLength(number === 1 ? 50 : 12);
-    await page.goto(number === 1 ? "/" : "/?page=2");
+    if (index > 0) {
+      await page
+        .getByRole("navigation", { name: "ページ送り" })
+        .getByLabel(number === 2 ? "次のページへ" : "前のページへ")
+        .click();
+      await expect(page).toHaveURL(
+        number === 1 ? "http://127.0.0.1:3108/" : "http://127.0.0.1:3108/?page=2",
+      );
+      await expect(page.getByRole("heading", { name: "報道発表一覧", exact: true })).toBeFocused();
+    }
     await expect(page.getByText("62", { exact: true })).toBeVisible();
     const rows = page.getByRole("list", { name: "報道発表一覧" }).locator("li");
     await expect(rows).toHaveCount(data.items.length);
@@ -43,6 +53,11 @@ test("専用実APIの順序・全文タイトル・リンク・日付・全所�
       categories.items.map((category: { name: string }) => category.name),
     );
     await expect(page.getByText(`${number} / 2ページ`)).toBeVisible();
+    await expect(
+      page
+        .getByRole("navigation", { name: "ページ送り" })
+        .getByLabel(`${number}ページ目`, { exact: true }),
+    ).toHaveAttribute("aria-current", "page");
   }
   await page.goto("/?q=土壌&fixed_category=air");
   const row = page.getByRole("list", { name: "報道発表一覧" }).locator("li");
