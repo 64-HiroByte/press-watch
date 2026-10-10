@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { ChevronDownIcon, PencilLineIcon } from "lucide-react";
 
+import { ScrollRegion } from "@/components/press-releases/scroll-region";
 import { MockCategoryPills } from "@/components/mock/category-toggles";
 import { MockDisplayTooltip } from "@/components/mock/display-tooltip";
 import { MockSidebarFilters, type MockSearchConditions } from "@/components/mock/sidebar-filters";
@@ -40,6 +41,7 @@ export function MockWorkbench({
   const [textSize, setTextSize] = useState<"standard" | "large">("standard");
   const mainRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     setConditionsExpanded(!window.matchMedia("(width < 768px)").matches);
@@ -50,14 +52,14 @@ export function MockWorkbench({
     const header = headerRef.current;
     if (!main || !header) return;
     const updateHeaderHeight = () => {
-      main.style.setProperty("--mock-header-height", `${header.offsetHeight}px`);
+      main.style.setProperty("--release-header-height", `${header.offsetHeight}px`);
     };
     updateHeaderHeight();
     const observer = new ResizeObserver(updateHeaderHeight);
     observer.observe(header, { box: "border-box" });
     return () => {
       observer.disconnect();
-      main.style.removeProperty("--mock-header-height");
+      main.style.removeProperty("--release-header-height");
     };
   }, []);
   const selectedCategories = sidebarCategories.filter((category) =>
@@ -115,7 +117,7 @@ export function MockWorkbench({
   }
 
   return (
-    <main className="mock-workbench">
+    <main className="mock-workbench release-workbench">
       <aside className="mock-controls" aria-labelledby="mock-controls-title">
         <div className="mock-controls-heading">
           <div>
@@ -145,7 +147,7 @@ export function MockWorkbench({
       </aside>
 
       <section
-        className="mock-preview"
+        className="mock-preview release-preview"
         data-design="sidebar"
         data-text-size={textSize}
         aria-label="サイドバーの画面見本"
@@ -153,19 +155,16 @@ export function MockWorkbench({
         onAuxClick={preventPreviewNavigation}
       >
         <MockSidebarFilters
+          fallbackFocusRef={titleRef}
           onSearch={setAppliedSearch}
           renderMain={({ drawerOpen, openDrawer, triggerRef, rememberTriggerFocus }) => (
-            <div
-              ref={mainRef}
-              className="release-main"
-              role="region"
-              aria-label="報道発表一覧のスクロール領域"
-              tabIndex={0}
-            >
+            <ScrollRegion ref={mainRef}>
               <header ref={headerRef} className="release-header">
                 <div className="release-header-body">
                   <div className="release-header-top">
-                    <h2>報道発表一覧</h2>
+                    <h2 ref={titleRef} tabIndex={-1}>
+                      報道発表一覧
+                    </h2>
                     <div className="release-display-controls">
                       <div className="release-text-options" role="group" aria-label="文字サイズ">
                         <div className="release-text-buttons">
@@ -221,7 +220,7 @@ export function MockWorkbench({
                       variant="ghost"
                       className="release-conditions-trigger"
                       aria-haspopup="dialog"
-                      aria-controls="mock-filter-panel"
+                      aria-controls="release-filter-panel"
                       aria-expanded={drawerOpen}
                       onClick={openDrawer}
                       onFocus={rememberTriggerFocus}
@@ -248,7 +247,7 @@ export function MockWorkbench({
                 {results[state]}
                 {robustness}
               </div>
-            </div>
+            </ScrollRegion>
           )}
         >
           {sidebarSearch}

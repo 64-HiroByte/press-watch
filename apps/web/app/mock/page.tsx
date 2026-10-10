@@ -1,9 +1,9 @@
 import { notFound } from "next/navigation";
-import { InboxIcon, SearchIcon } from "lucide-react";
+import { SearchIcon } from "lucide-react";
 
-import { MockRetrievalFailureDecoration } from "@/components/mock/retrieval-failure-decoration";
 import { MockWorkbench } from "@/components/mock/workbench";
 import { PressReleaseList } from "@/components/press-releases/list";
+import { ResultState } from "@/components/press-releases/result-state";
 import { PressReleaseStatus, type ReleaseDisplayState } from "@/components/press-releases/status";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/pagination";
 import { longCategorySample, mockCategories, mockReleases } from "@/mock/press-releases";
 
+import "@/components/press-releases/styles.css";
 import "./mock.css";
 
 function SearchFields() {
@@ -117,31 +118,10 @@ function ResultSummary({ state = "normal" }: { state?: "normal" | ReleaseDisplay
 }
 
 function Results({ state = "normal" }: { state?: "normal" | ReleaseDisplayState }) {
-  const DecorationIcon =
-    state === "error"
-      ? MockRetrievalFailureDecoration
-      : state === "empty"
-        ? InboxIcon
-        : state === "no-results"
-          ? SearchIcon
-          : null;
+  if (state !== "normal" && state !== "loading") return <ResultState state={state} />;
 
   return (
-    <section
-      className="release-results"
-      data-state={state}
-      data-decorated={DecorationIcon ? true : undefined}
-      aria-label="報道発表の表示"
-    >
-      {DecorationIcon && (
-        <DecorationIcon
-          className="release-results-decoration"
-          viewBox={state === "empty" ? "-1.5 -1.5 27 27" : "0 0 24 24"}
-          strokeWidth={state === "empty" ? 1.125 : 1}
-          aria-hidden="true"
-          focusable="false"
-        />
-      )}
+    <section className="release-results" data-state={state} aria-label="報道発表の表示">
       {state === "normal" ? (
         <PressReleaseList releases={mockReleases} />
       ) : (
