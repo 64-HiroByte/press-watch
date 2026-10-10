@@ -1089,6 +1089,416 @@ postgresql+psycopg://presswatch:${POSTGRES_PASSWORD}@db:5432/presswatch
 
 `.env` は秘密情報を含みうるため、接続に必要な環境変数は `.env.example` やこのドキュメントに記載された名前だけを参照します。
 
+## Phase 6の接続検証用PostgreSQL 17
+
+後続のWeb実装では、開発DBと分離した`infra/compose.validation.yml`のDBを再利用します。
+このDBは合成データ専用であり、一時的なDB統合テストのrunnerを向けません。
+API・Webの製品コード、migration、同梱CSVは変更していません。
+
+| 対象 | 設定 |
+| --- | --- |
+| Docker context・endpoint | `desktop-linux`・`unix:///Users/hiro/.docker/run/docker.sock` |
+| Compose project | `press-watch-api-validation` |
+| PostgreSQL | `postgres:17`、ホストの`127.0.0.1:55433` |
+| DB名・ユーザー | `presswatch_api_validation` |
+| 永続ボリューム | `press-watch-api-validation_postgres17_data` |
+| ホストAPI | `127.0.0.1:8001` |
+| 資格情報 | Git管理外の`.env.api-validation`、所有者本人・権限600 |
+
+以下の例ではリポジトリを`/Users/hiro/my-projects/press-watch`へ配置していることを前提とします。
+別の配置では、Pythonコード中の`repo`を実際のリポジトリの絶対パスへ合わせます。
+コンソール起動コマンドの`cd`先もその配下の`apps/api`へ変更し、`PYTHONPATH`には`apps/api/src`の絶対パスを指定します。
+Docker endpoint、DB名、ユーザー、ポートは承認済みの対象として固定し、自動で別の接続先へ切り替えません。
+DB操作・ファイル変更と、専用秘密ファイルの非表示読取り、commit・push・PRの承認は`AGENTS.md`と今回の`task.md`に従います。
+既存の`.env`、Supabase、開発DBの資格情報は使用しません。
+
+### 初回の専用資格情報
+
+専用project・ボリューム・ポートが未使用であることを、ローカルDockerのmetadataと`lsof`で確認します。
+既存開発DBの`press-watch_postgres17_data`と旧`press-watch_postgres_data`は保持します。
+資格情報を新規作成する場合だけ、次のコードを実行します。
+既存ファイルは上書きせず、既存ボリュームがあるのにファイルがない場合も停止します。
+
+```bash
+python3 - <<'PY'
+from pathlib import Path
+import os
+import secrets
+import subprocess
+
+repo = Path('/Users/hiro/my-projects/press-watch')
+env = {k: os.environ[k] for k in ('PATH', 'HOME', 'TMPDIR') if k in os.environ}
+docker = ['docker', '--context', 'desktop-linux']
+endpoint = subprocess.run([*docker, 'context', 'inspect', 'desktop-linux', '--format', '{{.Endpoints.docker.Host}}'], env=env, check=True, capture_output=True, text=True).stdout.strip()
+if endpoint != 'unix:///Users/hiro/.docker/run/docker.sock':
+    raise SystemExit('Docker endpointが対象と一致しません')
+volume = subprocess.run([*docker, 'volume', 'ls', '--filter', 'name=^press-watch-api-validation_postgres17_data$', '--format', '{{.Name}}'], env=env, check=True, capture_output=True, text=True).stdout.strip()
+if volume:
+    raise SystemExit('既存ボリュームの資格情報を再生成しません')
+fd = os.open(repo / '.env.api-validation', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+with os.fdopen(fd, 'w', encoding='ascii') as output:
+    output.write('PRESSWATCH_VALIDATION_POSTGRES_PASSWORD=' + secrets.token_urlsafe(32) + '\n')
+print('専用資格情報を権限600で作成しました。値は表示しません。')
+PY
+```
+
+`.gitignore`と`.dockerignore`の`.env.*`によって除外されます。
+`git check-ignore -v .env.api-validation`で確認し、ステージ・コミット・Docker build contextへ含めません。
+パスワードや接続URLをシェルへ貼り付けたり、`source`・`eval`で秘密ファイルを実行したりしません。
+
+### 専用環境で既存コマンドを実行する
+
+APIとscraperの既存セットアップを済ませ、APIの`.venv`が存在することを前提とします。
+次のコマンドで、親の`DATABASE_URL`・`PG*`・Docker／Compose／uv設定・`PYTHONPATH`を引き継がないPythonコンソールを開きます。
+
+```bash
+cd /Users/hiro/my-projects/press-watch/apps/api
+env -i PATH="$PATH" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" LANG="${LANG:-en_US.UTF-8}" PYTHONPATH="/Users/hiro/my-projects/press-watch/apps/api/src" .venv/bin/python
+```
+
+以下をコンソールへ読み込みます。
+接続URLはメモリ内で構成し、子プロセスの環境へ渡します。
+実行結果は固定の診断・revision・件数だけを表示し、例外全文・SQL parameters・展開済みCompose設定は表示しません。
+コンソールの通常終了とSIGTERM・SIGHUPによる終了では、今回起動したAPIと専用DBの停止を試みます。
+
+```python
+import atexit
+from contextlib import contextmanager
+import json
+import os
+from pathlib import Path
+import re
+import signal
+import socket
+import stat
+import subprocess
+import sys
+import time
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import ProxyHandler, build_opener
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import URL
+
+repo = Path('/Users/hiro/my-projects/press-watch')
+api_dir = repo / 'apps/api'
+base_env = {k: os.environ[k] for k in ('PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'XDG_CACHE_HOME') if k in os.environ}
+base_env['COMPOSE_DISABLE_ENV_FILE'] = '1'
+docker = ['docker', '--context', 'desktop-linux']
+compose_args = [*docker, 'compose', '--project-name', 'press-watch-api-validation', '--file', str(repo / 'infra/compose.validation.yml'), '--env-file', str(repo / '.env.api-validation')]
+api_process = None
+db_started = False
+cleanup_depth = 0
+pending_exit = None
+
+@contextmanager
+def defer_exit(*, raise_exit=True):
+    """停止処理中の終了要求を保持し、最外の処理完了後に終了
+
+    Args:
+        raise_exit: Python終了処理内ではFalseとし、重ねて終了例外を発生させない
+    """
+    global cleanup_depth
+    cleanup_depth += 1
+    try:
+        yield
+    finally:
+        cleanup_depth -= 1
+        if cleanup_depth == 0 and pending_exit is not None and raise_exit:
+            raise SystemExit(pending_exit)
+
+def raw_run(args, cwd=repo, env=base_env):
+    """固定環境で実行し、出力を表示せずメモリへ保持する。"""
+    process = subprocess.Popen(args, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+    try:
+        output, _ = process.communicate(timeout=120)
+    except BaseException as error:
+        terminate_owned(process)
+        if isinstance(error, SystemExit):
+            raise
+        raise RuntimeError('コマンド中断。詳細は非表示。DB変更状態を照合してください。') from None
+    if process.returncode:
+        raise RuntimeError('コマンド失敗。詳細は非表示。DB変更状態を照合してください。')
+    return output
+
+def terminate_owned(process):
+    """今回作成したプロセスグループを終了し、親プロセスを回収する。"""
+    with defer_exit():
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=5)
+
+def check_context():
+    """操作前にローカルDocker endpointを照合する。"""
+    value = raw_run([*docker, 'context', 'inspect', 'desktop-linux', '--format', '{{.Endpoints.docker.Host}}']).strip()
+    if value != 'unix:///Users/hiro/.docker/run/docker.sock':
+        raise RuntimeError('Docker endpointが対象と一致しません')
+
+def compose(*args):
+    """専用projectだけを操作し、起動を記録する。"""
+    global db_started
+    check_context()
+    if args[0] == 'up':
+        db_started = True
+    raw_run([*compose_args, *args])
+    print('Compose:', args[0], '成功')
+
+def stop():
+    """今回のAPIグループを終了し、専用DBを停止する。ボリュームは保持する。"""
+    global api_process, db_started
+    with defer_exit():
+        try:
+            if api_process is not None:
+                terminate_owned(api_process)
+            api_process = None
+        finally:
+            if db_started:
+                check_context()
+                raw_run([*compose_args, 'stop', '--timeout', '10', 'db'])
+                db_started = False
+
+def cleanup(*, exiting=False):
+    """停止と接続終了を試み、失敗の詳細を表示せず未確認状態を通知
+
+    Args:
+        exiting: atexitからの呼出しではTrueとし、終了例外を重ねず処理を完了する
+    """
+    with defer_exit(raise_exit=not exiting):
+        try:
+            stop()
+        except BaseException:
+            print('APIまたは専用DBの停止を確認できません。対象の状態を確認してください。')
+        try:
+            if 'db' in globals():
+                db.dispose()
+        except BaseException:
+            print('DB接続の終了を確認できません。')
+
+def safe_exception(error_type, error, traceback):
+    """例外詳細を表示せず、停止を試みて未確認状態を明示する。"""
+    print('処理を中断しました。詳細は非表示です。DB変更状態を照合してください。')
+    cleanup()
+
+def handle_signal(signum, frame):
+    """停止中の終了要求を保持し、停止中以外は通常の中断へ接続"""
+    global pending_exit
+    if signum == signal.SIGINT and cleanup_depth == 0 and pending_exit is None:
+        raise KeyboardInterrupt
+    if pending_exit is None:
+        pending_exit = 128 + signum
+    if cleanup_depth == 0:
+        raise SystemExit(pending_exit)
+
+sys.excepthook = safe_exception
+atexit.register(cleanup, exiting=True)
+for value in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+    signal.signal(value, handle_signal)
+fd = os.open(repo / '.env.api-validation', os.O_RDONLY | os.O_NOFOLLOW)
+with os.fdopen(fd, 'r', encoding='ascii') as source:
+    info = os.fstat(source.fileno())
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600:
+        raise RuntimeError('専用資格情報の所有者・形式・権限が不正です')
+    match = re.fullmatch(r'PRESSWATCH_VALIDATION_POSTGRES_PASSWORD=([A-Za-z0-9_-]{43})\n', source.read(200))
+    if match is None:
+        raise RuntimeError('専用資格情報の形式が不正です')
+    password = match.group(1)
+
+db_url = URL.create('postgresql+psycopg', username='presswatch_api_validation', password=password, host='127.0.0.1', port=55433, database='presswatch_api_validation', query={'hostaddr': '127.0.0.1', 'options': '-c search_path=public', 'connect_timeout': '5'})
+api_env = {**base_env, 'DATABASE_URL': db_url.render_as_string(hide_password=False), 'PYTHONPATH': str(api_dir / 'src')}
+db = create_engine(db_url, pool_pre_ping=True, hide_parameters=True)
+
+def cli(*args):
+    """既存APIコマンドを実行し、既知の件数項目だけを表示する。"""
+    output = raw_run(['uv', 'run', '--locked', *args], cwd=api_dir, env=api_env)
+    if args[0] == 'alembic':
+        print('Alembic:', 'a51eab6808f3 (head)' if 'a51eab6808f3 (head)' in output else '実行成功')
+    else:
+        payload = json.loads(output)
+        print({k: payload[k] for k in ('categories_added', 'keywords_added', 'fetched_count', 'saved_count', 'skipped_count') if k in payload})
+
+def get(path, params=()):
+    """ローカルAPIの応答をメモリへ取得する。呼出し結果は変数へ保存する。"""
+    url = 'http://127.0.0.1:8001' + path
+    if params:
+        url += '?' + urlencode(params, doseq=True)
+    try:
+        with build_opener(ProxyHandler({})).open(url, timeout=5) as response:
+            return response.status, json.load(response)
+    except HTTPError as error:
+        return error.code, json.load(error)
+
+def start_api():
+    """専用設定でAPIを起動し、所有するプロセスと取得期限を管理する。"""
+    global api_process
+    if api_process is not None:
+        raise RuntimeError('今回のAPIは既に起動しています')
+    with socket.socket() as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        probe.bind(('127.0.0.1', 8001))
+        probe.listen(1)
+    api_process = subprocess.Popen(['uv', 'run', '--locked', 'python', '-m', 'uvicorn', 'press_watch_api.main:app', '--host', '127.0.0.1', '--port', '8001'], cwd=api_dir, env=api_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if api_process.poll() is not None:
+            raise RuntimeError('API起動失敗。詳細は非表示です。')
+        try:
+            status, response = get('/health')
+            if status == 200:
+                return
+        except (OSError, URLError):
+            pass
+        time.sleep(0.2)
+    raise RuntimeError('API起動確認が期限を超過しました')
+```
+
+資格情報、`db_url`、`api_env`、`raw_run`の戻り値をコンソールへ直接表示しません。
+例外や中断が発生したら追加投入を止め、`stop()`と`db.dispose()`を実行してコンソールを終了します。
+停止に失敗した場合は対象の状態を確認し、完了として扱いません。
+
+### 初回準備・実API確認・再利用
+
+起動前に、専用projectのコンテナ・マウント・ポートとボリュームをDocker metadataで照合します。
+`8001`や`55433`が別の処理に使われている場合は、その処理を終了させず停止します。
+Composeのproject・file・env-fileは上の固定指定を全操作へ使用します。
+
+```python
+compose('config', '--quiet')
+compose('up', '--detach', '--wait', '--wait-timeout', '60', 'db')
+```
+
+書込み前に、DB名・ユーザー・PostgreSQL 17・public schemaを確認します。
+照会時の例外詳細を表示しないよう、次の形で確認します。
+
+```python
+try:
+    with db.connect() as connection:
+        identity = connection.execute(text("SELECT current_database(), current_user, current_schema(), current_setting('server_version_num')::integer")).one()
+    assert identity[:3] == ('presswatch_api_validation', 'presswatch_api_validation', 'public')
+    assert 170000 <= identity[3] < 180000
+    tables = set(inspect(db).get_table_names(schema='public'))
+    assert tables in (set(), {'alembic_version', 'press_releases', 'fixed_categories', 'fixed_category_keywords', 'press_release_fixed_categories'})
+    print('専用DBのidentityと許可テーブルを確認しました')
+except Exception:
+    stop()
+    raise RuntimeError('DB状態の照合失敗。詳細は非表示です。') from None
+```
+
+既存テーブルがある場合はrevision・制約・索引・保存内容も照合し、想定外の状態ならmigration・投入を行いません。
+初回の空DBは次の順に進めます。
+
+```python
+cli('alembic', 'upgrade', 'head')
+cli('alembic', 'current')
+start_api()
+status, categories = get('/fixed-categories')
+assert status == 200 and categories == {'items': []}
+status, releases = get('/press-releases')
+assert status == 200 and releases == {'items': [], 'pagination': {'page': 1, 'page_size': 50, 'total_items': 0, 'total_pages': 0}}
+cli('python', '-m', 'press_watch_api.commands.seed_fixed_categories')
+cli('python', '-m', 'press_watch_api.commands.fetch_and_save_env_press', '--from-file', str(repo / 'infra/fixtures/api-validation-press.html'))
+```
+
+migration後はhead`a51eab6808f3`、業務4テーブル・`alembic_version`、各列・主キー・一意制約・外部キー削除規則・索引を確認します。
+初回seedは10カテゴリ・57キーワード、初回記事投入は保存62件・skip 0件です。
+同じAPIで投入後の応答を確認し、`/health`の200だけではDB準備完了としません。
+
+各処理は順次実行し、別の保存・seed・再分類を同時に実行しません。
+再利用時は空DB確認を省略し、保存済み定義と同梱CSV、原本のURL・タイトル・公開日・取得元カテゴリ、所属とfixtureの一致を先に確認します。
+既存保存処理は同一URLをskipし、欠損・誤分類を修復しません。
+不整合があれば停止し、全件再分類や初期化で合わせません。
+整合済みなら同じseed・保存コマンドを実行し、追加0カテゴリ・0キーワード、保存0件・skip62件と原本・所属の不変を確認します。
+seed済みで記事未投入の中断状態なら、定義一致と記事0件を確認したうえで、seed追加0件、記事保存62件・skip0件として再開できます。
+終了コード1でもcommit後の出力・close失敗なら保存済みの場合があります。
+commit未確認も未変更とは断定せず、DB状態を照合してから再実行します。
+
+### 合成データと期待値
+
+fixtureは実在の記事を移送せず、すべて`[接続検証]`で始まる62タイトルと`https://example.test/press/api-validation-v1/`配下の絶対URLを含みます。
+環境省や詳細URLへのHTTP要求、月別巡回は行いません。
+日付別の内容は次のとおりです。
+
+| 公開日 | 内容 | 件数 |
+| --- | --- | ---: |
+| 2026-01-01 | 案内（取得元カテゴリは大気、固定カテゴリは所属なし） | 1 |
+| 2026-01-02 | 土壌、水道水 | 2 |
+| 2026-01-03 | 大気ページ001〜051、公共用水域、排水基準、大気と土壌 | 54 |
+| 2026-01-04 | 臭気、騒音、振動 | 3 |
+| 2026-01-05 | 環境測定、温泉成分 | 2 |
+
+取得元カテゴリを持つのは「案内」だけで、その他はDB・APIとも`null`です。
+所属なし1記事・複数所属1記事を含み、所属は合計62組です。
+選択肢APIは同梱CSVと一致する10件を表示順で返し、記事APIは保存済み全所属を表示順で返します。
+絞り込み条件に一致しない所属も省略しません。
+
+| `/press-releases`の条件 | 総件数 |
+| --- | ---: |
+| 未指定 | 62 |
+| 1月2日〜4日 | 59 |
+| 1月2日以降／1月4日以前 | 61／60 |
+| 1月3日だけ | 54 |
+| `fixed_category=air&fixed_category=soil` | 53 |
+| `q=土壌&fixed_category=air` | 1（全所属はair・soil） |
+| `q=土壌`、airまたはsoil、1月2日〜4日 | 2 |
+| `q=ページ&fixed_category=air` | 51 |
+
+応答を変数へ保存してから、件数・ページなど必要な項目だけを表示します。
+例として次のように確認できます。
+
+```python
+status, result = get('/press-releases', [('q', '土壌'), ('fixed_category', 'air')])
+assert status == 200 and result['pagination']['total_items'] == 1
+assert [item['slug'] for item in result['items'][0]['fixed_categories']] == ['air', 'soil']
+print(result['pagination'])
+```
+
+ページ用51記事は既定50件で50／1／0件、`page_size=10`では10件ずつ5ページ・1件・範囲外0件となります。
+ページ間のURL重複・欠落がなく、`published_at DESC, id DESC`と一致することをDBの実IDで照合します。
+固定の連番IDは前提にしません。
+検索0件、未定義カテゴリ、日付範囲外は200・空結果で、要求ページを保持します。
+不正日付・逆順は422です。
+
+### 停止・再起動と確認実績
+
+通常終了・例外・コマンド実行中のCtrl+C・SIGTERM・SIGHUPによる中断では、今回のコマンドとAPIを終了してから専用DBの停止を試みます。
+プロセス回収・DB停止・接続終了の途中に届いたCtrl+C・SIGTERM・SIGHUPは終了要求として保持し、停止処理を終えてから終了します。
+繰り返しの終了要求も停止処理へ割り込ませず、Pythonが既に終了中の場合はatexitの処理を完了して終了します。
+Ctrl+C後にコンソールが継続している場合も、終了時は`stop()`・`db.dispose()`を実行してからコンソールを閉じます。
+SIGKILL・OSやDockerの強制停止など、Pythonが終了処理を実行できない場合は自動停止を保証できません。
+この場合は、次回の操作前に専用project・コンテナ・今回起動したプロセス・ポートを照合し、残留した専用処理を停止してから保存状態を確認します。
+停止を確認できない状態を完了として扱わず、ボリューム削除や初期化で解消しません。
+
+```python
+stop()
+db.dispose()
+```
+
+再起動確認は同じコンソールの`compose('up', '--detach', '--wait', '--wait-timeout', '60', 'db')`と`start_api()`で行います。
+revision・定義・業務4テーブルの全列・API応答が停止前と一致することを確認してから、再度`stop()`・`db.dispose()`を実行します。
+後続Web作業でAPIを利用する場合もこの専用設定で起動し、利用後は停止します。
+
+停止後は`lsof -nP -iTCP:55433 -iTCP:8001 -sTCP:LISTEN`で待受けがなく、専用コンテナが`exited`であることをmetadataで確認します。
+専用資格情報・永続ボリュームは保持します。
+`stop`はデータ削除ではありません。
+`down -v`・`docker volume rm`・DROP・TRUNCATE・復元・置換は別承認の破壊操作であり、この手順には含めません。
+
+この構成で、head`a51eab6808f3`・4テーブルのschema、初回空API、10カテゴリ・57キーワード・62記事・62所属、検索・全所属・ページ・422を実際のホストAPIと専用PostgreSQL 17で確認しました。
+seed再実行の追加0件・記事再投入の保存0件／skip62件、DBとAPIの停止・再起動後の業務4テーブル全列と応答の保持も確認しています。
+SIGTERM・SIGHUPによる手順用Pythonの終了でも、専用API・DBの停止と55433・8001番の解放を実環境で確認しました。
+専用DB・APIは停止し、55433・8001番を解放済みです。
+既存開発DBコンテナと既存・旧ボリュームは変更していません。
+開発DB・Supabaseへの固定カテゴリ適用、実データ再分類、Webからの接続はこの確認に含めません。
+既存の一時統合テストの実績と、今回の永続DBの確認実績は別の保証範囲です。
+
 ## Supabase PostgreSQL へ接続する
 
 Supabase では、継続稼働する FastAPI と Alembic migration に使用できる Direct connection を採用します。

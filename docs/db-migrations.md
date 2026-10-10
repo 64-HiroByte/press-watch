@@ -136,6 +136,12 @@ uv run alembic current
 今回追加した固定カテゴリmigrationは開発DBとSupabaseへ未適用であり、両環境で適用確認済みのheadは`9f2c7a4e1d63`までです。
 実際の `DATABASE_URL`、DB パスワード、プロジェクト識別子はコマンド出力や文書へ記録しません。
 
+Phase 6の分離した接続検証DB`presswatch_api_validation`（`127.0.0.1:55433`）には、既存migrationをhead`a51eab6808f3`まで適用済みです。
+業務4テーブルと`alembic_version`、列・主キー・一意制約・外部キー削除規則・索引を実DBで確認しました。
+停止・再起動後もrevision・定義・分類済み合成データが保持されることを確認しています。
+これは開発DB・Supabaseの適用確認とは別の結果です。
+準備・再利用手順は[Phase 6の接続検証用PostgreSQL 17](local-development.md#phase-6の接続検証用postgresql-17)を参照してください。
+
 初版 migration 作成時は次の形を基本にし、生成後に内容をレビューする。
 
 ```bash
