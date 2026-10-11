@@ -207,7 +207,7 @@ class FetchAndSaveScraperTest(unittest.TestCase):
     def test_collect_releases_from_scraper_cli_reports_subprocess_error(
         self,
     ) -> None:
-        """scraper CLI失敗時の理由を上位のstderrへ渡せること"""
+        """子プロセスのURL拒否診断から取得元と@を含むタイトルを保持すること"""
 
         from press_watch_api.commands import fetch_and_save_env_press
 
@@ -219,7 +219,8 @@ class FetchAndSaveScraperTest(unittest.TestCase):
                 "exception=InvalidPressReleaseUrlError "
                 "reason=invalid press release URL: "
                 "validation=non_ascii_character "
-                "title='URL形式が不正な発表' "
+                "page_url='https://www.env.go.jp' "
+                "title='review@example.org の調査結果' "
                 "href='/press/日本語.html'\n"
             ),
         )
@@ -247,7 +248,8 @@ class FetchAndSaveScraperTest(unittest.TestCase):
         self.assertIn("scraper command failed: exit_code=1", message)
         self.assertIn("InvalidPressReleaseUrlError", message)
         self.assertIn("validation=non_ascii_character", message)
-        self.assertIn("URL形式が不正な発表", message)
+        self.assertIn("page_url='https://www.env.go.jp'", message)
+        self.assertIn("title='review@example.org の調査結果'", message)
         self.assertIn("href='/press/日本語.html'", message)
 
     def test_collect_releases_keeps_final_error_after_long_progress(

@@ -3,13 +3,35 @@
 import re
 
 
+# URL拒否診断の引用付き項目を分離し、タイトルの@を認証情報へ巻き込まない。
+# 任意の引用符では区切らず、引用符を含む不正な認証部分も保護する。
+_QUOTED_VALUE_PATTERN = r'''(?:'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")'''
+_QUOTED_URL_PATTERN = (
+    r'''(?:'(?:https?://|//)(?:\\.|[^'\\])*'|"(?:https?://|//)(?:\\.|[^"\\])*")'''
+)
+_VALIDATION_PREFIX_PATTERN = (
+    r'invalid (?:press release|archive month) URL: validation=[a-z_]+ '
+)
+_VALIDATION_DIAGNOSTIC_PATTERN = (
+    rf'{_VALIDATION_PREFIX_PATTERN}page_url={_QUOTED_URL_PATTERN} '
+    rf'(?:title={_QUOTED_VALUE_PATTERN}|archive_month=[0-9]{{4}}-[0-9]{{2}}) '
+    rf'href={_QUOTED_VALUE_PATTERN}'
+)
+_DIAGNOSTIC_FIELD_RE = re.compile(
+    rf'(?:page_url|title|href)={_QUOTED_VALUE_PATTERN}', re.IGNORECASE
+)
 # authorityは空白でも打ち切らず、パス・クエリ・fragment・次のURLで区切る。
 # スキーム相対URLは値の先頭か区切りに続くものだけとし、パス中の//と区別する。
 # URLの後半も保持して消費し、そこにある//を認証部分として読み直さない。
 _URL_AUTHORITY_RE = re.compile(
-    r"""(?i)(https?://|(?<![^\s'"=:(\[{])//)"""
-    r'((?:(?!https?://)[^/?#])*)'
-    r"""((?:/(?!/)|[?#])(?:(?!https?://)[^\s'"])*|)"""
+    r"""(https?://|(?<![^\s'"=:(\[{])//)"""
+    rf'((?:(?!https?://|{_VALIDATION_DIAGNOSTIC_PATTERN})[^/?#])*)'
+    r"""((?:(?<!\s)/|[?#])(?:(?!https?://)[^\s'"])*|)""",
+    re.IGNORECASE,
+)
+_DIAGNOSTIC_TOKEN_RE = re.compile(
+    f'{_VALIDATION_DIAGNOSTIC_PATTERN}|{_URL_AUTHORITY_RE.pattern}',
+    re.IGNORECASE,
 )
 
 
@@ -18,6 +40,7 @@ def redact_url_credentials(value: str) -> str:
 
     空白・制御文字・@を含む拒否対象の認証部分も、最後の@まで置換する。
     パス・クエリ・fragment内の@と、別のURL候補は認証部分へ含めない。
+    URL拒否診断は引用付きの値ごとに処理し、取得元とタイトルなどを分離する。
 
     Args:
         value: エラー理由や進捗として表示・保存する文字列
@@ -27,18 +50,35 @@ def redact_url_credentials(value: str) -> str:
     """
 
     def redact_authority(match: re.Match[str]) -> str:
-        """URL候補のauthorityに認証区切りがあれば認証部分全体を伏字へ置換
+        """URL候補またはURL拒否診断の認証部分を伏字へ置換
 
         Args:
-            match: URLの接頭辞・認証情報を含みうる接続先部分・パス以降を保持したマッチ結果
+            match: URLの各部分、またはURL拒否診断全体のマッチ結果
 
         Returns:
-            認証部分だけを伏せたURL候補、認証区切りがない場合は元のURL候補
+            項目の境界を保持して認証部分を伏せた文字列、認証区切りがなければ元の文字列
         """
+
+        if match.group(1) is None:
+            return _DIAGNOSTIC_FIELD_RE.sub(redact_field, match.group(0))
 
         _, separator, host = match.group(2).rpartition('@')
         if not separator:
             return match.group(0)
         return f'{match.group(1)}[redacted]@{host}{match.group(3)}'
 
-    return _URL_AUTHORITY_RE.sub(redact_authority, value)
+    def redact_field(match: re.Match[str]) -> str:
+        """引用付き診断項目の値だけを伏字処理へ渡す変換
+
+        Args:
+            match: 項目名と引用符付きの値を保持したマッチ結果
+
+        Returns:
+            項目名と引用符を保持し、値内の認証部分を伏せた文字列
+        """
+
+        name, _, quoted_value = match.group(0).partition('=')
+        redacted = _URL_AUTHORITY_RE.sub(redact_authority, quoted_value[1:-1])
+        return f'{name}={quoted_value[0]}{redacted}{quoted_value[-1]}'
+
+    return _DIAGNOSTIC_TOKEN_RE.sub(redact_authority, value)

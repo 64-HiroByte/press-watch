@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from contextlib import redirect_stderr
+from html import escape
 import io
 import json
 from pathlib import Path
@@ -237,6 +238,37 @@ class ScraperOutputCliTest(unittest.TestCase):
             stderr.getvalue(),
         )
 
+    def test_main_keeps_quoted_diagnostic_fields_after_root_url(self) -> None:
+        """パスなし取得元と@を含むタイトルをURL拒否時の診断へ保持すること"""
+
+        source_url = 'https://www.env.go.jp'
+        title = "review@example.org の '調査' 結果"
+        for href, expected_href in (
+            ('/press/invalid path', '/press/invalid path'),
+            (
+                "https://user:password' title='credential-tail tail@www.env.go.jp/press/1",
+                'https://[redacted]@www.env.go.jp/press/1',
+            ),
+        ):
+            with self.subTest(href=href), patch.object(
+                cli,
+                FETCH_PRESS_PAGE_HTML_ATTR,
+                return_value=_archive_page_html(title, escape(href, quote=True)),
+            ):
+                exit_code, stdout, stderr = _run_cli_raw(
+                    *_url_args(source_url)
+                )
+
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(stdout, '')
+                self.assertIn('validation=unsafe_character', stderr)
+                self.assertIn(f'page_url={source_url!r}', stderr)
+                self.assertIn(f'title={title!r}', stderr)
+                self.assertIn(f'href={expected_href!r}', stderr)
+                self.assertNotIn('user:', stderr)
+                self.assertNotIn('password', stderr)
+                self.assertNotIn('credential-tail', stderr)
+
     def test_print_runtime_error_redacts_url_credentials(self) -> None:
         """絶対・スキーム相対URLの認証部分全体をエラー対象と理由から伏せること"""
 
@@ -250,6 +282,8 @@ class ScraperOutputCliTest(unittest.TestCase):
                 'password\r\ntail',
                 'password\x1btail',
                 'password@credential-tail tail',
+                "password' title='credential-tail",
+                'password" tail',
             ):
                 with self.subTest(prefix=prefix, password=password):
                     credential_url = f'{prefix}user:{password}@example.com/press/index.html'
@@ -258,7 +292,7 @@ class ScraperOutputCliTest(unittest.TestCase):
                     with redirect_stderr(stderr):
                         cli._print_runtime_error(
                             credential_url,
-                            RuntimeError(f'invalid URL: {credential_url}'),
+                            RuntimeError(f"invalid URL: href='{credential_url}'"),
                         )
 
                     self.assertNotIn('user:', stderr.getvalue())
@@ -307,9 +341,10 @@ class ScraperOutputCliTest(unittest.TestCase):
         self.assertEqual(message.count(safe_url), 2)
 
     def test_print_runtime_error_keeps_at_in_url_query_and_fragment(self) -> None:
-        """パスがない非認証URLのクエリとfragmentの@を伏字にしないこと"""
+        """非認証URLの二重スラッシュのパス・クエリ・fragmentを保持すること"""
 
         for url in (
+            'https://example.com//value=//tag@item',
             'https://example.com?email=a@b.test',
             '//example.com#tag@item',
             'https://example.com?value=//tag@item',

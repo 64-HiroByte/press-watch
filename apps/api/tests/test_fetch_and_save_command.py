@@ -191,6 +191,8 @@ class FetchAndSaveCommandTest(unittest.TestCase):
                 "password\r\ntail",
                 "password\x1btail",
                 "password@credential-tail tail",
+                "password' title='credential-tail",
+                'password" tail',
             ):
                 with self.subTest(prefix=prefix, password=password):
                     credential_url = (
@@ -205,7 +207,7 @@ class FetchAndSaveCommandTest(unittest.TestCase):
                         session_factory=session_factory,
                         collect_releases=Mock(
                             side_effect=RuntimeError(
-                                f"invalid source URL: {credential_url}"
+                                f"invalid source URL: href='{credential_url}'"
                             )
                         ),
                         stdout=stdout,
@@ -226,9 +228,9 @@ class FetchAndSaveCommandTest(unittest.TestCase):
                     )
 
     def test_main_keeps_diagnostic_url_boundaries(self) -> None:
-        """複数URLを個別に伏せ、非認証URLのクエリとfragmentを保持すること"""
+        """複数URLを個別に伏せ、非認証URLのパス・クエリ・fragmentを保持すること"""
 
-        safe_url = "https://example.com?value=//tag@item#tag@item"
+        safe_url = "https://example.com//value=//tag@item?email=a@b.test#tag@item"
         stderr = io.StringIO()
         session_factory = Mock()
         exit_code = main(
@@ -251,6 +253,48 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         self.assertIn("https://[redacted]@first.test and ", stderr.getvalue())
         self.assertIn("//[redacted]@second.test/path;", stderr.getvalue())
         self.assertEqual(stderr.getvalue().count(safe_url), 2)
+
+    def test_main_keeps_quoted_diagnostic_fields_after_root_url(self) -> None:
+        """取得元と@を含むタイトルを失敗診断へ保持しSessionを作らないこと"""
+
+        source_url = "https://www.env.go.jp"
+        title = "review@example.org の '調査' 結果"
+        for href, expected_href in (
+            ("/press/invalid path", "/press/invalid path"),
+            (
+                "https://user:password' title='credential-tail tail@www.env.go.jp/press/1",
+                "https://[redacted]@www.env.go.jp/press/1",
+            ),
+        ):
+            with self.subTest(href=href):
+                reason = (
+                    "invalid press release URL: validation=unsafe_character "
+                    f"page_url={source_url!r} title={title!r} href={href!r}"
+                )
+                session_factory = Mock()
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                exit_code = main(
+                    ["--url", source_url],
+                    session_factory=session_factory,
+                    collect_releases=Mock(side_effect=RuntimeError(reason)),
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(stdout.getvalue(), "")
+                session_factory.assert_not_called()
+                self.assertIn("validation=unsafe_character", stderr.getvalue())
+                self.assertIn(f"page_url={source_url!r}", stderr.getvalue())
+                self.assertIn(f"title={title!r}", stderr.getvalue())
+                quote = repr(href)[0]
+                self.assertIn(
+                    f"href={quote}{expected_href}{quote}", stderr.getvalue()
+                )
+                self.assertNotIn("user:", stderr.getvalue())
+                self.assertNotIn("password", stderr.getvalue())
+                self.assertNotIn("credential-tail", stderr.getvalue())
 
     def test_main_escapes_terminal_control_characters(self) -> None:
         """エラー対象と理由の端末制御文字を無害な表記へ変換すること"""
