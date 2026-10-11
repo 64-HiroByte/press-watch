@@ -75,8 +75,9 @@ export function SidebarFilters({
     let wasNarrow: boolean | undefined;
 
     function forgetTriggerFocus(event: FocusEvent) {
-      // 幅変更でトリガーが隠れ、bodyへ戻った場合のフォーカス復元は残す。
-      if (event.relatedTarget) lastFilterFocus.current = null;
+      // 表示中のトリガーなら、余白クリックでbodyへ戻った場合も参照を消す。
+      // 幅変更でトリガーが隠れた場合のフォーカス復元は残す。
+      if (event.relatedTarget || trigger?.getClientRects().length) lastFilterFocus.current = null;
     }
 
     function syncLayout() {

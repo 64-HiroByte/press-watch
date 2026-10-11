@@ -411,6 +411,40 @@ test("ドロワーを開閉した後のページ送りも幅拡大後に見出�
   await expect(page.getByRole("link", { name: "2ページの記事1", exact: true })).toBeInViewport();
 });
 
+test("非フォーカス要素をクリックした後のページ送りも幅拡大後に見出しへ戻る", async ({
+  page,
+  request,
+}) => {
+  await page.setViewportSize({ width: 390, height: 720 });
+  await request.post(`${control}/__configure`, {
+    data: {
+      "/press-releases": [{ body: pagedResult(62, 1) }, { hold: "gate", body: pagedResult(62, 2) }],
+    },
+  });
+  await page.goto("/");
+  const trigger = page.getByRole("button", { name: "検索条件を設定", exact: true });
+  await trigger.click();
+  await page.getByRole("button", { name: "検索条件を閉じる" }).click();
+  await expect(trigger).toBeFocused();
+  await page.locator(".release-mobile-bar").getByText("PressWatch", { exact: true }).click();
+  await expect(page.locator("body")).toBeFocused();
+  await page.getByRole("navigation", { name: "ページ送り" }).getByLabel("次のページへ").click();
+  await expect(page.getByText("報道発表を読み込んでいます")).toBeVisible();
+  await expect
+    .poll(async () => (await (await request.get(`${control}/__requests`)).json()).length)
+    .toBe(4);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect(page.getByRole("dialog", { name: "検索条件", exact: true })).toBeVisible();
+  const calls = await (await request.get(`${control}/__requests`)).json();
+  await request.post(`${control}/__release`, {
+    data: { ids: calls.slice(2).map((call: { id: number }) => call.id) },
+  });
+  await expect(page.getByText("2 / 2ページ", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "報道発表一覧", exact: true })).toBeFocused();
+  await expect(page.getByRole("heading", { name: "報道発表一覧", exact: true })).toBeInViewport();
+  await expect(page.getByRole("link", { name: "2ページの記事1", exact: true })).toBeInViewport();
+});
+
 test("ページ送りを履歴で中断した後の古い応答は表示とフォーカスを奪わない", async ({
   page,
   request,
