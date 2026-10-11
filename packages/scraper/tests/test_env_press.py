@@ -498,7 +498,16 @@ class EnvPressParserTest(unittest.TestCase):
         """絶対・スキーム相対の発表URLを拒否し、例外の認証部分全体を伏せること"""
 
         for prefix in ('https://', '//', 'HTTP://'):
-            for password in ('secret', 'secret@credential-tail'):
+            for password in (
+                'secret',
+                'secret@credential-tail',
+                'secret tail',
+                'secret\ttail',
+                'secret\ntail',
+                'secret\r\ntail',
+                'secret\x1btail',
+                'secret@credential-tail tail',
+            ):
                 with self.subTest(prefix=prefix, password=password):
                     href = f'{prefix}review-user:{password}@www.env.go.jp/press/1'
                     with self.assertRaises(InvalidPressReleaseUrlError) as raised:
@@ -507,7 +516,12 @@ class EnvPressParserTest(unittest.TestCase):
                         )
 
                     message = str(raised.exception)
-                    self.assertIn('validation=credentials_not_allowed', message)
+                    reason = (
+                        'unsafe_character'
+                        if any(c.isspace() or ord(c) < 0x20 for c in password)
+                        else 'credentials_not_allowed'
+                    )
+                    self.assertIn(f'validation={reason}', message)
                     self.assertIn(f'{prefix}[redacted]@www.env.go.jp/press/1', message)
                     self.assertNotIn('review-user', message)
                     self.assertNotIn('secret', message)
@@ -667,14 +681,28 @@ class EnvPressParserTest(unittest.TestCase):
         """絶対・スキーム相対の月別URLを拒否し、例外の認証部分全体を伏せること"""
 
         for prefix in ('https://', '//', 'HTTP://'):
-            for password in ('secret', 'secret@credential-tail'):
+            for password in (
+                'secret',
+                'secret@credential-tail',
+                'secret tail',
+                'secret\ttail',
+                'secret\ntail',
+                'secret\r\ntail',
+                'secret\x1btail',
+                'secret@credential-tail tail',
+            ):
                 with self.subTest(prefix=prefix, password=password):
                     href = f'{prefix}review-user:{password}@www.env.go.jp/press/202605.html'
                     with self.assertRaises(InvalidArchiveMonthUrlError) as raised:
                         parse_archive_month_links(_archive_month_link('2026年5月', href))
 
                     message = str(raised.exception)
-                    self.assertIn('validation=credentials_not_allowed', message)
+                    reason = (
+                        'unsafe_character'
+                        if any(c.isspace() or ord(c) < 0x20 for c in password)
+                        else 'credentials_not_allowed'
+                    )
+                    self.assertIn(f'validation={reason}', message)
                     self.assertIn(
                         f'{prefix}[redacted]@www.env.go.jp/press/202605.html', message
                     )

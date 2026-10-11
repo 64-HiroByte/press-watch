@@ -35,7 +35,14 @@ DATABASE_CONFIGURATION_FAILED_REASON = (
     "database configuration could not be loaded"
 )
 DATABASE_OPERATION_FAILED_REASON = "database operation failed"
-CREDENTIALS_IN_URL_RE = re.compile(r"(?i)((?:https?:)?//)[^/\s]+@")
+# 空白を含む不正な認証部分も、次のURLやパス・クエリ・fragmentと分けて伏せる。
+# スキーム相対URLは値の先頭か区切りに続くものだけとし、パス中の//と区別する。
+# URLの後半も保持して消費し、そこにある//を認証部分として読み直さない。
+URL_AUTHORITY_RE = re.compile(
+    r"""(?i)(https?://|(?<![^\s'"=:(\[{])//)"""
+    r"((?:(?!https?://)[^/?#])*)"
+    r"""((?:/(?!/)|[?#])(?:(?!https?://)[^\s'"])*|)"""
+)
 MAX_DIAGNOSTIC_VALUE_LENGTH = 1000
 PROCESS_TERMINATE_TIMEOUT_SECONDS = 5.0
 SCRAPER_STDERR_TAIL_LINES = 50
@@ -942,7 +949,8 @@ def _one_line_tail(value: str) -> str:
 def _normalize_diagnostic(value: str) -> str:
     """診断値を伏字・表示可能な1行へ変換
 
-    絶対URL・スキーム相対URLの認証部分全体を伏せる。
+    絶対URL・スキーム相対URLの認証部分は、空白・制御文字・@を含む場合も伏せる。
+    パス・クエリ・fragment内の@と、別のURL候補は認証部分へ含めない。
 
     Args:
         value: stderrへ埋め込む文字列
@@ -951,10 +959,15 @@ def _normalize_diagnostic(value: str) -> str:
         URL認証情報を伏せ、端末制御文字を表示可能な表記へ変換した1行文字列
     """
 
-    redacted_value = CREDENTIALS_IN_URL_RE.sub(
-        r"\1[redacted]@",
-        value,
-    )
+    def redact_authority(match: re.Match[str]) -> str:
+        """URL候補のauthorityに認証区切りがあれば認証部分全体を伏字へ置換"""
+
+        _, separator, host = match.group(2).rpartition("@")
+        if not separator:
+            return match.group(0)
+        return f"{match.group(1)}[redacted]@{host}{match.group(3)}"
+
+    redacted_value = URL_AUTHORITY_RE.sub(redact_authority, value)
     one_line_value = " ".join(redacted_value.split())
     return "".join(
         character if character.isprintable() else repr(character)[1:-1]

@@ -182,7 +182,16 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         """絶対・スキーム相対URLの認証部分全体をエラー対象と理由から伏せること"""
 
         for prefix in ("https://", "//", "HTTP://"):
-            for password in ("password", "password@credential-tail"):
+            for password in (
+                "password",
+                "password@credential-tail",
+                "password tail",
+                "password\ttail",
+                "password\ntail",
+                "password\r\ntail",
+                "password\x1btail",
+                "password@credential-tail tail",
+            ):
                 with self.subTest(prefix=prefix, password=password):
                     credential_url = (
                         f"{prefix}user:{password}@example.com/press/index.html"
@@ -215,6 +224,33 @@ class FetchAndSaveCommandTest(unittest.TestCase):
                         ),
                         2,
                     )
+
+    def test_main_keeps_diagnostic_url_boundaries(self) -> None:
+        """複数URLを個別に伏せ、非認証URLのクエリとfragmentを保持すること"""
+
+        safe_url = "https://example.com?value=//tag@item#tag@item"
+        stderr = io.StringIO()
+        session_factory = Mock()
+        exit_code = main(
+            ["--url", safe_url],
+            session_factory=session_factory,
+            collect_releases=Mock(
+                side_effect=RuntimeError(
+                    "failed https://first:password tail@first.test "
+                    "and //second:password\ttail@second.test/path; "
+                    f"reference={safe_url}"
+                )
+            ),
+            stdout=io.StringIO(),
+            stderr=stderr,
+        )
+
+        self.assertEqual(exit_code, 1)
+        session_factory.assert_not_called()
+        self.assertNotIn("password", stderr.getvalue())
+        self.assertIn("https://[redacted]@first.test and ", stderr.getvalue())
+        self.assertIn("//[redacted]@second.test/path;", stderr.getvalue())
+        self.assertEqual(stderr.getvalue().count(safe_url), 2)
 
     def test_main_escapes_terminal_control_characters(self) -> None:
         """エラー対象と理由の端末制御文字を無害な表記へ変換すること"""

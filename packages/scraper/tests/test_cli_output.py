@@ -241,7 +241,16 @@ class ScraperOutputCliTest(unittest.TestCase):
         """絶対・スキーム相対URLの認証部分全体をエラー対象と理由から伏せること"""
 
         for prefix in ('https://', '//', 'HTTP://'):
-            for password in ('password', 'password@credential-tail'):
+            for password in (
+                'password',
+                'password@credential-tail',
+                'password tail',
+                'password\ttail',
+                'password\ntail',
+                'password\r\ntail',
+                'password\x1btail',
+                'password@credential-tail tail',
+            ):
                 with self.subTest(prefix=prefix, password=password):
                     credential_url = f'{prefix}user:{password}@example.com/press/index.html'
                     stderr = io.StringIO()
@@ -277,31 +286,72 @@ class ScraperOutputCliTest(unittest.TestCase):
         self.assertIn(r'\x1b[31m', stderr.getvalue())
         self.assertIn(r'\x1b[0m', stderr.getvalue())
 
-    def test_print_progress_sanitizes_message(self) -> None:
-        """絶対・スキーム相対URLの認証情報と制御文字を進捗のstderrへ出さないこと"""
+    def test_print_runtime_error_keeps_url_boundaries(self) -> None:
+        """複数URLを個別に伏せ、非認証URLのパス・クエリ・fragmentを保持すること"""
 
-        for prefix in ('https://', '//', 'HTTP://'):
-            with self.subTest(prefix=prefix):
-                credential_url = f'{prefix}user:password@example.com/press/index.html'
+        safe_url = 'https://example.com/path=//tag@item?email=a@b.test#tag@item'
+        reason = (
+            'failed https://first:secret tail@first.test '
+            'and //second:secret\ttail@second.test/path; '
+            f'reference={safe_url}'
+        )
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            cli._print_runtime_error(safe_url, RuntimeError(reason))
+
+        message = stderr.getvalue()
+        self.assertNotIn('secret', message)
+        self.assertIn('https://[redacted]@first.test and ', message)
+        self.assertIn('//[redacted]@second.test/path;', message)
+        self.assertEqual(message.count(safe_url), 2)
+
+    def test_print_runtime_error_keeps_at_in_url_query_and_fragment(self) -> None:
+        """パスがない非認証URLのクエリとfragmentの@を伏字にしないこと"""
+
+        for url in (
+            'https://example.com?email=a@b.test',
+            '//example.com#tag@item',
+            'https://example.com?value=//tag@item',
+            '//example.com#value=//tag@item',
+        ):
+            with self.subTest(url=url):
                 stderr = io.StringIO()
 
                 with redirect_stderr(stderr):
-                    cli._print_progress(
-                        True,
-                        f'fetching index: {credential_url}\ninjected=true\x1b[31m',
-                    )
+                    cli._print_runtime_error(url, RuntimeError(f'failed {url}'))
 
-                self.assertEqual(len(stderr.getvalue().splitlines()), 1)
-                self.assertNotIn('user:password', stderr.getvalue())
-                self.assertNotIn('\x1b', stderr.getvalue())
-                self.assertIn(
-                    (
-                        'fetching index: '
-                        f'{prefix}[redacted]@example.com/press/index.html '
-                        r'injected=true\x1b[31m'
-                    ),
-                    stderr.getvalue(),
-                )
+                self.assertEqual(stderr.getvalue().count(url), 2)
+                self.assertNotIn('[redacted]', stderr.getvalue())
+
+    def test_print_progress_sanitizes_message(self) -> None:
+        """空白を含むURL認証情報と制御文字を進捗のstderrへ出さないこと"""
+
+        for prefix in ('https://', '//', 'HTTP://'):
+            for password in ('password', 'password tail', 'password\tcredential-tail'):
+                with self.subTest(prefix=prefix, password=password):
+                    credential_url = f'{prefix}user:{password}@example.com/press/index.html'
+                    stderr = io.StringIO()
+
+                    with redirect_stderr(stderr):
+                        cli._print_progress(
+                            True,
+                            f'fetching index: {credential_url}\ninjected=true\x1b[31m',
+                        )
+
+                    self.assertEqual(len(stderr.getvalue().splitlines()), 1)
+                    self.assertNotIn('user:', stderr.getvalue())
+                    self.assertNotIn('password', stderr.getvalue())
+                    self.assertNotIn('credential-tail', stderr.getvalue())
+                    self.assertNotIn('\x1b', stderr.getvalue())
+                    self.assertIn(
+                        (
+                            'fetching index: '
+                            f'{prefix}[redacted]@example.com/press/index.html '
+                            r'injected=true\x1b[31m'
+                        ),
+                        stderr.getvalue(),
+                    )
 
     def test_main_does_not_create_output_file_on_fetch_error(self) -> None:
         """HTML取得失敗時にJSONスナップショットを作成しないこと"""

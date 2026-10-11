@@ -588,7 +588,16 @@ class CrawlStateTest(unittest.TestCase):
         """URLの認証部分全体を伏せ、失敗理由を1行でmanifestへ記録すること"""
 
         for prefix in ('https://', '//', 'HTTP://'):
-            for password in ('secret', 'secret@credential-tail'):
+            for password in (
+                'secret',
+                'secret@credential-tail',
+                'secret tail',
+                'secret\ttail',
+                'secret\ntail',
+                'secret\r\ntail',
+                'secret\x1btail',
+                'secret@credential-tail tail',
+            ):
                 with self.subTest(prefix=prefix, password=password):
                     def failing_fetcher(_url: str) -> str:
                         """認証情報付きURLを含む取得例外を再現"""

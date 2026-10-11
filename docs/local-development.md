@@ -1744,6 +1744,9 @@ DBへのcommit後に結果JSONの出力だけが失敗した場合は rollback �
 stderr の `reason` には `validation=non_ascii_character` などの固定理由コードと、報道発表では `title` / `href`、月別リンクでは `archive_month` / `href` を含めます。
 認証情報を含む絶対URLと、`//`で始まるスキーム相対URLは、認証部分を `[redacted]` に置き換えます。
 パスワードに `@` が含まれる場合も認証部分全体を伏せます。
+空白・TAB・改行・端末制御文字を含む認証部分も、拒否したURLの診断へ残しません。
+伏字ではURL候補のauthorityをパス・クエリ・fragment・次のURLから区切り、認証区切りの最後の `@` までを置き換えます。
+パス内の `//` を別のスキーム相対URLと誤認せず、パス・クエリ・fragmentの `@` をそのURLの認証情報として扱いません。
 scraperの解析例外、CLIのエラー・進捗、巡回manifestの失敗理由は共通の伏字処理を使用し、API側の取得・保存CLIにも同じ伏字方針を適用します。
 
 主なURL検証理由は次のとおりです。
