@@ -942,11 +942,13 @@ def _one_line_tail(value: str) -> str:
 def _normalize_diagnostic(value: str) -> str:
     """診断値を伏字・表示可能な1行へ変換
 
+    絶対URL・スキーム相対URLの認証部分全体を伏せる。
+
     Args:
         value: stderrへ埋め込む文字列
 
     Returns:
-        URL認証情報と制御文字を除いた1行文字列
+        URL認証情報を伏せ、端末制御文字を表示可能な表記へ変換した1行文字列
     """
 
     redacted_value = CREDENTIALS_IN_URL_RE.sub(

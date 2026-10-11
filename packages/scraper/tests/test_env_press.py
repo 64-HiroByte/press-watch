@@ -495,6 +495,8 @@ class EnvPressParserTest(unittest.TestCase):
                 self.assertNotIn('user:password', message)
 
     def test_press_release_url_error_redacts_credentials(self) -> None:
+        """絶対・スキーム相対の発表URLを拒否し、例外の認証部分全体を伏せること"""
+
         for prefix in ('https://', '//', 'HTTP://'):
             for password in ('secret', 'secret@credential-tail'):
                 with self.subTest(prefix=prefix, password=password):
@@ -662,6 +664,8 @@ class EnvPressParserTest(unittest.TestCase):
                 self.assertNotIn('user:password', message)
 
     def test_archive_month_url_error_redacts_credentials(self) -> None:
+        """絶対・スキーム相対の月別URLを拒否し、例外の認証部分全体を伏せること"""
+
         for prefix in ('https://', '//', 'HTTP://'):
             for password in ('secret', 'secret@credential-tail'):
                 with self.subTest(prefix=prefix, password=password):

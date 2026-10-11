@@ -518,13 +518,14 @@ def _print_runtime_error(target: str, exc: Exception) -> None:
 
 
 def _one_line(value: str) -> str:
-    """CLIエラーへ埋め込む文字列を1行へ正規化
+    """CLIの診断値を伏字・表示可能な1行・文字数制限付きで整形
 
     Args:
-        value: エラーへ埋め込む文字列
+        value: エラーや進捗へ埋め込む文字列
 
     Returns:
-        連続空白を1つにまとめた1行文字列
+        URL認証情報を伏せ、制御文字を表示可能な表記へ変換し、
+        最大文字数へ切り詰めた1行文字列
     """
 
     redacted_value = redact_url_credentials(value)

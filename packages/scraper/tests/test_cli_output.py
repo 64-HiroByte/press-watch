@@ -238,7 +238,7 @@ class ScraperOutputCliTest(unittest.TestCase):
         )
 
     def test_print_runtime_error_redacts_url_credentials(self) -> None:
-        """エラー対象と理由に含まれるURL認証情報を伏せること"""
+        """絶対・スキーム相対URLの認証部分全体をエラー対象と理由から伏せること"""
 
         for prefix in ('https://', '//', 'HTTP://'):
             for password in ('password', 'password@credential-tail'):
@@ -278,7 +278,7 @@ class ScraperOutputCliTest(unittest.TestCase):
         self.assertIn(r'\x1b[0m', stderr.getvalue())
 
     def test_print_progress_sanitizes_message(self) -> None:
-        """verbose進捗の認証情報と制御文字をstderrへ出さないこと"""
+        """絶対・スキーム相対URLの認証情報と制御文字を進捗のstderrへ出さないこと"""
 
         for prefix in ('https://', '//', 'HTTP://'):
             with self.subTest(prefix=prefix):

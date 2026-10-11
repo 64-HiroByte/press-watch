@@ -585,12 +585,14 @@ class CrawlStateTest(unittest.TestCase):
         fetcher.assert_not_called()
 
     def test_failure_reason_is_redacted_and_written_on_one_line(self) -> None:
-        """失敗理由からURL認証情報と改行を除いてmanifestへ記録すること"""
+        """URLの認証部分全体を伏せ、失敗理由を1行でmanifestへ記録すること"""
 
         for prefix in ('https://', '//', 'HTTP://'):
             for password in ('secret', 'secret@credential-tail'):
                 with self.subTest(prefix=prefix, password=password):
                     def failing_fetcher(_url: str) -> str:
+                        """認証情報付きURLを含む取得例外を再現"""
+
                         raise RuntimeError(
                             f'failed {prefix}user:{password}@example.com/path\nnext line'
                         )

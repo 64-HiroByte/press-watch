@@ -179,7 +179,7 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         )
 
     def test_main_redacts_url_credentials_from_runtime_error(self) -> None:
-        """エラー対象と理由に含まれるURL認証情報を伏せること"""
+        """絶対・スキーム相対URLの認証部分全体をエラー対象と理由から伏せること"""
 
         for prefix in ("https://", "//", "HTTP://"):
             for password in ("password", "password@credential-tail"):

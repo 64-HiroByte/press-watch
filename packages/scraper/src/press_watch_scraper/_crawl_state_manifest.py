@@ -449,7 +449,7 @@ def validated_url(url: str) -> str:
 def failure_reason(exc: Exception) -> str:
     """例外理由をmanifestへ保存できる診断文字列へ変換
 
-    URL内の認証情報を伏字にし、連続空白をまとめて一行化したうえで
+    絶対URL・スキーム相対URLの認証部分全体を伏字にし、連続空白をまとめて一行化したうえで
     最大文字数へ切り詰める。
 
     Args:

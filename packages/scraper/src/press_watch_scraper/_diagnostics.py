@@ -10,6 +10,8 @@ _CREDENTIALS_IN_URL_RE = re.compile(r'(?i)((?:https?:)?//)[^/\s]+@')
 def redact_url_credentials(value: str) -> str:
     """診断文字列内の絶対URL・スキーム相対URLの認証部分を伏字へ置換
 
+    認証部分に@が含まれる場合も、その全体を置換する。
+
     Args:
         value: エラー理由や進捗として表示・保存する文字列
 
