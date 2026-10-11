@@ -20,20 +20,20 @@ _VALIDATION_DIAGNOSTIC_PATTERN = (
 _DIAGNOSTIC_FIELD_RE = re.compile(
     rf'(?:page_url|title|href)={_QUOTED_VALUE_PATTERN}', re.IGNORECASE
 )
-# URL候補の開始と後続URLの境界で、同じ区切り文字を使う。
+# URL候補の開始と後続URLの境界で、同じ開始条件を使う。
 _RELATIVE_URL_START_DELIMITERS = r"""'"=:(\[{"""
-# 空白後の別の値（href=や引用符・括弧付きも含む）から始まる//をパスへ取り込まない。
-# reprでエスケープされた引用符も値の境界として扱う。
-# 空白列の先頭だけで判定し、長い空白を文字ごとに再走査しない。
+_RELATIVE_URL_START_PATTERN = rf'(?<![^\s{_RELATIVE_URL_START_DELIMITERS}])//'
+# 項目名の書式を限定せず、空白後の値から始まるURLを先行URLのパスへ取り込まない。
+# 空白とURLの各部分の区切りを越えず、開始条件を満たす//までを調べる。
+# 空白列の先頭だけで調べ、長い空白や複数の単語を繰り返し走査しない。
 _RELATIVE_URL_BOUNDARY_PATTERN = (
-    r"""(?<!\s)\s+(?:[^\s/?#='"]+\s*=\s*)?"""
-    rf'(?:\\*[{_RELATIVE_URL_START_DELIMITERS}])*//'
+    rf'(?<!\s)\s+[^\s/?#]*{_RELATIVE_URL_START_PATTERN}'
 )
 # authorityは空白でも打ち切らず、パス・クエリ・fragment・次のURLで区切る。
 # スキーム相対URLは値の先頭か区切りに続くものだけとし、パス中の//と区別する。
 # パス以降は引用符でも打ち切らず保持し、その中の//を認証部分として読み直さない。
 _URL_AUTHORITY_RE = re.compile(
-    rf'(https?://|(?<![^\s{_RELATIVE_URL_START_DELIMITERS}])//)'
+    rf'(https?://|{_RELATIVE_URL_START_PATTERN})'
     rf'((?:(?!https?://|{_VALIDATION_DIAGNOSTIC_PATTERN}'
     rf'|{_RELATIVE_URL_BOUNDARY_PATTERN})[^/?#])*)'
     r'((?:(?<!\s)/|[?#])(?:(?!https?://)\S)*|)',
@@ -51,7 +51,7 @@ def redact_url_credentials(value: str) -> str:
     空白・制御文字・@を含む拒否対象の認証部分も、最後の@まで置換する。
     パス・クエリ・fragment内の@と、別のURL候補は認証部分へ含めない。
     URL拒否診断は引用付きの値ごとに処理し、取得元とタイトルなどを分離する。
-    項目名・引用符・括弧を挟んだスキーム相対URLも分離し、パス以降は保持する。
+    =や:を使う項目名・引用符・括弧を挟んだスキーム相対URLも分離し、パス以降は保持する。
 
     Args:
         value: エラー理由や進捗として表示・保存する文字列
