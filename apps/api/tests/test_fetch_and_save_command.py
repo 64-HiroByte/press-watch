@@ -181,31 +181,40 @@ class FetchAndSaveCommandTest(unittest.TestCase):
     def test_main_redacts_url_credentials_from_runtime_error(self) -> None:
         """エラー対象と理由に含まれるURL認証情報を伏せること"""
 
-        credential_url = (
-            "https://user:password@example.com/press/index.html"
-        )
-        stderr = io.StringIO()
+        for prefix in ("https://", "//", "HTTP://"):
+            for password in ("password", "password@credential-tail"):
+                with self.subTest(prefix=prefix, password=password):
+                    credential_url = (
+                        f"{prefix}user:{password}@example.com/press/index.html"
+                    )
+                    stderr = io.StringIO()
+                    stdout = io.StringIO()
+                    session_factory = Mock()
 
-        exit_code = main(
-            ["--url", credential_url],
-            session_factory=Mock(),
-            collect_releases=Mock(
-                side_effect=RuntimeError(
-                    f"invalid source URL: {credential_url}"
-                )
-            ),
-            stdout=io.StringIO(),
-            stderr=stderr,
-        )
+                    exit_code = main(
+                        ["--url", credential_url],
+                        session_factory=session_factory,
+                        collect_releases=Mock(
+                            side_effect=RuntimeError(
+                                f"invalid source URL: {credential_url}"
+                            )
+                        ),
+                        stdout=stdout,
+                        stderr=stderr,
+                    )
 
-        self.assertEqual(exit_code, 1)
-        self.assertNotIn("user:password", stderr.getvalue())
-        self.assertEqual(
-            stderr.getvalue().count(
-                "https://[redacted]@example.com"
-            ),
-            2,
-        )
+                    self.assertEqual(exit_code, 1)
+                    self.assertEqual(stdout.getvalue(), "")
+                    session_factory.assert_not_called()
+                    self.assertNotIn("user:", stderr.getvalue())
+                    self.assertNotIn("password", stderr.getvalue())
+                    self.assertNotIn("credential-tail", stderr.getvalue())
+                    self.assertEqual(
+                        stderr.getvalue().count(
+                            f"{prefix}[redacted]@example.com"
+                        ),
+                        2,
+                    )
 
     def test_main_escapes_terminal_control_characters(self) -> None:
         """エラー対象と理由の端末制御文字を無害な表記へ変換すること"""

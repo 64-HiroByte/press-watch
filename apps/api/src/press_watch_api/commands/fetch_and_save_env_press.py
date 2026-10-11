@@ -35,7 +35,7 @@ DATABASE_CONFIGURATION_FAILED_REASON = (
     "database configuration could not be loaded"
 )
 DATABASE_OPERATION_FAILED_REASON = "database operation failed"
-CREDENTIALS_IN_URL_RE = re.compile(r"(?i)(https?://)[^/@\s]+@")
+CREDENTIALS_IN_URL_RE = re.compile(r"(?i)((?:https?:)?//)[^/\s]+@")
 MAX_DIAGNOSTIC_VALUE_LENGTH = 1000
 PROCESS_TERMINATE_TIMEOUT_SECONDS = 5.0
 SCRAPER_STDERR_TAIL_LINES = 50

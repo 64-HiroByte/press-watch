@@ -5,10 +5,10 @@ from dataclasses import asdict
 import json
 import os
 from pathlib import Path
-import re
 import sys
 from time import monotonic, sleep
 
+from ._diagnostics import redact_url_credentials
 from .crawl_state import CrawlState, cleanup_crawl_state
 from .env_press import (
     CHARSET,
@@ -27,7 +27,6 @@ from .env_press import (
 
 JSON_OUTPUT_ENCODING = 'utf-8'
 OUTPUT_PARENT_NOT_FOUND_REASON = 'output parent directory does not exist'
-CREDENTIALS_IN_URL_RE = re.compile(r'(?i)(https?://)[^/@\s]+@')
 MAX_DIAGNOSTIC_VALUE_LENGTH = 1000
 
 
@@ -528,10 +527,7 @@ def _one_line(value: str) -> str:
         連続空白を1つにまとめた1行文字列
     """
 
-    redacted_value = CREDENTIALS_IN_URL_RE.sub(
-        r'\1[redacted]@',
-        value,
-    )
+    redacted_value = redact_url_credentials(value)
     one_line_value = ' '.join(redacted_value.split())
     one_line_value = ''.join(
         character if character.isprintable() else repr(character)[1:-1]

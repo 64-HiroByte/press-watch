@@ -18,6 +18,8 @@ from urllib.request import (
 from bs4 import BeautifulSoup
 from bs4.element import AttributeValueList, Tag
 
+from ._diagnostics import redact_url_credentials
+
 
 BASE_URL = 'https://www.env.go.jp'
 PRESS_INDEX_URL = f'{BASE_URL}/press/index.html'
@@ -37,9 +39,6 @@ HTTP_URL_SCHEMES = frozenset({'http', 'https'})
 UNSAFE_ASCII_URL_CHARACTERS = frozenset('<>"\\^`{|}')
 UNSAFE_REDIRECT_REASON = 'redirect target rejected'
 INVALID_PERCENT_ESCAPE_RE = re.compile(r'%(?![0-9A-Fa-f]{2})')
-CREDENTIALS_IN_URL_RE = re.compile(
-    r'(?i)(https?://)[^/@\s]+@'
-)
 MAX_DIAGNOSTIC_VALUE_LENGTH = 200
 
 CLASS_ARCHIVE_MONTH_LINK = 'c-table-month__col__link'
@@ -924,10 +923,7 @@ def _diagnostic_value(value: str) -> str:
         認証情報を伏せて1行へ正規化した文字列
     """
 
-    redacted_value = CREDENTIALS_IN_URL_RE.sub(
-        r'\1[redacted]@',
-        value,
-    )
+    redacted_value = redact_url_credentials(value)
     one_line_value = ' '.join(redacted_value.split())
     rendered_value = repr(one_line_value)
     if len(rendered_value) > MAX_DIAGNOSTIC_VALUE_LENGTH:

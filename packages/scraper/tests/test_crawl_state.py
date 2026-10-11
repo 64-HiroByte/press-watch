@@ -587,27 +587,32 @@ class CrawlStateTest(unittest.TestCase):
     def test_failure_reason_is_redacted_and_written_on_one_line(self) -> None:
         """失敗理由からURL認証情報と改行を除いてmanifestへ記録すること"""
 
-        def failing_fetcher(_url: str) -> str:
-            raise RuntimeError(
-                'failed https://user:secret@example.com/path\nnext line'
-            )
+        for prefix in ('https://', '//', 'HTTP://'):
+            for password in ('secret', 'secret@credential-tail'):
+                with self.subTest(prefix=prefix, password=password):
+                    def failing_fetcher(_url: str) -> str:
+                        raise RuntimeError(
+                            f'failed {prefix}user:{password}@example.com/path\nnext line'
+                        )
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir) / 'state'
-            state = _create_state(root)
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        root = Path(temp_dir) / 'state'
+                        state = _create_state(root)
 
-            with self.assertRaises(RuntimeError):
-                state.load_or_fetch(INDEX_URL, failing_fetcher)
+                        with self.assertRaises(RuntimeError):
+                            state.load_or_fetch(INDEX_URL, failing_fetcher)
 
-            manifest = json.loads(
-                (root / 'manifest.json').read_text(encoding='utf-8')
-            )
-            failure = manifest['pages'][0]['failure']
+                        manifest = json.loads(
+                            (root / 'manifest.json').read_text(encoding='utf-8')
+                        )
+                        failure = manifest['pages'][0]['failure']
 
-        self.assertEqual(failure['exception'], 'RuntimeError')
-        self.assertNotIn('secret', failure['reason'])
-        self.assertNotIn('\n', failure['reason'])
-        self.assertIn('https://[redacted]@example.com/path', failure['reason'])
+                    self.assertEqual(failure['exception'], 'RuntimeError')
+                    self.assertNotIn('user:', failure['reason'])
+                    self.assertNotIn('secret', failure['reason'])
+                    self.assertNotIn('credential-tail', failure['reason'])
+                    self.assertNotIn('\n', failure['reason'])
+                    self.assertIn(f'{prefix}[redacted]@example.com/path', failure['reason'])
 
     def test_resume_rejects_invalid_manifest_schema_values(self) -> None:
         """version、列挙値、必須型が不正なmanifestを拒否すること"""

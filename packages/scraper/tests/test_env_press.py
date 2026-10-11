@@ -494,6 +494,23 @@ class EnvPressParserTest(unittest.TestCase):
                 self.assertIn('href=', message)
                 self.assertNotIn('user:password', message)
 
+    def test_press_release_url_error_redacts_credentials(self) -> None:
+        for prefix in ('https://', '//', 'HTTP://'):
+            for password in ('secret', 'secret@credential-tail'):
+                with self.subTest(prefix=prefix, password=password):
+                    href = f'{prefix}review-user:{password}@www.env.go.jp/press/1'
+                    with self.assertRaises(InvalidPressReleaseUrlError) as raised:
+                        parse_press_releases(
+                            _press_release_block('2026年05月01日発表', href)
+                        )
+
+                    message = str(raised.exception)
+                    self.assertIn('validation=credentials_not_allowed', message)
+                    self.assertIn(f'{prefix}[redacted]@www.env.go.jp/press/1', message)
+                    self.assertNotIn('review-user', message)
+                    self.assertNotIn('secret', message)
+                    self.assertNotIn('credential-tail', message)
+
     def test_parse_press_releases_stops_instead_of_returning_partial_data(
         self,
     ) -> None:
@@ -643,6 +660,23 @@ class EnvPressParserTest(unittest.TestCase):
                 self.assertIn('archive_month=2026-05', message)
                 self.assertIn('href=', message)
                 self.assertNotIn('user:password', message)
+
+    def test_archive_month_url_error_redacts_credentials(self) -> None:
+        for prefix in ('https://', '//', 'HTTP://'):
+            for password in ('secret', 'secret@credential-tail'):
+                with self.subTest(prefix=prefix, password=password):
+                    href = f'{prefix}review-user:{password}@www.env.go.jp/press/202605.html'
+                    with self.assertRaises(InvalidArchiveMonthUrlError) as raised:
+                        parse_archive_month_links(_archive_month_link('2026年5月', href))
+
+                    message = str(raised.exception)
+                    self.assertIn('validation=credentials_not_allowed', message)
+                    self.assertIn(
+                        f'{prefix}[redacted]@www.env.go.jp/press/202605.html', message
+                    )
+                    self.assertNotIn('review-user', message)
+                    self.assertNotIn('secret', message)
+                    self.assertNotIn('credential-tail', message)
 
     # 不完全なHTMLや想定外の表記はスキップする。
     def test_parse_press_releases_skips_invalid_date(self) -> None:

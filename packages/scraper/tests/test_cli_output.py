@@ -240,22 +240,25 @@ class ScraperOutputCliTest(unittest.TestCase):
     def test_print_runtime_error_redacts_url_credentials(self) -> None:
         """エラー対象と理由に含まれるURL認証情報を伏せること"""
 
-        credential_url = (
-            'https://user:password@example.com/press/index.html'
-        )
-        stderr = io.StringIO()
+        for prefix in ('https://', '//', 'HTTP://'):
+            for password in ('password', 'password@credential-tail'):
+                with self.subTest(prefix=prefix, password=password):
+                    credential_url = f'{prefix}user:{password}@example.com/press/index.html'
+                    stderr = io.StringIO()
 
-        with redirect_stderr(stderr):
-            cli._print_runtime_error(
-                credential_url,
-                RuntimeError(f'invalid URL: {credential_url}'),
-            )
+                    with redirect_stderr(stderr):
+                        cli._print_runtime_error(
+                            credential_url,
+                            RuntimeError(f'invalid URL: {credential_url}'),
+                        )
 
-        self.assertNotIn('user:password', stderr.getvalue())
-        self.assertEqual(
-            stderr.getvalue().count('https://[redacted]@example.com'),
-            2,
-        )
+                    self.assertNotIn('user:', stderr.getvalue())
+                    self.assertNotIn('password', stderr.getvalue())
+                    self.assertNotIn('credential-tail', stderr.getvalue())
+                    self.assertEqual(
+                        stderr.getvalue().count(f'{prefix}[redacted]@example.com'),
+                        2,
+                    )
 
     def test_print_runtime_error_escapes_terminal_control_characters(
         self,
@@ -277,28 +280,28 @@ class ScraperOutputCliTest(unittest.TestCase):
     def test_print_progress_sanitizes_message(self) -> None:
         """verbose進捗の認証情報と制御文字をstderrへ出さないこと"""
 
-        credential_url = (
-            'https://user:password@example.com/press/index.html'
-        )
-        stderr = io.StringIO()
+        for prefix in ('https://', '//', 'HTTP://'):
+            with self.subTest(prefix=prefix):
+                credential_url = f'{prefix}user:password@example.com/press/index.html'
+                stderr = io.StringIO()
 
-        with redirect_stderr(stderr):
-            cli._print_progress(
-                True,
-                f'fetching index: {credential_url}\ninjected=true\x1b[31m',
-            )
+                with redirect_stderr(stderr):
+                    cli._print_progress(
+                        True,
+                        f'fetching index: {credential_url}\ninjected=true\x1b[31m',
+                    )
 
-        self.assertEqual(len(stderr.getvalue().splitlines()), 1)
-        self.assertNotIn('user:password', stderr.getvalue())
-        self.assertNotIn('\x1b', stderr.getvalue())
-        self.assertIn(
-            (
-                'fetching index: '
-                'https://[redacted]@example.com/press/index.html '
-                r'injected=true\x1b[31m'
-            ),
-            stderr.getvalue(),
-        )
+                self.assertEqual(len(stderr.getvalue().splitlines()), 1)
+                self.assertNotIn('user:password', stderr.getvalue())
+                self.assertNotIn('\x1b', stderr.getvalue())
+                self.assertIn(
+                    (
+                        'fetching index: '
+                        f'{prefix}[redacted]@example.com/press/index.html '
+                        r'injected=true\x1b[31m'
+                    ),
+                    stderr.getvalue(),
+                )
 
     def test_main_does_not_create_output_file_on_fetch_error(self) -> None:
         """HTML取得失敗時にJSONスナップショットを作成しないこと"""
