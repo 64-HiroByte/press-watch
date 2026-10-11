@@ -88,35 +88,40 @@ class FetchAndSaveScraperTest(unittest.TestCase):
     def test_main_redacts_multiple_urls_in_actual_scraper_diagnostic(self) -> None:
         """実scraper子プロセスの複数URLを伏せ、拒否理由を保持し保存を開始しないこと"""
 
-        title = "url='https://safe.test' href='//review-user:review-secret@host/path'"
-        html = f"""
-        <details class="p-press-release-list__block">
-          <span class="p-press-release-list__heading">2026年05月01日発表</span>
-          <a href="/press/invalid path" class="c-news-link__link">{escape(title)}</a>
-        </details>
-        """
-        session_factory = Mock()
-        stdout, stderr = io.StringIO(), io.StringIO()
-        with tempfile.TemporaryDirectory() as temp_dir:
-            html_path = Path(temp_dir) / "invalid-release-url.html"
-            html_path.write_text(html, encoding="utf-8")
-            exit_code = main(
-                ["--from-file", str(html_path)],
-                session_factory=session_factory,
-                stdout=stdout,
-                stderr=stderr,
-            )
+        for title in (
+            "url='https://safe.test' href='//review-user:review-secret@host/path'",
+            "https://safe.test (//review-user:review-secret@host/path)",
+            "https://safe.test [//review-user:review-secret@host/path]",
+            "https://safe.test {//review-user:review-secret@host/path}",
+        ):
+            with self.subTest(title=title), tempfile.TemporaryDirectory() as temp_dir:
+                html = f"""
+                <details class="p-press-release-list__block">
+                  <span class="p-press-release-list__heading">2026年05月01日発表</span>
+                  <a href="/press/invalid path" class="c-news-link__link">{escape(title)}</a>
+                </details>
+                """
+                session_factory = Mock()
+                stdout, stderr = io.StringIO(), io.StringIO()
+                html_path = Path(temp_dir) / "invalid-release-url.html"
+                html_path.write_text(html, encoding="utf-8")
+                exit_code = main(
+                    ["--from-file", str(html_path)],
+                    session_factory=session_factory,
+                    stdout=stdout,
+                    stderr=stderr,
+                )
 
-        self.assertEqual(exit_code, 1)
-        self.assertEqual(stdout.getvalue(), "")
-        session_factory.assert_not_called()
-        self.assertNotIn("review-user", stderr.getvalue())
-        self.assertNotIn("review-secret", stderr.getvalue())
-        self.assertIn("https://safe.test", stderr.getvalue())
-        self.assertIn("//[redacted]@host/path", stderr.getvalue())
-        self.assertIn("validation=unsafe_character", stderr.getvalue())
-        self.assertIn("title=", stderr.getvalue())
-        self.assertIn("href='/press/invalid path'", stderr.getvalue())
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(stdout.getvalue(), "")
+                session_factory.assert_not_called()
+                self.assertNotIn("review-user", stderr.getvalue())
+                self.assertNotIn("review-secret", stderr.getvalue())
+                self.assertIn("https://safe.test", stderr.getvalue())
+                self.assertIn("//[redacted]@host/path", stderr.getvalue())
+                self.assertIn("validation=unsafe_character", stderr.getvalue())
+                self.assertIn("title=", stderr.getvalue())
+                self.assertIn("href='/press/invalid path'", stderr.getvalue())
 
     def test_parse_scraper_snapshot_restores_releases(self) -> None:
         """scraperのJSONから日付・カテゴリを含む取得結果を復元すること"""

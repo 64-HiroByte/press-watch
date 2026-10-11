@@ -635,7 +635,7 @@ class CrawlStateTest(unittest.TestCase):
                     self.assertIn(f'{prefix}[redacted]@example.com/path', failure['reason'])
 
     def test_failure_reason_keeps_url_boundaries_in_manifest(self) -> None:
-        """複数URLの認証部分を伏せ、通常URLの引用符以降をmanifestへ保持すること"""
+        """複数URLの認証部分を伏せ、通常URLの引用符や括弧をmanifestへ保持すること"""
 
         cases = (
             (
@@ -647,11 +647,21 @@ class CrawlStateTest(unittest.TestCase):
                 'https://safe.test href=//[redacted]@host/path',
             ),
             *(
+                (
+                    f'https://safe.test {opening}//review-user:review-secret@host/path{closing}',
+                    f'https://safe.test {opening}//[redacted]@host/path{closing}',
+                )
+                for opening, closing in (('(', ')'), ('[', ']'), ('{', '}'), (':', ''))
+            ),
+            *(
                 (url, url)
                 for url in (
                     "https://example.com/press/a'//tag@item",
                     "https://example.com?ref=a'//tag@item",
                     "https://example.com#a'//tag@item",
+                    'https://example.com/press/(//tag@item)',
+                    'https://example.com?ref=(//tag@item)',
+                    'https://example.com#(//tag@item)',
                 )
             ),
         )

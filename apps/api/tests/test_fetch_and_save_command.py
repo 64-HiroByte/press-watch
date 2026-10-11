@@ -255,12 +255,17 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         self.assertEqual(stderr.getvalue().count(safe_url), 2)
 
     def test_main_redacts_relative_url_after_root_url(self) -> None:
-        """パスなしURLに続く別項目の認証部分を伏せ、Sessionを作らないこと"""
+        """パスなしURLに続く別項目・括弧内の認証部分を伏せ、Sessionを作らないこと"""
 
         for reason in (
             "url='https://safe.test' href='//review-user:review-secret@host/path'",
             "https://safe.test href=//review-user:review-secret@host/path",
             "https://safe.test links[0]=//review-user:review-secret@host/path",
+            "https://safe.test (//review-user:review-secret@host/path)",
+            "https://safe.test [//review-user:review-secret@host/path]",
+            "https://safe.test {//review-user:review-secret@host/path}",
+            "https://safe.test ://review-user:review-secret@host/path",
+            "https://safe.test links[0]=[('//review-user:review-secret@host/path')]",
         ):
             with self.subTest(reason=reason):
                 session_factory = Mock()
@@ -282,12 +287,15 @@ class FetchAndSaveCommandTest(unittest.TestCase):
                 self.assertIn("//[redacted]@host/path", stderr.getvalue())
 
     def test_main_keeps_quotes_in_noncredential_url_suffixes(self) -> None:
-        """非認証URLのパス・クエリ・fragment内の引用符以降を診断へ保持すること"""
+        """非認証URLのパス・クエリ・fragment内の引用符や括弧を診断へ保持すること"""
 
         for url in (
             "https://example.com/press/a'//tag@item",
             "https://example.com?ref=a'//tag@item",
             "https://example.com#a'//tag@item",
+            "https://example.com/press/(//tag@item)",
+            "https://example.com?ref=(//tag@item)",
+            "https://example.com#(//tag@item)",
         ):
             with self.subTest(url=url):
                 session_factory = Mock()
