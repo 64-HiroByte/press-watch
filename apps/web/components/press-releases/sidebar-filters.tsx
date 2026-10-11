@@ -245,7 +245,14 @@ export function SidebarFilters({
             lastFilterFocus.current = event.target;
           }}
           onBlurCapture={(event) => {
-            if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget))
+            // PCのパネルはdisplay: contentsなので、離れた入力自体の表示状態を確認する。
+            // 余白クリックでは参照を消し、幅変更で入力が隠れた場合の復元は残す。
+            if (
+              (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) ||
+              (!event.relatedTarget &&
+                event.target instanceof HTMLElement &&
+                event.target.getClientRects().length > 0)
+            )
               lastFilterFocus.current = null;
           }}
         >
