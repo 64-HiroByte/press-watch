@@ -2020,6 +2020,9 @@ limit 10;
 ## Docker Compose で全体を起動する
 
 Web、API、DB をまとめて起動します。
+ComposeのWebには、サーバー専用の `PRESSWATCH_API_BASE_URL=http://api:8000` を渡します。
+`api` はCompose内のサービス名で、WebコンテナからAPIへ接続するために使用します。
+ホストでWebを単体起動する場合は、このサービス名ではなく、利用するAPIのアドレスを起動時に設定します。
 
 ```bash
 make compose-up-build
