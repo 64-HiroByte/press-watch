@@ -600,7 +600,16 @@ class CrawlStateTest(unittest.TestCase):
             ):
                 with self.subTest(prefix=prefix, password=password):
                     def failing_fetcher(_url: str) -> str:
-                        """認証情報付きURLを含む取得例外を再現"""
+                        """認証情報付きURLを含む取得例外を再現
+
+                        HTMLを返さず、必ず取得失敗の例外を送出する。
+
+                        Args:
+                            _url: 取得対象URL（この例外再現では使用しない）
+
+                        Raises:
+                            RuntimeError: 認証情報付きURLと改行を含む取得失敗
+                        """
 
                         raise RuntimeError(
                             f'failed {prefix}user:{password}@example.com/path\nnext line'

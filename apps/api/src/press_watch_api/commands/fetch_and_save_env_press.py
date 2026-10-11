@@ -960,7 +960,14 @@ def _normalize_diagnostic(value: str) -> str:
     """
 
     def redact_authority(match: re.Match[str]) -> str:
-        """URL候補のauthorityに認証区切りがあれば認証部分全体を伏字へ置換"""
+        """URL候補のauthorityに認証区切りがあれば認証部分全体を伏字へ置換
+
+        Args:
+            match: URLの接頭辞・認証情報を含みうる接続先部分・パス以降を保持したマッチ結果
+
+        Returns:
+            認証部分だけを伏せたURL候補、認証区切りがない場合は元のURL候補
+        """
 
         _, separator, host = match.group(2).rpartition("@")
         if not separator:
