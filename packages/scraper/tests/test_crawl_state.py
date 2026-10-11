@@ -661,6 +661,18 @@ class CrawlStateTest(unittest.TestCase):
                 'https://safe.test 参照:(//review-user:review-secret@host/path)',
                 'https://safe.test 参照:(//[redacted]@host/path)',
             ),
+            (
+                '{"url":"https://safe.test","href":"//review-user:review-secret@host/path"}',
+                '{"url":"https://safe.test","href":"//[redacted]@host/path"}',
+            ),
+            (
+                "['https://safe.test','//review-user:review-secret@host/path']",
+                "['https://safe.test','//[redacted]@host/path']",
+            ),
+            (
+                '{"https://safe.test":"//review-user:review-secret@host/path"}',
+                '{"https://safe.test":"//[redacted]@host/path"}',
+            ),
             *(
                 (url, url)
                 for url in (

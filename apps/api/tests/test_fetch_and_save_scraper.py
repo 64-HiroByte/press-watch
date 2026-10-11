@@ -95,6 +95,9 @@ class FetchAndSaveScraperTest(unittest.TestCase):
             "https://safe.test {//review-user:review-secret@host/path}",
             "https://safe.test href:'//review-user:review-secret@host/path'",
             "https://safe.test 参照:(//review-user:review-secret@host/path)",
+            '{"url":"https://safe.test","href":"//review-user:review-secret@host/path"}',
+            "['https://safe.test','//review-user:review-secret@host/path']",
+            '{"https://safe.test":"//review-user:review-secret@host/path"}',
         ):
             with self.subTest(title=title), tempfile.TemporaryDirectory() as temp_dir:
                 html = f"""

@@ -255,7 +255,7 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         self.assertEqual(stderr.getvalue().count(safe_url), 2)
 
     def test_main_redacts_relative_url_after_root_url(self) -> None:
-        """パスなしURLに続く別項目・括弧内の認証部分を伏せ、Sessionを作らないこと"""
+        """別項目・括弧・JSON・配列の後続URLを伏せ、Sessionを作らないこと"""
 
         for reason in (
             "url='https://safe.test' href='//review-user:review-secret@host/path'",
@@ -270,6 +270,11 @@ class FetchAndSaveCommandTest(unittest.TestCase):
             "https://safe.test 参照:(//review-user:review-secret@host/path)",
             'https://safe.test {"href":"//review-user:review-secret@host/path"}',
             'https://safe.test links[0]:="//review-user:review-secret@host/path"',
+            '{"url":"https://safe.test","href":"//review-user:review-secret@host/path"}',
+            "['https://safe.test','//review-user:review-secret@host/path']",
+            '{"url":"https://safe.test/press/item","nested":{"href":"//review-user:review-secret@host/path"}}',
+            '["https://safe.test?ref=item",["//review-user:review-secret@host/path"]]',
+            '{"https://safe.test":"//review-user:review-secret@host/path"}',
         ):
             with self.subTest(reason=reason):
                 session_factory = Mock()
@@ -303,6 +308,9 @@ class FetchAndSaveCommandTest(unittest.TestCase):
             "https://example.com/press/href:'//tag@item",
             'https://example.com?ref={"href":"//tag@item"}',
             "https://example.com#参照:(//tag@item)",
+            "https://example.com/press/a','//tag@item",
+            'https://example.com?ref="value","href":"//tag@item"',
+            "https://example.com#value','//tag@item",
         ):
             with self.subTest(url=url):
                 session_factory = Mock()

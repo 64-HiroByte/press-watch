@@ -286,6 +286,11 @@ class ScraperOutputCliTest(unittest.TestCase):
             'https://safe.test 参照:(//review-user:review-secret@host/path)',
             'https://safe.test {"href":"//review-user:review-secret@host/path"}',
             'https://safe.test links[0]:="//review-user:review-secret@host/path"',
+            '{"url":"https://safe.test","href":"//review-user:review-secret@host/path"}',
+            "['https://safe.test','//review-user:review-secret@host/path']",
+            '{"url":"https://safe.test/press/item","nested":{"href":"//review-user:review-secret@host/path"}}',
+            '["https://safe.test?ref=item",["//review-user:review-secret@host/path"]]',
+            '{"https://safe.test":"//review-user:review-secret@host/path"}',
         ):
             with self.subTest(title=title), patch.object(
                 cli,
@@ -394,6 +399,9 @@ class ScraperOutputCliTest(unittest.TestCase):
             "https://example.com/press/href:'//tag@item",
             'https://example.com?ref={"href":"//tag@item"}',
             'https://example.com#参照:(//tag@item)',
+            'https://example.com/press/a\',\'//tag@item',
+            'https://example.com?ref="value","href":"//tag@item"',
+            'https://example.com#value\',\'//tag@item',
         ):
             with self.subTest(url=url):
                 stderr = io.StringIO()
