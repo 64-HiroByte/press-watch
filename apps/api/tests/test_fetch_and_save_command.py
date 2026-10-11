@@ -254,6 +254,57 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         self.assertIn("//[redacted]@second.test/path;", stderr.getvalue())
         self.assertEqual(stderr.getvalue().count(safe_url), 2)
 
+    def test_main_redacts_relative_url_after_root_url(self) -> None:
+        """パスなしURLに続く別項目の認証部分を伏せ、Sessionを作らないこと"""
+
+        for reason in (
+            "url='https://safe.test' href='//review-user:review-secret@host/path'",
+            "https://safe.test href=//review-user:review-secret@host/path",
+            "https://safe.test links[0]=//review-user:review-secret@host/path",
+        ):
+            with self.subTest(reason=reason):
+                session_factory = Mock()
+                stdout, stderr = io.StringIO(), io.StringIO()
+                exit_code = main(
+                    ["--url", INDEX_URL],
+                    session_factory=session_factory,
+                    collect_releases=Mock(side_effect=RuntimeError(reason)),
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(stdout.getvalue(), "")
+                session_factory.assert_not_called()
+                self.assertNotIn("review-user", stderr.getvalue())
+                self.assertNotIn("review-secret", stderr.getvalue())
+                self.assertIn("https://safe.test", stderr.getvalue())
+                self.assertIn("//[redacted]@host/path", stderr.getvalue())
+
+    def test_main_keeps_quotes_in_noncredential_url_suffixes(self) -> None:
+        """非認証URLのパス・クエリ・fragment内の引用符以降を診断へ保持すること"""
+
+        for url in (
+            "https://example.com/press/a'//tag@item",
+            "https://example.com?ref=a'//tag@item",
+            "https://example.com#a'//tag@item",
+        ):
+            with self.subTest(url=url):
+                session_factory = Mock()
+                stderr = io.StringIO()
+                exit_code = main(
+                    ["--url", url],
+                    session_factory=session_factory,
+                    collect_releases=Mock(side_effect=RuntimeError(f"failed {url}")),
+                    stdout=io.StringIO(),
+                    stderr=stderr,
+                )
+
+                self.assertEqual(exit_code, 1)
+                session_factory.assert_not_called()
+                self.assertEqual(stderr.getvalue().count(url), 2)
+                self.assertNotIn("[redacted]", stderr.getvalue())
+
     def test_main_keeps_quoted_diagnostic_fields_after_root_url(self) -> None:
         """取得元と@を含むタイトルを失敗診断へ保持しSessionを作らないこと"""
 

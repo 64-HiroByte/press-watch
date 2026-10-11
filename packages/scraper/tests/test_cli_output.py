@@ -269,6 +269,33 @@ class ScraperOutputCliTest(unittest.TestCase):
                 self.assertNotIn('password', stderr)
                 self.assertNotIn('credential-tail', stderr)
 
+    def test_main_redacts_credentials_in_title_with_multiple_urls(self) -> None:
+        """タイトル内の複数URLを個別に伏せ、URL拒否の診断項目を保持すること"""
+
+        for title in (
+            "url='https://safe.test' href='//review-user:review-secret@host/path'",
+            'https://safe.test href=//review-user:review-secret@host/path',
+            'url=\'https://safe.test\' href="//review-user:review-secret@host/path"',
+            'https://safe.test リンク=//review-user:review-secret@host/path',
+        ):
+            with self.subTest(title=title), patch.object(
+                cli,
+                FETCH_PRESS_PAGE_HTML_ATTR,
+                return_value=_archive_page_html(escape(title), '/press/invalid path'),
+            ):
+                exit_code, stdout, stderr = _run_cli_raw(*_url_args())
+
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(stdout, '')
+                self.assertNotIn('review-user', stderr)
+                self.assertNotIn('review-secret', stderr)
+                self.assertIn('https://safe.test', stderr)
+                self.assertIn('//[redacted]@host/path', stderr)
+                self.assertIn('validation=unsafe_character', stderr)
+                self.assertIn(f'page_url={EXAMPLE_INDEX_URL!r}', stderr)
+                self.assertIn('title=', stderr)
+                self.assertIn("href='/press/invalid path'", stderr)
+
     def test_print_runtime_error_redacts_url_credentials(self) -> None:
         """絶対・スキーム相対URLの認証部分全体をエラー対象と理由から伏せること"""
 
@@ -349,6 +376,9 @@ class ScraperOutputCliTest(unittest.TestCase):
             '//example.com#tag@item',
             'https://example.com?value=//tag@item',
             '//example.com#value=//tag@item',
+            "https://example.com/press/a'//tag@item",
+            "https://example.com?ref=a'//tag@item",
+            "https://example.com#a'//tag@item",
         ):
             with self.subTest(url=url):
                 stderr = io.StringIO()

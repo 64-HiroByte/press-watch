@@ -634,6 +634,41 @@ class CrawlStateTest(unittest.TestCase):
                     self.assertNotIn('\n', failure['reason'])
                     self.assertIn(f'{prefix}[redacted]@example.com/path', failure['reason'])
 
+    def test_failure_reason_keeps_url_boundaries_in_manifest(self) -> None:
+        """複数URLの認証部分を伏せ、通常URLの引用符以降をmanifestへ保持すること"""
+
+        cases = (
+            (
+                "url='https://safe.test' href='//review-user:review-secret@host/path'",
+                "url='https://safe.test' href='//[redacted]@host/path'",
+            ),
+            (
+                'https://safe.test href=//review-user:review-secret@host/path',
+                'https://safe.test href=//[redacted]@host/path',
+            ),
+            *(
+                (url, url)
+                for url in (
+                    "https://example.com/press/a'//tag@item",
+                    "https://example.com?ref=a'//tag@item",
+                    "https://example.com#a'//tag@item",
+                )
+            ),
+        )
+        for reason, expected in cases:
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir) / 'state'
+                state = _create_state(root)
+                state.load_or_fetch(INDEX_URL, Mock(return_value=INDEX_HTML))
+                state.mark_parsing(INDEX_URL)
+                state.mark_parse_failed(INDEX_URL, RuntimeError(reason))
+                manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+
+                failure = manifest['pages'][0]['failure']
+                self.assertEqual(failure['exception'], 'RuntimeError')
+                self.assertEqual(failure['reason'], expected)
+                self.assertNotIn('review-secret', failure['reason'])
+
     def test_resume_rejects_invalid_manifest_schema_values(self) -> None:
         """version、列挙値、必須型が不正なmanifestを拒否すること"""
 
