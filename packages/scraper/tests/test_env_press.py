@@ -9,7 +9,12 @@ from press_watch_scraper.env_press import (
     parse_press_releases,
 )
 
-from scraper_test_constants import DIAGNOSTIC_USERNAME, ENV_HOST, MAY_ARCHIVE_PATH
+from scraper_test_constants import (
+    DIAGNOSTIC_URL_PREFIX_CASES,
+    DIAGNOSTIC_USERNAME,
+    ENV_HOST,
+    MAY_ARCHIVE_PATH,
+)
 
 
 EXPECTED_PRESS_URL = 'https://www.env.go.jp/press/press_00001.html'
@@ -497,9 +502,9 @@ class EnvPressParserTest(unittest.TestCase):
                 self.assertNotIn('user:password', message)
 
     def test_press_release_url_error_redacts_credentials(self) -> None:
-        """絶対・スキーム相対の発表URLを拒否し、例外の認証部分全体を伏せること"""
+        """接頭辞や認証部分に制御文字がある発表URLも拒否し、認証情報を伏せること"""
 
-        for prefix in ('https://', '//', 'HTTP://'):
+        for prefix, expected_prefix in DIAGNOSTIC_URL_PREFIX_CASES:
             for password in (
                 'secret',
                 'secret@credential-tail',
@@ -520,11 +525,11 @@ class EnvPressParserTest(unittest.TestCase):
                     message = str(raised.exception)
                     reason = (
                         'unsafe_character'
-                        if any(c.isspace() or ord(c) < 0x20 for c in password)
+                        if any(c.isspace() or ord(c) < 0x20 for c in prefix + password)
                         else 'credentials_not_allowed'
                     )
                     self.assertIn(f'validation={reason}', message)
-                    self.assertIn(f'{prefix}[redacted]@{ENV_HOST}/press/1', message)
+                    self.assertIn(f'{expected_prefix}[redacted]@{ENV_HOST}/press/1', message)
                     self.assertNotIn(DIAGNOSTIC_USERNAME, message)
                     self.assertNotIn('secret', message)
                     self.assertNotIn('credential-tail', message)
@@ -680,9 +685,9 @@ class EnvPressParserTest(unittest.TestCase):
                 self.assertNotIn('user:password', message)
 
     def test_archive_month_url_error_redacts_credentials(self) -> None:
-        """絶対・スキーム相対の月別URLを拒否し、例外の認証部分全体を伏せること"""
+        """接頭辞や認証部分に制御文字がある月別URLも拒否し、認証情報を伏せること"""
 
-        for prefix in ('https://', '//', 'HTTP://'):
+        for prefix, expected_prefix in DIAGNOSTIC_URL_PREFIX_CASES:
             for password in (
                 'secret',
                 'secret@credential-tail',
@@ -704,12 +709,12 @@ class EnvPressParserTest(unittest.TestCase):
                     message = str(raised.exception)
                     reason = (
                         'unsafe_character'
-                        if any(c.isspace() or ord(c) < 0x20 for c in password)
+                        if any(c.isspace() or ord(c) < 0x20 for c in prefix + password)
                         else 'credentials_not_allowed'
                     )
                     self.assertIn(f'validation={reason}', message)
                     self.assertIn(
-                        f'{prefix}[redacted]@{ENV_HOST}{MAY_ARCHIVE_PATH}', message
+                        f'{expected_prefix}[redacted]@{ENV_HOST}{MAY_ARCHIVE_PATH}', message
                     )
                     self.assertNotIn(DIAGNOSTIC_USERNAME, message)
                     self.assertNotIn('secret', message)

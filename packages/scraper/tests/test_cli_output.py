@@ -39,6 +39,7 @@ from scraper_test_constants import (
     DIAGNOSTIC_REDACTED_URL,
     DIAGNOSTIC_SAFE_URL,
     DIAGNOSTIC_USERNAME,
+    DIAGNOSTIC_URL_PREFIX_CASES,
     ENV_ORIGIN_URL,
     EXAMPLE_BASE_URL,
 )
@@ -248,6 +249,53 @@ class ScraperOutputCliTest(unittest.TestCase):
             stderr.getvalue(),
         )
 
+    def test_main_redacts_split_url_prefix_in_rejected_release(self) -> None:
+        """分断された発表URLを拒否し、認証情報を伏せてタイトルと診断項目を保持すること"""
+
+        title = 'review@example.org の調査'
+        for prefix, expected_prefix in DIAGNOSTIC_URL_PREFIX_CASES:
+            if prefix == expected_prefix:
+                continue
+            href = prefix + DIAGNOSTIC_CREDENTIAL_URL.removeprefix('//')
+            expected_href = expected_prefix + DIAGNOSTIC_REDACTED_URL.removeprefix('//')
+            with self.subTest(prefix=prefix), patch.object(
+                cli,
+                FETCH_PRESS_PAGE_HTML_ATTR,
+                return_value=_archive_page_html(title, escape(href, quote=True)),
+            ):
+                exit_code, stdout, stderr = _run_cli_raw(*_url_args(ENV_ORIGIN_URL))
+
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(stdout, '')
+                self.assertEqual(len(stderr.splitlines()), 1)
+                self.assertIn('validation=unsafe_character', stderr)
+                self.assertIn(f'page_url={ENV_ORIGIN_URL!r}', stderr)
+                self.assertIn(f'title={title!r}', stderr)
+                self.assertIn(f'href={expected_href!r}', stderr)
+                self.assertNotIn(DIAGNOSTIC_USERNAME, stderr)
+                self.assertNotIn(DIAGNOSTIC_PASSWORD, stderr)
+
+    def test_print_runtime_error_keeps_split_prefix_and_separate_urls(self) -> None:
+        """認証なしの分断URLと、改行で分かれた正常URLを診断へ保持すること"""
+
+        for prefix, expected_prefix in DIAGNOSTIC_URL_PREFIX_CASES:
+            with self.subTest(prefix=prefix):
+                safe_url = f'{prefix}host/path=//tag@item?email=a@b.test#tag@item'
+                expected_safe_url = f'{expected_prefix}host/path=//tag@item?email=a@b.test#tag@item'
+                credential_url = prefix + DIAGNOSTIC_CREDENTIAL_URL.removeprefix('//')
+                expected_url = expected_prefix + DIAGNOSTIC_REDACTED_URL.removeprefix('//')
+                reason = f'{DIAGNOSTIC_SAFE_URL}\n{credential_url}'
+                stderr = io.StringIO()
+                with redirect_stderr(stderr):
+                    cli._print_runtime_error(safe_url, RuntimeError(reason))
+
+                message = stderr.getvalue()
+                self.assertIn(f'target={expected_safe_url} ', message)
+                self.assertIn(f'reason={DIAGNOSTIC_SAFE_URL} {expected_url}', message)
+                self.assertEqual(message.count('[redacted]'), 1)
+                self.assertNotIn(DIAGNOSTIC_USERNAME, message)
+                self.assertNotIn(DIAGNOSTIC_PASSWORD, message)
+
     def test_main_keeps_quoted_diagnostic_fields_after_root_url(self) -> None:
         """パスなし取得元と@を含むタイトルをURL拒否時の診断へ保持すること"""
 
@@ -339,9 +387,9 @@ class ScraperOutputCliTest(unittest.TestCase):
                 self.assertIn("href='/press/invalid path'", stderr)
 
     def test_print_runtime_error_redacts_url_credentials(self) -> None:
-        """絶対・スキーム相対URLの認証部分全体をエラー対象と理由から伏せること"""
+        """制御文字で分断された接頭辞も認識し、エラー対象と理由の認証情報を伏せること"""
 
-        for prefix in ('https://', '//', 'HTTP://'):
+        for prefix, expected_prefix in DIAGNOSTIC_URL_PREFIX_CASES:
             for password in (
                 'password',
                 'password@credential-tail',
@@ -368,7 +416,7 @@ class ScraperOutputCliTest(unittest.TestCase):
                     self.assertNotIn('password', stderr.getvalue())
                     self.assertNotIn('credential-tail', stderr.getvalue())
                     self.assertEqual(
-                        stderr.getvalue().count(f'{prefix}[redacted]@example.com'),
+                        stderr.getvalue().count(f'{expected_prefix}[redacted]@example.com'),
                         2,
                     )
 
@@ -468,9 +516,9 @@ class ScraperOutputCliTest(unittest.TestCase):
                 self.assertNotIn('[redacted]', stderr.getvalue())
 
     def test_print_progress_sanitizes_message(self) -> None:
-        """空白を含むURL認証情報と制御文字を進捗のstderrへ出さないこと"""
+        """接頭辞の制御文字も認識して秘密を伏せ、端末制御文字を進捗へ直接出さないこと"""
 
-        for prefix in ('https://', '//', 'HTTP://'):
+        for prefix, expected_prefix in DIAGNOSTIC_URL_PREFIX_CASES:
             for password in ('password', 'password tail', 'password\tcredential-tail'):
                 with self.subTest(prefix=prefix, password=password):
                     credential_url = f'{prefix}user:{password}@example.com/press/index.html'
@@ -490,7 +538,7 @@ class ScraperOutputCliTest(unittest.TestCase):
                     self.assertIn(
                         (
                             'fetching index: '
-                            f'{prefix}[redacted]@example.com/press/index.html '
+                            f'{expected_prefix}[redacted]@example.com/press/index.html '
                             r'injected=true\x1b[31m'
                         ),
                         stderr.getvalue(),

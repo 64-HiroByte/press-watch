@@ -20,6 +20,7 @@ from scraper_test_constants import (
     DIAGNOSTIC_PASSWORD,
     DIAGNOSTIC_REDACTED_URL,
     DIAGNOSTIC_SAFE_URL,
+    DIAGNOSTIC_URL_PREFIX_CASES,
     EXAMPLE_BASE_URL,
     EXAMPLE_INDEX_URL as INDEX_URL,
     EXAMPLE_MAY_ARCHIVE_URL as ARCHIVE_URL,
@@ -593,9 +594,9 @@ class CrawlStateTest(unittest.TestCase):
         fetcher.assert_not_called()
 
     def test_failure_reason_is_redacted_and_written_on_one_line(self) -> None:
-        """URLの認証部分全体を伏せ、失敗理由を1行でmanifestへ記録すること"""
+        """接頭辞の制御文字も認識して認証情報を伏せ、失敗理由を1行で記録すること"""
 
-        for prefix in ('https://', '//', 'HTTP://'):
+        for prefix, expected_prefix in DIAGNOSTIC_URL_PREFIX_CASES:
             for password in (
                 'secret',
                 'secret@credential-tail',
@@ -640,7 +641,7 @@ class CrawlStateTest(unittest.TestCase):
                     self.assertNotIn('secret', failure['reason'])
                     self.assertNotIn('credential-tail', failure['reason'])
                     self.assertNotIn('\n', failure['reason'])
-                    self.assertIn(f'{prefix}[redacted]@example.com/path', failure['reason'])
+                    self.assertIn(f'{expected_prefix}[redacted]@example.com/path', failure['reason'])
 
     def test_failure_reason_keeps_url_boundaries_in_manifest(self) -> None:
         """複数URLの認証部分を伏せ、引用付き構造と通常URLの表記をmanifestへ保持すること"""

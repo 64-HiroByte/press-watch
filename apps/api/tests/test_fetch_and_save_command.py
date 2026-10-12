@@ -23,6 +23,7 @@ from api_test_constants import (
     DIAGNOSTIC_REDACTED_URL,
     DIAGNOSTIC_SAFE_URL,
     DIAGNOSTIC_USERNAME,
+    DIAGNOSTIC_URL_PREFIX_CASES,
     ENV_ORIGIN_URL,
     EXAMPLE_BASE_URL,
     ENV_PRESS_INDEX_URL as INDEX_URL,
@@ -187,9 +188,9 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         )
 
     def test_main_redacts_url_credentials_from_runtime_error(self) -> None:
-        """絶対・スキーム相対URLの認証部分全体をエラー対象と理由から伏せること"""
+        """制御文字で分断された接頭辞も認識し、エラー対象と理由の認証情報を伏せること"""
 
-        for prefix in ("https://", "//", "HTTP://"):
+        for prefix, expected_prefix in DIAGNOSTIC_URL_PREFIX_CASES:
             for password in (
                 "password",
                 "password@credential-tail",
@@ -230,7 +231,7 @@ class FetchAndSaveCommandTest(unittest.TestCase):
                     self.assertNotIn("credential-tail", stderr.getvalue())
                     self.assertEqual(
                         stderr.getvalue().count(
-                            f"{prefix}[redacted]@example.com"
+                            f"{expected_prefix}[redacted]@example.com"
                         ),
                         2,
                     )

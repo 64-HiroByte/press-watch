@@ -18,6 +18,19 @@ DIAGNOSTIC_CREDENTIAL_URL = (
 )
 DIAGNOSTIC_REDACTED_URL = "//[redacted]@host/path"
 
+# 入力の制御文字と、診断の一行化後に保持する接頭辞を独立した期待値で示す。
+DIAGNOSTIC_URL_PREFIX_CASES = (
+    ("https://", "https://"),
+    ("//", "//"),
+    ("HTTP://", "HTTP://"),
+    ("https:/\n/", "https:/ /"),
+    ("https:/\r/", "https:/ /"),
+    ("https:/\t/", "https:/ /"),
+    ("http:\t//", "http: //"),
+    ("/\r\n/", "/ /"),
+    ("h\tt\nt\rps:\r/\t/", "h t t ps: / /"),
+)
+
 # 製品側の定数変更による契約違反を検出するため、独立した期待値を保持する。
 EXPECTED_MAX_FIXED_CATEGORY_COUNT = 20
 EXPECTED_MAX_FIXED_CATEGORY_LENGTH = 100

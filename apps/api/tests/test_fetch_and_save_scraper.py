@@ -28,6 +28,7 @@ from api_test_constants import (
     DIAGNOSTIC_REDACTED_URL,
     DIAGNOSTIC_SAFE_URL,
     DIAGNOSTIC_USERNAME,
+    DIAGNOSTIC_URL_PREFIX_CASES,
     ENV_ORIGIN_URL,
     ENV_PRESS_INDEX_URL as INDEX_URL,
     ENV_PRESS_RELEASE_URL_1 as SOURCE_URL_1,
@@ -140,6 +141,43 @@ class FetchAndSaveScraperTest(unittest.TestCase):
                 self.assertIn("validation=unsafe_character", stderr.getvalue())
                 self.assertIn("title=", stderr.getvalue())
                 self.assertIn("href='/press/invalid path'", stderr.getvalue())
+
+    def test_main_redacts_split_url_prefix_rejected_by_actual_scraper(self) -> None:
+        """分断URLを実scraperで拒否し、秘密を伏せて診断を保持しSessionを作らないこと"""
+
+        title = "review@example.org の調査"
+        for prefix, expected_prefix in DIAGNOSTIC_URL_PREFIX_CASES:
+            if prefix == expected_prefix:
+                continue
+            href = prefix + DIAGNOSTIC_CREDENTIAL_URL.removeprefix("//")
+            expected_href = expected_prefix + DIAGNOSTIC_REDACTED_URL.removeprefix("//")
+            with self.subTest(prefix=prefix), tempfile.TemporaryDirectory() as temp_dir:
+                html = f"""
+                <details class="p-press-release-list__block">
+                  <span class="p-press-release-list__heading">2026年05月01日発表</span>
+                  <a href="{escape(href, quote=True)}" class="c-news-link__link">{title}</a>
+                </details>
+                """
+                html_path = Path(temp_dir) / "split-url-prefix.html"
+                html_path.write_text(html, encoding="utf-8")
+                session_factory = Mock()
+                stdout, stderr = io.StringIO(), io.StringIO()
+                exit_code = main(
+                    ["--from-file", str(html_path)],
+                    session_factory=session_factory,
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(stdout.getvalue(), "")
+                session_factory.assert_not_called()
+                self.assertIn("validation=unsafe_character", stderr.getvalue())
+                self.assertIn(f"page_url={INDEX_URL!r}", stderr.getvalue())
+                self.assertIn(f"title={title!r}", stderr.getvalue())
+                self.assertIn(f"href={expected_href!r}", stderr.getvalue())
+                self.assertNotIn(DIAGNOSTIC_USERNAME, stderr.getvalue())
+                self.assertNotIn(DIAGNOSTIC_PASSWORD, stderr.getvalue())
 
     def test_parse_scraper_snapshot_restores_releases(self) -> None:
         """scraperのJSONから日付・カテゴリを含む取得結果を復元すること"""

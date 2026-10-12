@@ -35,11 +35,22 @@ DATABASE_CONFIGURATION_FAILED_REASON = (
     "database configuration could not be loaded"
 )
 DATABASE_OPERATION_FAILED_REASON = "database operation failed"
+# URL解析で無視されるTAB・CR・LFを、診断の接頭辞判定でも許容する。
+# 文字列全体から除くと別URLの改行境界を失うため、元の表記で判定する。
+URL_PREFIX_CONTROLS_PATTERN = r"[\t\r\n]*"
+HTTP_URL_START_PATTERN = (
+    URL_PREFIX_CONTROLS_PATTERN.join("http")
+    + rf"(?:{URL_PREFIX_CONTROLS_PATTERN}s)?"
+    + URL_PREFIX_CONTROLS_PATTERN
+    + URL_PREFIX_CONTROLS_PATTERN.join("://")
+)
+URL_SLASH_PAIR_PATTERN = rf"/{URL_PREFIX_CONTROLS_PATTERN}/"
+URL_START_PATTERN = rf"(?:{HTTP_URL_START_PATTERN}|{URL_SLASH_PAIR_PATTERN})"
 # URL拒否診断の引用付き項目を分離し、タイトルの@を認証情報へ巻き込まない。
 # 任意の引用符では区切らず、引用符を含む不正な認証部分も保護する。
 QUOTED_VALUE_PATTERN = r'''(?:'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")'''
 QUOTED_URL_PATTERN = (
-    r'''(?:'(?:https?://|//)(?:\\.|[^'\\])*'|"(?:https?://|//)(?:\\.|[^"\\])*")'''
+    rf'''(?:'{URL_START_PATTERN}(?:\\.|[^'\\])*'|"{URL_START_PATTERN}(?:\\.|[^"\\])*")'''
 )
 VALIDATION_PREFIX_PATTERN = (
     r"invalid (?:press release|archive month) URL: validation=[a-z_]+ "
@@ -54,7 +65,9 @@ DIAGNOSTIC_FIELD_RE = re.compile(
 )
 # URL候補の開始と後続URLの境界で、同じ開始条件を使う。
 RELATIVE_URL_START_DELIMITERS = r"""'"=:(\[{"""
-RELATIVE_URL_START_PATTERN = rf"(?<![^\s{RELATIVE_URL_START_DELIMITERS}])//"
+RELATIVE_URL_START_PATTERN = (
+    rf"(?<![^\s{RELATIVE_URL_START_DELIMITERS}]){URL_SLASH_PAIR_PATTERN}"
+)
 # 項目名の書式を限定せず、空白後の値から始まるURLを先行URLのパスへ取り込まない。
 # 空白とURLの各部分の区切りを越えず、開始条件を満たす//までを調べる。
 # 空白列の先頭だけで調べ、長い空白や複数の単語を繰り返し走査しない。
@@ -65,10 +78,10 @@ RELATIVE_URL_BOUNDARY_PATTERN = (
 # スキーム相対URLは値の先頭か区切りに続くものだけとし、パス中の//と区別する。
 # パス以降は引用符でも打ち切らず保持し、その中の//を認証部分として読み直さない。
 URL_AUTHORITY_RE = re.compile(
-    rf"(https?://|{RELATIVE_URL_START_PATTERN})"
-    rf"((?:(?!https?://|{VALIDATION_DIAGNOSTIC_PATTERN}"
+    rf"({HTTP_URL_START_PATTERN}|{RELATIVE_URL_START_PATTERN})"
+    rf"((?:(?!{HTTP_URL_START_PATTERN}|{VALIDATION_DIAGNOSTIC_PATTERN}"
     rf"|{RELATIVE_URL_BOUNDARY_PATTERN})[^/?#])*)"
-    r"((?:(?<!\s)/|[?#])(?:(?!https?://)\S)*|)",
+    rf"((?:(?<!\s)/|[?#])(?:(?!{HTTP_URL_START_PATTERN})\S)*|)",
     re.IGNORECASE,
 )
 # JSON・配列・タプルの引用付き値を、説明文の有無によらず先に分離する。
@@ -1021,6 +1034,7 @@ def _redact_url_credentials(value: str) -> str:
     """診断文字列内の絶対URL・スキーム相対URLの認証部分を伏字へ置換
 
     空白・制御文字・@を含む拒否対象の認証部分も、最後の@まで置換する。
+    接頭辞内のTAB・CR・LFはURL候補の判定で考慮し、元の表記を保持する。
     パス・クエリ・fragment内の@と、別のURL候補は認証部分へ含めない。
     URL拒否診断は引用付きの値ごとに処理し、取得元とタイトルなどを分離する。
     JSON・配列・タプルの引用付き値は、説明文付きの値や内側の構造も順に処理する。
