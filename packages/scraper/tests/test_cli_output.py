@@ -305,6 +305,11 @@ class ScraperOutputCliTest(unittest.TestCase):
             f'["{DIAGNOSTIC_SAFE_URL}?ref=item",["{DIAGNOSTIC_CREDENTIAL_URL}"]]',
             f'{{"{DIAGNOSTIC_SAFE_URL}":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
             f'{{"msg":"failed {DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f'''['{{"url":"{DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}']''',
+            f'''['{{"msg":"failed {DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}']''',
+            fr'{{"payload":"{{\"url\":\"{DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"}}',
+            fr'["{{\"msg\":\"failed {DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"]',
+            fr'"{{\"msg\":\"failed {DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"',
             f'["failed {DIAGNOSTIC_SAFE_URL}","{DIAGNOSTIC_CREDENTIAL_URL}"]',
             f"('failed {DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}')",
             f"('{DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}')",
@@ -433,6 +438,33 @@ class ScraperOutputCliTest(unittest.TestCase):
                     cli._print_runtime_error(url, RuntimeError(f'failed {url}'))
 
                 self.assertEqual(stderr.getvalue().count(url), 2)
+                self.assertNotIn('[redacted]', stderr.getvalue())
+
+    def test_print_runtime_error_keeps_noncredential_urls_in_quoted_structures(
+        self,
+    ) -> None:
+        """引用付き文字列内の正常URL・メールアドレス・エスケープを診断へ保持すること"""
+
+        inner_value = json.dumps(
+            {
+                'msg': f'failed {DIAGNOSTIC_SAFE_URL}?ref={{"href":"//tag@item"}}',
+                'email': 'person@example.org',
+            },
+            separators=(',', ':'),
+        )
+        for reason in (
+            repr([inner_value]),
+            repr(inner_value),
+            json.dumps(inner_value),
+            json.dumps({'payload': inner_value}),
+            json.dumps([json.dumps({'payload': inner_value})]),
+        ):
+            with self.subTest(reason=reason):
+                stderr = io.StringIO()
+                with redirect_stderr(stderr):
+                    cli._print_runtime_error(EXAMPLE_INDEX_URL, RuntimeError(reason))
+
+                self.assertIn(reason, stderr.getvalue())
                 self.assertNotIn('[redacted]', stderr.getvalue())
 
     def test_print_progress_sanitizes_message(self) -> None:

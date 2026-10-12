@@ -643,7 +643,7 @@ class CrawlStateTest(unittest.TestCase):
                     self.assertIn(f'{prefix}[redacted]@example.com/path', failure['reason'])
 
     def test_failure_reason_keeps_url_boundaries_in_manifest(self) -> None:
-        """複数URLの認証部分を伏せ、通常URLの引用符や括弧をmanifestへ保持すること"""
+        """複数URLの認証部分を伏せ、引用付き構造と通常URLの表記をmanifestへ保持すること"""
 
         cases = (
             (
@@ -725,11 +725,43 @@ class CrawlStateTest(unittest.TestCase):
                     f'"email":"person@example.org","href":"{DIAGNOSTIC_REDACTED_URL}"}}'
                 ),
             ),
+            (
+                f'''['{{"url":"{DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}']''',
+                f'''['{{"url":"{DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_REDACTED_URL}"}}']''',
+            ),
+            (
+                f'''['{{"msg":"failed {DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}']''',
+                f'''['{{"msg":"failed {DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_REDACTED_URL}"}}']''',
+            ),
+            (
+                fr'{{"payload":"{{\"url\":\"{DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"}}',
+                fr'{{"payload":"{{\"url\":\"{DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_REDACTED_URL}\"}}"}}',
+            ),
+            (
+                fr'["{{\"msg\":\"failed {DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"]',
+                fr'["{{\"msg\":\"failed {DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_REDACTED_URL}\"}}"]',
+            ),
+            (
+                fr'"{{\"msg\":\"failed {DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"',
+                fr'"{{\"msg\":\"failed {DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_REDACTED_URL}\"}}"',
+            ),
             *(
                 (reason, reason)
                 for reason in (
                     f'''["failed {EXAMPLE_BASE_URL}/press/a'//tag@item","person@example.org"]''',
                     f'{{"msg":"failed {EXAMPLE_BASE_URL}?email=a@b.test","tag":"x@y"}}',
+                    json.dumps(
+                        {
+                            'payload': json.dumps(
+                                {
+                                    'msg': f'failed {DIAGNOSTIC_SAFE_URL}?ref={{"href":"//tag@item"}}',
+                                    'email': 'person@example.org',
+                                },
+                                separators=(',', ':'),
+                            ),
+                        },
+                        separators=(',', ':'),
+                    ),
                     f"('failed {EXAMPLE_BASE_URL}/press/(//tag@item)','person@example.org')",
                 )
             ),

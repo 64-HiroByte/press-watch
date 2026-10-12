@@ -73,13 +73,13 @@ URL_AUTHORITY_RE = re.compile(
 )
 # JSON・配列・タプルの引用付き値を、説明文の有無によらず先に分離する。
 # URL自身のパスに含まれる引用符は、先に始まるURL候補へ保持する。
+# 終端も値の境界とし、配列や項目に包まれない引用付き文字列も分離する。
 QUOTED_VALUE_TOKEN_PATTERN = (
-    rf"(?<![^\s\[\({{,:]){QUOTED_VALUE_PATTERN}(?=\s*[:,}}\]\)])"
+    rf"(?<![^\s\[\({{,:]){QUOTED_VALUE_PATTERN}(?=\s*(?:[:,}}\]\)]|$))"
 )
 URL_TOKEN_PATTERN = (
     f"{URL_AUTHORITY_RE.pattern}|(?P<quoted_value>{QUOTED_VALUE_TOKEN_PATTERN})"
 )
-URL_TOKEN_RE = re.compile(URL_TOKEN_PATTERN, re.IGNORECASE)
 DIAGNOSTIC_TOKEN_RE = re.compile(
     f"{VALIDATION_DIAGNOSTIC_PATTERN}|{URL_TOKEN_PATTERN}",
     re.IGNORECASE,
@@ -987,14 +987,98 @@ def _one_line_tail(value: str) -> str:
     return one_line_value
 
 
-def _normalize_diagnostic(value: str) -> str:
-    """診断値を伏字・表示可能な1行へ変換
+def _unquote_diagnostic_value(
+    value: str, positions: list[int]
+) -> tuple[str, list[int]]:
+    """引用付きの値を一段読み、元の文字列への対応位置を保持
 
-    絶対URL・スキーム相対URLの認証部分は、空白・制御文字・@を含む場合も伏せる。
+    引用符とバックスラッシュのエスケープだけを解釈する。
+    置換時は元の表記を使うため、認証部分以外のエスケープを変更しない。
+
+    Args:
+        value: 正規表現で切り出した、外側の引用符を含む項目値
+        positions: 各文字に対応する元の診断文字列の開始位置
+
+    Returns:
+        外側の引用符を除いた値と、読み取った各文字に対応する元の位置
+    """
+
+    characters: list[str] = []
+    decoded_positions: list[int] = []
+    index = 1
+    while index < len(value) - 1:
+        decoded_positions.append(positions[index])
+        if value[index] == "\\" and value[index + 1] in ("\\", '"', "'"):
+            characters.append(value[index + 1])
+            index += 2
+        else:
+            characters.append(value[index])
+            index += 1
+    return "".join(characters), decoded_positions
+
+
+def _redact_url_credentials(value: str) -> str:
+    """診断文字列内の絶対URL・スキーム相対URLの認証部分を伏字へ置換
+
+    空白・制御文字・@を含む拒否対象の認証部分も、最後の@まで置換する。
     パス・クエリ・fragment内の@と、別のURL候補は認証部分へ含めない。
     URL拒否診断は引用付きの値ごとに処理し、取得元とタイトルなどを分離する。
-    =や:を使う項目名・引用符・括弧を挟んだスキーム相対URLも分離し、パス以降は保持する。
-    JSON・配列・タプルの引用付き値は、説明文の有無や入れ子に関わらず個別に処理する。
+    JSON・配列・タプルの引用付き値は、説明文付きの値や内側の構造も順に処理する。
+    引用符とバックスラッシュのエスケープを読み、元の認証部分だけを置き換える。
+    再帰呼び出しは使わず、正常URL・診断項目・引用符の表記を保持する。
+
+    Args:
+        value: エラー理由や進捗として表示・保存する文字列
+
+    Returns:
+        URLの認証部分を[redacted]へ置き換えた文字列
+    """
+
+    pending = [(value, list(range(len(value))))]
+    replacements: list[tuple[int, int]] = []
+    while pending:
+        current_value, positions = pending.pop()
+        for match in DIAGNOSTIC_TOKEN_RE.finditer(current_value):
+            if match.group(1) is not None:
+                separator = match.group(2).rfind("@")
+                if separator >= 0:
+                    start = match.start(2)
+                    # 最後の@は保持し、その前の認証部分だけを元の位置で置き換える。
+                    replacements.append(
+                        (positions[start], positions[start + separator])
+                    )
+                continue
+
+            if match.group("quoted_value") is not None:
+                start, end = match.span("quoted_value")
+                pending.append(
+                    _unquote_diagnostic_value(
+                        current_value[start:end], positions[start:end]
+                    )
+                )
+                continue
+
+            for field in DIAGNOSTIC_FIELD_RE.finditer(match.group(0)):
+                start = match.start() + field.start() + field.group(0).index("=") + 1
+                end = match.start() + field.end()
+                pending.append(
+                    _unquote_diagnostic_value(
+                        current_value[start:end], positions[start:end]
+                    )
+                )
+
+    # 内側の構造を読み直しても、出力には元の文字列の認証部分以外をそのまま使う。
+    parts: list[str] = []
+    previous_end = 0
+    for start, end in sorted(replacements):
+        parts.extend((value[previous_end:start], "[redacted]"))
+        previous_end = end
+    parts.append(value[previous_end:])
+    return "".join(parts)
+
+
+def _normalize_diagnostic(value: str) -> str:
+    """診断値を伏字・表示可能な1行へ変換
 
     Args:
         value: stderrへ埋め込む文字列
@@ -1003,43 +1087,7 @@ def _normalize_diagnostic(value: str) -> str:
         URL認証情報を伏せ、端末制御文字を表示可能な表記へ変換した1行文字列
     """
 
-    def redact_authority(match: re.Match[str]) -> str:
-        """URL候補・引用付き値・URL拒否診断の認証部分を伏字へ置換
-
-        Args:
-            match: URLの各部分、引用付き値、またはURL拒否診断全体のマッチ結果
-
-        Returns:
-            項目の境界を保持して認証部分を伏せた文字列、認証区切りがなければ元の文字列
-        """
-
-        if match.group(1) is not None:
-            _, separator, host = match.group(2).rpartition("@")
-            if not separator:
-                return match.group(0)
-            return f"{match.group(1)}[redacted]@{host}{match.group(3)}"
-
-        quoted_value = match.group("quoted_value")
-        if quoted_value is not None:
-            redacted = URL_AUTHORITY_RE.sub(redact_authority, quoted_value[1:-1])
-            return f"{quoted_value[0]}{redacted}{quoted_value[-1]}"
-        return DIAGNOSTIC_FIELD_RE.sub(redact_field, match.group(0))
-
-    def redact_field(match: re.Match[str]) -> str:
-        """引用付き診断項目の値だけを伏字処理へ渡す変換
-
-        Args:
-            match: 項目名と引用符付きの値を保持したマッチ結果
-
-        Returns:
-            項目名と引用符を保持し、値内の認証部分を伏せた文字列
-        """
-
-        name, _, quoted_value = match.group(0).partition("=")
-        redacted = URL_TOKEN_RE.sub(redact_authority, quoted_value[1:-1])
-        return f"{name}={quoted_value[0]}{redacted}{quoted_value[-1]}"
-
-    redacted_value = DIAGNOSTIC_TOKEN_RE.sub(redact_authority, value)
+    redacted_value = _redact_url_credentials(value)
     one_line_value = " ".join(redacted_value.split())
     return "".join(
         character if character.isprintable() else repr(character)[1:-1]

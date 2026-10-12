@@ -2,6 +2,7 @@
 
 from contextlib import redirect_stderr
 import io
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -286,6 +287,11 @@ class FetchAndSaveCommandTest(unittest.TestCase):
             f'["{DIAGNOSTIC_SAFE_URL}?ref=item",["{DIAGNOSTIC_CREDENTIAL_URL}"]]',
             f'{{"{DIAGNOSTIC_SAFE_URL}":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
             f'{{"msg":"failed {DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f'''['{{"url":"{DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}']''',
+            f'''['{{"msg":"failed {DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}']''',
+            fr'{{"payload":"{{\"url\":\"{DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"}}',
+            fr'["{{\"msg\":\"failed {DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"]',
+            fr'"{{\"msg\":\"failed {DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"',
             f'["failed {DIAGNOSTIC_SAFE_URL}","{DIAGNOSTIC_CREDENTIAL_URL}"]',
             f"('failed {DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}')",
             f"('{DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}')",
@@ -346,6 +352,41 @@ class FetchAndSaveCommandTest(unittest.TestCase):
                 self.assertEqual(exit_code, 1)
                 session_factory.assert_not_called()
                 self.assertEqual(stderr.getvalue().count(url), 2)
+                self.assertNotIn("[redacted]", stderr.getvalue())
+
+    def test_main_keeps_noncredential_urls_in_quoted_structures(self) -> None:
+        """引用付き文字列内の正常URL・メールアドレス・エスケープを診断へ保持すること"""
+
+        inner_value = json.dumps(
+            {
+                "msg": f'failed {DIAGNOSTIC_SAFE_URL}?ref={{"href":"//tag@item"}}',
+                "email": "person@example.org",
+            },
+            separators=(",", ":"),
+        )
+        for reason in (
+            repr([inner_value]),
+            repr(inner_value),
+            json.dumps(inner_value),
+            json.dumps({"payload": inner_value}),
+            json.dumps([json.dumps({"payload": inner_value})]),
+        ):
+            with self.subTest(reason=reason):
+                session_factory = Mock()
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                exit_code = main(
+                    ["--url", INDEX_URL],
+                    session_factory=session_factory,
+                    collect_releases=Mock(side_effect=RuntimeError(reason)),
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(stdout.getvalue(), "")
+                session_factory.assert_not_called()
+                self.assertIn(reason, stderr.getvalue())
                 self.assertNotIn("[redacted]", stderr.getvalue())
 
     def test_main_keeps_quoted_diagnostic_fields_after_root_url(self) -> None:
