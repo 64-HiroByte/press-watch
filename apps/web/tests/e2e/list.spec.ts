@@ -139,6 +139,8 @@ for (const width of [1280, 390, 767, 768]) {
     await page.goto(`/?${params}`);
     const header = page.locator(".release-header-body");
     if (width >= 768) {
+      // ストリーミング中は非表示のDOMも取得できるため、表示後に高さを測る。
+      await expect(header).toBeVisible();
       await header.evaluate((element) => {
         element.scrollTop = element.scrollHeight;
       });
