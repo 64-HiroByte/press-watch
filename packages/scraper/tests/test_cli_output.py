@@ -33,6 +33,16 @@ from cli_test_support import (
     _verbose_args,
 )
 
+from scraper_test_constants import (
+    DIAGNOSTIC_CREDENTIAL_URL,
+    DIAGNOSTIC_PASSWORD,
+    DIAGNOSTIC_REDACTED_URL,
+    DIAGNOSTIC_SAFE_URL,
+    DIAGNOSTIC_USERNAME,
+    ENV_ORIGIN_URL,
+    EXAMPLE_BASE_URL,
+)
+
 
 OUTPUT_PARENT_NOT_FOUND_ERROR = 'output parent directory does not exist'
 
@@ -241,7 +251,7 @@ class ScraperOutputCliTest(unittest.TestCase):
     def test_main_keeps_quoted_diagnostic_fields_after_root_url(self) -> None:
         """パスなし取得元と@を含むタイトルをURL拒否時の診断へ保持すること"""
 
-        source_url = 'https://www.env.go.jp'
+        source_url = ENV_ORIGIN_URL
         title = "review@example.org の '調査' 結果"
         for href, expected_href in (
             ('/press/invalid path', '/press/invalid path'),
@@ -273,24 +283,27 @@ class ScraperOutputCliTest(unittest.TestCase):
         """タイトル内の複数URLを個別に伏せ、URL拒否の診断項目を保持すること"""
 
         for title in (
-            "url='https://safe.test' href='//review-user:review-secret@host/path'",
-            'https://safe.test href=//review-user:review-secret@host/path',
-            'url=\'https://safe.test\' href="//review-user:review-secret@host/path"',
-            'https://safe.test リンク=//review-user:review-secret@host/path',
-            'https://safe.test (//review-user:review-secret@host/path)',
-            'https://safe.test [//review-user:review-secret@host/path]',
-            'https://safe.test {//review-user:review-secret@host/path}',
-            'https://safe.test ://review-user:review-secret@host/path',
-            "https://safe.test links[0]=[('//review-user:review-secret@host/path')]",
-            "https://safe.test href:'//review-user:review-secret@host/path'",
-            'https://safe.test 参照:(//review-user:review-secret@host/path)',
-            'https://safe.test {"href":"//review-user:review-secret@host/path"}',
-            'https://safe.test links[0]:="//review-user:review-secret@host/path"',
-            '{"url":"https://safe.test","href":"//review-user:review-secret@host/path"}',
-            "['https://safe.test','//review-user:review-secret@host/path']",
-            '{"url":"https://safe.test/press/item","nested":{"href":"//review-user:review-secret@host/path"}}',
-            '["https://safe.test?ref=item",["//review-user:review-secret@host/path"]]',
-            '{"https://safe.test":"//review-user:review-secret@host/path"}',
+            f"url='{DIAGNOSTIC_SAFE_URL}' href='{DIAGNOSTIC_CREDENTIAL_URL}'",
+            f'{DIAGNOSTIC_SAFE_URL} href={DIAGNOSTIC_CREDENTIAL_URL}',
+            f'url=\'{DIAGNOSTIC_SAFE_URL}\' href="{DIAGNOSTIC_CREDENTIAL_URL}"',
+            f'{DIAGNOSTIC_SAFE_URL} リンク={DIAGNOSTIC_CREDENTIAL_URL}',
+            f'{DIAGNOSTIC_SAFE_URL} ({DIAGNOSTIC_CREDENTIAL_URL})',
+            f'{DIAGNOSTIC_SAFE_URL} [{DIAGNOSTIC_CREDENTIAL_URL}]',
+            f'{DIAGNOSTIC_SAFE_URL} {{{DIAGNOSTIC_CREDENTIAL_URL}}}',
+            f'{DIAGNOSTIC_SAFE_URL} :{DIAGNOSTIC_CREDENTIAL_URL}',
+            f"{DIAGNOSTIC_SAFE_URL} links[0]=[('{DIAGNOSTIC_CREDENTIAL_URL}')]",
+            f"{DIAGNOSTIC_SAFE_URL} href:'{DIAGNOSTIC_CREDENTIAL_URL}'",
+            f'{DIAGNOSTIC_SAFE_URL} 参照:({DIAGNOSTIC_CREDENTIAL_URL})',
+            f'{DIAGNOSTIC_SAFE_URL} {{"href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f'{DIAGNOSTIC_SAFE_URL} links[0]:="{DIAGNOSTIC_CREDENTIAL_URL}"',
+            f'{{"url":"{DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f"['{DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}']",
+            (
+                f'{{"url":"{DIAGNOSTIC_SAFE_URL}/press/item",'
+                f'"nested":{{"href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}}}'
+            ),
+            f'["{DIAGNOSTIC_SAFE_URL}?ref=item",["{DIAGNOSTIC_CREDENTIAL_URL}"]]',
+            f'{{"{DIAGNOSTIC_SAFE_URL}":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
         ):
             with self.subTest(title=title), patch.object(
                 cli,
@@ -301,10 +314,10 @@ class ScraperOutputCliTest(unittest.TestCase):
 
                 self.assertEqual(exit_code, 1)
                 self.assertEqual(stdout, '')
-                self.assertNotIn('review-user', stderr)
-                self.assertNotIn('review-secret', stderr)
-                self.assertIn('https://safe.test', stderr)
-                self.assertIn('//[redacted]@host/path', stderr)
+                self.assertNotIn(DIAGNOSTIC_USERNAME, stderr)
+                self.assertNotIn(DIAGNOSTIC_PASSWORD, stderr)
+                self.assertIn(DIAGNOSTIC_SAFE_URL, stderr)
+                self.assertIn(DIAGNOSTIC_REDACTED_URL, stderr)
                 self.assertIn('validation=unsafe_character', stderr)
                 self.assertIn(f'page_url={EXAMPLE_INDEX_URL!r}', stderr)
                 self.assertIn('title=', stderr)
@@ -364,7 +377,7 @@ class ScraperOutputCliTest(unittest.TestCase):
     def test_print_runtime_error_keeps_url_boundaries(self) -> None:
         """複数URLを個別に伏せ、非認証URLのパス・クエリ・fragmentを保持すること"""
 
-        safe_url = 'https://example.com/path=//tag@item?email=a@b.test#tag@item'
+        safe_url = f'{EXAMPLE_BASE_URL}/path=//tag@item?email=a@b.test#tag@item'
         reason = (
             'failed https://first:secret tail@first.test '
             'and //second:secret\ttail@second.test/path; '
@@ -385,23 +398,23 @@ class ScraperOutputCliTest(unittest.TestCase):
         """非認証URLの二重スラッシュのパス・クエリ・fragmentを保持すること"""
 
         for url in (
-            'https://example.com//value=//tag@item',
-            'https://example.com?email=a@b.test',
+            f'{EXAMPLE_BASE_URL}//value=//tag@item',
+            f'{EXAMPLE_BASE_URL}?email=a@b.test',
             '//example.com#tag@item',
-            'https://example.com?value=//tag@item',
+            f'{EXAMPLE_BASE_URL}?value=//tag@item',
             '//example.com#value=//tag@item',
-            "https://example.com/press/a'//tag@item",
-            "https://example.com?ref=a'//tag@item",
-            "https://example.com#a'//tag@item",
-            'https://example.com/press/(//tag@item)',
-            'https://example.com?ref=(//tag@item)',
-            'https://example.com#(//tag@item)',
-            "https://example.com/press/href:'//tag@item",
-            'https://example.com?ref={"href":"//tag@item"}',
-            'https://example.com#参照:(//tag@item)',
-            'https://example.com/press/a\',\'//tag@item',
-            'https://example.com?ref="value","href":"//tag@item"',
-            'https://example.com#value\',\'//tag@item',
+            f"{EXAMPLE_BASE_URL}/press/a'//tag@item",
+            f"{EXAMPLE_BASE_URL}?ref=a'//tag@item",
+            f"{EXAMPLE_BASE_URL}#a'//tag@item",
+            f'{EXAMPLE_BASE_URL}/press/(//tag@item)',
+            f'{EXAMPLE_BASE_URL}?ref=(//tag@item)',
+            f'{EXAMPLE_BASE_URL}#(//tag@item)',
+            f"{EXAMPLE_BASE_URL}/press/href:'//tag@item",
+            f'{EXAMPLE_BASE_URL}?ref={{"href":"//tag@item"}}',
+            f'{EXAMPLE_BASE_URL}#参照:(//tag@item)',
+            f"{EXAMPLE_BASE_URL}/press/a','//tag@item",
+            f'{EXAMPLE_BASE_URL}?ref="value","href":"//tag@item"',
+            f"{EXAMPLE_BASE_URL}#value','//tag@item",
         ):
             with self.subTest(url=url):
                 stderr = io.StringIO()

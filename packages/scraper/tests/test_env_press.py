@@ -9,6 +9,8 @@ from press_watch_scraper.env_press import (
     parse_press_releases,
 )
 
+from scraper_test_constants import DIAGNOSTIC_USERNAME, ENV_HOST, MAY_ARCHIVE_PATH
+
 
 EXPECTED_PRESS_URL = 'https://www.env.go.jp/press/press_00001.html'
 EXPECTED_OLD_STYLE_PRESS_URL = 'https://www.env.go.jp/press/111111_00001.html'
@@ -509,7 +511,7 @@ class EnvPressParserTest(unittest.TestCase):
                 'secret@credential-tail tail',
             ):
                 with self.subTest(prefix=prefix, password=password):
-                    href = f'{prefix}review-user:{password}@www.env.go.jp/press/1'
+                    href = f'{prefix}{DIAGNOSTIC_USERNAME}:{password}@{ENV_HOST}/press/1'
                     with self.assertRaises(InvalidPressReleaseUrlError) as raised:
                         parse_press_releases(
                             _press_release_block('2026年05月01日発表', href)
@@ -522,8 +524,8 @@ class EnvPressParserTest(unittest.TestCase):
                         else 'credentials_not_allowed'
                     )
                     self.assertIn(f'validation={reason}', message)
-                    self.assertIn(f'{prefix}[redacted]@www.env.go.jp/press/1', message)
-                    self.assertNotIn('review-user', message)
+                    self.assertIn(f'{prefix}[redacted]@{ENV_HOST}/press/1', message)
+                    self.assertNotIn(DIAGNOSTIC_USERNAME, message)
                     self.assertNotIn('secret', message)
                     self.assertNotIn('credential-tail', message)
 
@@ -692,7 +694,10 @@ class EnvPressParserTest(unittest.TestCase):
                 'secret@credential-tail tail',
             ):
                 with self.subTest(prefix=prefix, password=password):
-                    href = f'{prefix}review-user:{password}@www.env.go.jp/press/202605.html'
+                    href = (
+                        f'{prefix}{DIAGNOSTIC_USERNAME}:{password}'
+                        f'@{ENV_HOST}{MAY_ARCHIVE_PATH}'
+                    )
                     with self.assertRaises(InvalidArchiveMonthUrlError) as raised:
                         parse_archive_month_links(_archive_month_link('2026年5月', href))
 
@@ -704,9 +709,9 @@ class EnvPressParserTest(unittest.TestCase):
                     )
                     self.assertIn(f'validation={reason}', message)
                     self.assertIn(
-                        f'{prefix}[redacted]@www.env.go.jp/press/202605.html', message
+                        f'{prefix}[redacted]@{ENV_HOST}{MAY_ARCHIVE_PATH}', message
                     )
-                    self.assertNotIn('review-user', message)
+                    self.assertNotIn(DIAGNOSTIC_USERNAME, message)
                     self.assertNotIn('secret', message)
                     self.assertNotIn('credential-tail', message)
 

@@ -15,9 +15,17 @@ from press_watch_scraper.crawl_state import (
 )
 from press_watch_scraper.env_press import ArchiveMonthLink
 
+from scraper_test_constants import (
+    DIAGNOSTIC_CREDENTIAL_URL,
+    DIAGNOSTIC_PASSWORD,
+    DIAGNOSTIC_REDACTED_URL,
+    DIAGNOSTIC_SAFE_URL,
+    EXAMPLE_BASE_URL,
+    EXAMPLE_INDEX_URL as INDEX_URL,
+    EXAMPLE_MAY_ARCHIVE_URL as ARCHIVE_URL,
+)
 
-INDEX_URL = 'https://example.com/press/index.html'
-ARCHIVE_URL = 'https://example.com/press/202605.html'
+
 INDEX_HTML = '<html>index</html>'
 ARCHIVE_HTML = '<html>archive</html>'
 COMPLETED_REASON = 'archive_month_links_exhausted'
@@ -331,7 +339,7 @@ class CrawlStateTest(unittest.TestCase):
                     'all_archive_months': True,
                 },
                 {
-                    'start_url': 'https://example.com/press/other.html',
+                    'start_url': f'{EXAMPLE_BASE_URL}/press/other.html',
                     'archive_month_limit': 0,
                     'all_archive_months': True,
                 },
@@ -639,49 +647,49 @@ class CrawlStateTest(unittest.TestCase):
 
         cases = (
             (
-                "url='https://safe.test' href='//review-user:review-secret@host/path'",
-                "url='https://safe.test' href='//[redacted]@host/path'",
+                f"url='{DIAGNOSTIC_SAFE_URL}' href='{DIAGNOSTIC_CREDENTIAL_URL}'",
+                f"url='{DIAGNOSTIC_SAFE_URL}' href='{DIAGNOSTIC_REDACTED_URL}'",
             ),
             (
-                'https://safe.test href=//review-user:review-secret@host/path',
-                'https://safe.test href=//[redacted]@host/path',
+                f'{DIAGNOSTIC_SAFE_URL} href={DIAGNOSTIC_CREDENTIAL_URL}',
+                f'{DIAGNOSTIC_SAFE_URL} href={DIAGNOSTIC_REDACTED_URL}',
             ),
             *(
                 (
-                    f'https://safe.test {opening}//review-user:review-secret@host/path{closing}',
-                    f'https://safe.test {opening}//[redacted]@host/path{closing}',
+                    f'{DIAGNOSTIC_SAFE_URL} {opening}{DIAGNOSTIC_CREDENTIAL_URL}{closing}',
+                    f'{DIAGNOSTIC_SAFE_URL} {opening}{DIAGNOSTIC_REDACTED_URL}{closing}',
                 )
                 for opening, closing in (('(', ')'), ('[', ']'), ('{', '}'), (':', ''))
             ),
             (
-                "https://safe.test href:'//review-user:review-secret@host/path'",
-                "https://safe.test href:'//[redacted]@host/path'",
+                f"{DIAGNOSTIC_SAFE_URL} href:'{DIAGNOSTIC_CREDENTIAL_URL}'",
+                f"{DIAGNOSTIC_SAFE_URL} href:'{DIAGNOSTIC_REDACTED_URL}'",
             ),
             (
-                'https://safe.test 参照:(//review-user:review-secret@host/path)',
-                'https://safe.test 参照:(//[redacted]@host/path)',
+                f'{DIAGNOSTIC_SAFE_URL} 参照:({DIAGNOSTIC_CREDENTIAL_URL})',
+                f'{DIAGNOSTIC_SAFE_URL} 参照:({DIAGNOSTIC_REDACTED_URL})',
             ),
             (
-                '{"url":"https://safe.test","href":"//review-user:review-secret@host/path"}',
-                '{"url":"https://safe.test","href":"//[redacted]@host/path"}',
+                f'{{"url":"{DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+                f'{{"url":"{DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_REDACTED_URL}"}}',
             ),
             (
-                "['https://safe.test','//review-user:review-secret@host/path']",
-                "['https://safe.test','//[redacted]@host/path']",
+                f"['{DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}']",
+                f"['{DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_REDACTED_URL}']",
             ),
             (
-                '{"https://safe.test":"//review-user:review-secret@host/path"}',
-                '{"https://safe.test":"//[redacted]@host/path"}',
+                f'{{"{DIAGNOSTIC_SAFE_URL}":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+                f'{{"{DIAGNOSTIC_SAFE_URL}":"{DIAGNOSTIC_REDACTED_URL}"}}',
             ),
             *(
                 (url, url)
                 for url in (
-                    "https://example.com/press/a'//tag@item",
-                    "https://example.com?ref=a'//tag@item",
-                    "https://example.com#a'//tag@item",
-                    'https://example.com/press/(//tag@item)',
-                    'https://example.com?ref=(//tag@item)',
-                    'https://example.com#(//tag@item)',
+                    f"{EXAMPLE_BASE_URL}/press/a'//tag@item",
+                    f"{EXAMPLE_BASE_URL}?ref=a'//tag@item",
+                    f"{EXAMPLE_BASE_URL}#a'//tag@item",
+                    f'{EXAMPLE_BASE_URL}/press/(//tag@item)',
+                    f'{EXAMPLE_BASE_URL}?ref=(//tag@item)',
+                    f'{EXAMPLE_BASE_URL}#(//tag@item)',
                 )
             ),
         )
@@ -697,7 +705,7 @@ class CrawlStateTest(unittest.TestCase):
                 failure = manifest['pages'][0]['failure']
                 self.assertEqual(failure['exception'], 'RuntimeError')
                 self.assertEqual(failure['reason'], expected)
-                self.assertNotIn('review-secret', failure['reason'])
+                self.assertNotIn(DIAGNOSTIC_PASSWORD, failure['reason'])
 
     def test_resume_rejects_invalid_manifest_schema_values(self) -> None:
         """version、列挙値、必須型が不正なmanifestを拒否すること"""

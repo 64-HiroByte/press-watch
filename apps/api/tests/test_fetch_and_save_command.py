@@ -17,6 +17,13 @@ from press_watch_api.commands.fetch_and_save_env_press import (
 )
 
 from api_test_constants import (
+    DIAGNOSTIC_CREDENTIAL_URL,
+    DIAGNOSTIC_PASSWORD,
+    DIAGNOSTIC_REDACTED_URL,
+    DIAGNOSTIC_SAFE_URL,
+    DIAGNOSTIC_USERNAME,
+    ENV_ORIGIN_URL,
+    EXAMPLE_BASE_URL,
     ENV_PRESS_INDEX_URL as INDEX_URL,
 )
 
@@ -230,7 +237,7 @@ class FetchAndSaveCommandTest(unittest.TestCase):
     def test_main_keeps_diagnostic_url_boundaries(self) -> None:
         """複数URLを個別に伏せ、非認証URLのパス・クエリ・fragmentを保持すること"""
 
-        safe_url = "https://example.com//value=//tag@item?email=a@b.test#tag@item"
+        safe_url = f"{EXAMPLE_BASE_URL}//value=//tag@item?email=a@b.test#tag@item"
         stderr = io.StringIO()
         session_factory = Mock()
         exit_code = main(
@@ -258,23 +265,26 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         """別項目・括弧・JSON・配列の後続URLを伏せ、Sessionを作らないこと"""
 
         for reason in (
-            "url='https://safe.test' href='//review-user:review-secret@host/path'",
-            "https://safe.test href=//review-user:review-secret@host/path",
-            "https://safe.test links[0]=//review-user:review-secret@host/path",
-            "https://safe.test (//review-user:review-secret@host/path)",
-            "https://safe.test [//review-user:review-secret@host/path]",
-            "https://safe.test {//review-user:review-secret@host/path}",
-            "https://safe.test ://review-user:review-secret@host/path",
-            "https://safe.test links[0]=[('//review-user:review-secret@host/path')]",
-            "https://safe.test href:'//review-user:review-secret@host/path'",
-            "https://safe.test 参照:(//review-user:review-secret@host/path)",
-            'https://safe.test {"href":"//review-user:review-secret@host/path"}',
-            'https://safe.test links[0]:="//review-user:review-secret@host/path"',
-            '{"url":"https://safe.test","href":"//review-user:review-secret@host/path"}',
-            "['https://safe.test','//review-user:review-secret@host/path']",
-            '{"url":"https://safe.test/press/item","nested":{"href":"//review-user:review-secret@host/path"}}',
-            '["https://safe.test?ref=item",["//review-user:review-secret@host/path"]]',
-            '{"https://safe.test":"//review-user:review-secret@host/path"}',
+            f"url='{DIAGNOSTIC_SAFE_URL}' href='{DIAGNOSTIC_CREDENTIAL_URL}'",
+            f"{DIAGNOSTIC_SAFE_URL} href={DIAGNOSTIC_CREDENTIAL_URL}",
+            f"{DIAGNOSTIC_SAFE_URL} links[0]={DIAGNOSTIC_CREDENTIAL_URL}",
+            f"{DIAGNOSTIC_SAFE_URL} ({DIAGNOSTIC_CREDENTIAL_URL})",
+            f"{DIAGNOSTIC_SAFE_URL} [{DIAGNOSTIC_CREDENTIAL_URL}]",
+            f"{DIAGNOSTIC_SAFE_URL} {{{DIAGNOSTIC_CREDENTIAL_URL}}}",
+            f"{DIAGNOSTIC_SAFE_URL} :{DIAGNOSTIC_CREDENTIAL_URL}",
+            f"{DIAGNOSTIC_SAFE_URL} links[0]=[('{DIAGNOSTIC_CREDENTIAL_URL}')]",
+            f"{DIAGNOSTIC_SAFE_URL} href:'{DIAGNOSTIC_CREDENTIAL_URL}'",
+            f"{DIAGNOSTIC_SAFE_URL} 参照:({DIAGNOSTIC_CREDENTIAL_URL})",
+            f'{DIAGNOSTIC_SAFE_URL} {{"href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f'{DIAGNOSTIC_SAFE_URL} links[0]:="{DIAGNOSTIC_CREDENTIAL_URL}"',
+            f'{{"url":"{DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f"['{DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}']",
+            (
+                f'{{"url":"{DIAGNOSTIC_SAFE_URL}/press/item",'
+                f'"nested":{{"href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}}}'
+            ),
+            f'["{DIAGNOSTIC_SAFE_URL}?ref=item",["{DIAGNOSTIC_CREDENTIAL_URL}"]]',
+            f'{{"{DIAGNOSTIC_SAFE_URL}":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
         ):
             with self.subTest(reason=reason):
                 session_factory = Mock()
@@ -290,27 +300,27 @@ class FetchAndSaveCommandTest(unittest.TestCase):
                 self.assertEqual(exit_code, 1)
                 self.assertEqual(stdout.getvalue(), "")
                 session_factory.assert_not_called()
-                self.assertNotIn("review-user", stderr.getvalue())
-                self.assertNotIn("review-secret", stderr.getvalue())
-                self.assertIn("https://safe.test", stderr.getvalue())
-                self.assertIn("//[redacted]@host/path", stderr.getvalue())
+                self.assertNotIn(DIAGNOSTIC_USERNAME, stderr.getvalue())
+                self.assertNotIn(DIAGNOSTIC_PASSWORD, stderr.getvalue())
+                self.assertIn(DIAGNOSTIC_SAFE_URL, stderr.getvalue())
+                self.assertIn(DIAGNOSTIC_REDACTED_URL, stderr.getvalue())
 
     def test_main_keeps_quotes_in_noncredential_url_suffixes(self) -> None:
         """非認証URLのパス・クエリ・fragment内の引用符や括弧を診断へ保持すること"""
 
         for url in (
-            "https://example.com/press/a'//tag@item",
-            "https://example.com?ref=a'//tag@item",
-            "https://example.com#a'//tag@item",
-            "https://example.com/press/(//tag@item)",
-            "https://example.com?ref=(//tag@item)",
-            "https://example.com#(//tag@item)",
-            "https://example.com/press/href:'//tag@item",
-            'https://example.com?ref={"href":"//tag@item"}',
-            "https://example.com#参照:(//tag@item)",
-            "https://example.com/press/a','//tag@item",
-            'https://example.com?ref="value","href":"//tag@item"',
-            "https://example.com#value','//tag@item",
+            f"{EXAMPLE_BASE_URL}/press/a'//tag@item",
+            f"{EXAMPLE_BASE_URL}?ref=a'//tag@item",
+            f"{EXAMPLE_BASE_URL}#a'//tag@item",
+            f"{EXAMPLE_BASE_URL}/press/(//tag@item)",
+            f"{EXAMPLE_BASE_URL}?ref=(//tag@item)",
+            f"{EXAMPLE_BASE_URL}#(//tag@item)",
+            f"{EXAMPLE_BASE_URL}/press/href:'//tag@item",
+            f'{EXAMPLE_BASE_URL}?ref={{"href":"//tag@item"}}',
+            f"{EXAMPLE_BASE_URL}#参照:(//tag@item)",
+            f"{EXAMPLE_BASE_URL}/press/a','//tag@item",
+            f'{EXAMPLE_BASE_URL}?ref="value","href":"//tag@item"',
+            f"{EXAMPLE_BASE_URL}#value','//tag@item",
         ):
             with self.subTest(url=url):
                 session_factory = Mock()
@@ -331,7 +341,7 @@ class FetchAndSaveCommandTest(unittest.TestCase):
     def test_main_keeps_quoted_diagnostic_fields_after_root_url(self) -> None:
         """取得元と@を含むタイトルを失敗診断へ保持しSessionを作らないこと"""
 
-        source_url = "https://www.env.go.jp"
+        source_url = ENV_ORIGIN_URL
         title = "review@example.org の '調査' 結果"
         for href, expected_href in (
             ("/press/invalid path", "/press/invalid path"),

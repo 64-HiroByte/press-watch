@@ -9,6 +9,13 @@ from unittest.mock import patch
 
 from press_watch_scraper import __main__ as cli
 
+from scraper_test_constants import (
+    EXAMPLE_APRIL_ARCHIVE_URL,
+    EXAMPLE_INDEX_URL,
+    EXAMPLE_MAY_ARCHIVE_URL,
+    EXAMPLE_MAY_RELEASE_URL,
+)
+
 
 PROGRAM_NAME = 'press-watch-scraper'
 FETCH_PRESS_PAGE_HTML_ATTR = 'fetch_press_page_html'
@@ -16,12 +23,6 @@ FETCH_PRESS_PAGE_HTML_ATTR = 'fetch_press_page_html'
 # エラー理由と既存ファイル内容
 FETCH_ERROR_REASON = 'network unavailable'
 EXISTING_OUTPUT_JSON = '{"status": "existing"}\n'
-
-# テスト用URL
-EXAMPLE_INDEX_URL = 'https://example.com/press/index.html'
-EXAMPLE_MAY_ARCHIVE_URL = 'https://example.com/press/202605.html'
-EXAMPLE_APRIL_ARCHIVE_URL = 'https://example.com/press/202604.html'
-EXAMPLE_MAY_RELEASE_URL = 'https://example.com/press/may.html'
 
 # 月別巡回の期待値
 MAY_RELEASE_TITLE = '5月の発表'

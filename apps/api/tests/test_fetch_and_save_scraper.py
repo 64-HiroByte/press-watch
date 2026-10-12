@@ -23,6 +23,12 @@ from press_watch_api.commands.fetch_and_save_env_press import (
 )
 
 from api_test_constants import (
+    DIAGNOSTIC_CREDENTIAL_URL,
+    DIAGNOSTIC_PASSWORD,
+    DIAGNOSTIC_REDACTED_URL,
+    DIAGNOSTIC_SAFE_URL,
+    DIAGNOSTIC_USERNAME,
+    ENV_ORIGIN_URL,
     ENV_PRESS_INDEX_URL as INDEX_URL,
     ENV_PRESS_RELEASE_URL_1 as SOURCE_URL_1,
     ENV_PRESS_RELEASE_URL_2 as SOURCE_URL_2,
@@ -89,15 +95,15 @@ class FetchAndSaveScraperTest(unittest.TestCase):
         """実scraper子プロセスの複数URLを伏せ、拒否理由を保持し保存を開始しないこと"""
 
         for title in (
-            "url='https://safe.test' href='//review-user:review-secret@host/path'",
-            "https://safe.test (//review-user:review-secret@host/path)",
-            "https://safe.test [//review-user:review-secret@host/path]",
-            "https://safe.test {//review-user:review-secret@host/path}",
-            "https://safe.test href:'//review-user:review-secret@host/path'",
-            "https://safe.test 参照:(//review-user:review-secret@host/path)",
-            '{"url":"https://safe.test","href":"//review-user:review-secret@host/path"}',
-            "['https://safe.test','//review-user:review-secret@host/path']",
-            '{"https://safe.test":"//review-user:review-secret@host/path"}',
+            f"url='{DIAGNOSTIC_SAFE_URL}' href='{DIAGNOSTIC_CREDENTIAL_URL}'",
+            f"{DIAGNOSTIC_SAFE_URL} ({DIAGNOSTIC_CREDENTIAL_URL})",
+            f"{DIAGNOSTIC_SAFE_URL} [{DIAGNOSTIC_CREDENTIAL_URL}]",
+            f"{DIAGNOSTIC_SAFE_URL} {{{DIAGNOSTIC_CREDENTIAL_URL}}}",
+            f"{DIAGNOSTIC_SAFE_URL} href:'{DIAGNOSTIC_CREDENTIAL_URL}'",
+            f"{DIAGNOSTIC_SAFE_URL} 参照:({DIAGNOSTIC_CREDENTIAL_URL})",
+            f'{{"url":"{DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f"['{DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}']",
+            f'{{"{DIAGNOSTIC_SAFE_URL}":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
         ):
             with self.subTest(title=title), tempfile.TemporaryDirectory() as temp_dir:
                 html = f"""
@@ -120,10 +126,10 @@ class FetchAndSaveScraperTest(unittest.TestCase):
                 self.assertEqual(exit_code, 1)
                 self.assertEqual(stdout.getvalue(), "")
                 session_factory.assert_not_called()
-                self.assertNotIn("review-user", stderr.getvalue())
-                self.assertNotIn("review-secret", stderr.getvalue())
-                self.assertIn("https://safe.test", stderr.getvalue())
-                self.assertIn("//[redacted]@host/path", stderr.getvalue())
+                self.assertNotIn(DIAGNOSTIC_USERNAME, stderr.getvalue())
+                self.assertNotIn(DIAGNOSTIC_PASSWORD, stderr.getvalue())
+                self.assertIn(DIAGNOSTIC_SAFE_URL, stderr.getvalue())
+                self.assertIn(DIAGNOSTIC_REDACTED_URL, stderr.getvalue())
                 self.assertIn("validation=unsafe_character", stderr.getvalue())
                 self.assertIn("title=", stderr.getvalue())
                 self.assertIn("href='/press/invalid path'", stderr.getvalue())
@@ -263,7 +269,7 @@ class FetchAndSaveScraperTest(unittest.TestCase):
                 "exception=InvalidPressReleaseUrlError "
                 "reason=invalid press release URL: "
                 "validation=non_ascii_character "
-                "page_url='https://www.env.go.jp' "
+                f"page_url='{ENV_ORIGIN_URL}' "
                 "title='review@example.org の調査結果' "
                 "href='/press/日本語.html'\n"
             ),
@@ -292,7 +298,7 @@ class FetchAndSaveScraperTest(unittest.TestCase):
         self.assertIn("scraper command failed: exit_code=1", message)
         self.assertIn("InvalidPressReleaseUrlError", message)
         self.assertIn("validation=non_ascii_character", message)
-        self.assertIn("page_url='https://www.env.go.jp'", message)
+        self.assertIn(f"page_url='{ENV_ORIGIN_URL}'", message)
         self.assertIn("title='review@example.org の調査結果'", message)
         self.assertIn("href='/press/日本語.html'", message)
 
