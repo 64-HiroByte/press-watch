@@ -29,9 +29,7 @@ test("専用実APIのページ送りを往復し順序・全文タイトル・�
         .getByRole("navigation", { name: "ページ送り" })
         .getByLabel(number === 2 ? "次のページへ" : "前のページへ")
         .click();
-      await expect(page).toHaveURL(
-        number === 1 ? "http://127.0.0.1:3108/" : "http://127.0.0.1:3108/?page=2",
-      );
+      await expect(page).toHaveURL(number === 1 ? "/" : "/?page=2");
       await expect(page.getByRole("heading", { name: "報道発表一覧", exact: true })).toBeFocused();
     }
     await expect(page.getByText("62", { exact: true })).toBeVisible();
