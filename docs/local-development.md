@@ -1754,9 +1754,11 @@ stderr の `reason` には `validation=non_ascii_character` などの固定理�
 丸括弧・角括弧・波括弧やコロンに続くスキーム相対URLも、先行URLのパスへ取り込まず個別に伏せます。
 `href:'//…'`、`参照:(//…)`、`{"href":"//…"}`のようなコロン付き項目名・引用付き項目名も同様に扱います。
 項目名を特定の書式に限定せず、空白に続く値の中で、URL開始と同じ条件を満たす`//`を後続URLの境界として認識します。
-JSON・配列では、`https://`・`http://`・`//`で始まる独立した引用付きURLを先に分離し、各値やキーの認証部分を個別に伏せます。
+JSON・配列・タプルでは、引用付きの値やキーを先に分離し、その内部のURL認証部分を個別に伏せます。
 `{"url":"https://safe.test","href":"//user:password@host/path"}`や`['https://safe.test','//user:password@host/path']`のように空白がない場合や、項目・配列が入れ子の場合も、後続URLを先行URLのパスへ取り込みません。
-引用付きURLの後ろのカンマ・閉じ括弧・キーに続くコロンで境界を認識し、引用符・項目名・区切りの表記を保持します。
+先行値が`"failed https://safe.test"`のように説明文を含む場合も、後続の引用付きURLを先行URLへ取り込みません。
+`{"msg":"failed https://safe.test","href":"//user:password@host/path"}`や`('failed https://safe.test','//user:password@host/path')`でも、説明文・正常URL・診断項目を保持して認証部分だけを伏せます。
+引用付きの値やキーの後ろのカンマ・閉じ括弧・コロンで境界を認識し、引用符・項目名・区切りの表記を保持します。
 パス内の `//` を別のスキーム相対URLと誤認せず、パス・クエリ・fragmentの `@` をそのURLの認証情報として扱いません。
 URLのパス・クエリ・fragment内の引用符でも解析を打ち切らず、`https://example.com/press/a'//tag@item` のような非認証URLを保持します。
 URL拒否診断は、引用付きの `page_url`・`title`・`href` を項目ごとに処理します。
@@ -1766,6 +1768,8 @@ scraperの解析例外、CLIのエラー・進捗、巡回manifestの失敗理�
 
 診断項目の保持と複数URL・引用符・括弧・コロン付き項目名・空白なしJSON／配列の境界を修正した後のローカル確認では、scraper unittest全145件とAPI unittest全283件が成功しました。
 空白なしJSON・配列とURLキーの追加ケースは、修正前に伏字のassertionが失敗し、修正後に成功しました。
+説明文付き先行URLの追加ケースは、CLI診断・manifestの固定期待値・実scraper子プロセスの各経路で修正前の失敗と修正後の成功を確認しました。
+タプルの追加ケースも、CLI診断とmanifestへの保存で修正前の失敗と修正後の成功を確認しました。
 取得HTMLのMock、保存済みHTML、子プロセスの応答制御で拒否・診断・Session未作成を確認した結果であり、実HTTP・実DBを使った検証ではありません。
 
 主なURL検証理由は次のとおりです。
