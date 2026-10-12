@@ -304,6 +304,16 @@ class ScraperOutputCliTest(unittest.TestCase):
             ),
             f'["{DIAGNOSTIC_SAFE_URL}?ref=item",["{DIAGNOSTIC_CREDENTIAL_URL}"]]',
             f'{{"{DIAGNOSTIC_SAFE_URL}":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f'{{"msg":"failed {DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f'["failed {DIAGNOSTIC_SAFE_URL}","{DIAGNOSTIC_CREDENTIAL_URL}"]',
+            f"('failed {DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}')",
+            f"('{DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}')",
+            (
+                f'{{"msg":"失敗 {DIAGNOSTIC_SAFE_URL}/press/item",'
+                f'"nested":{{"href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}}}'
+            ),
+            f'["failed {DIAGNOSTIC_SAFE_URL}?ref=item",["{DIAGNOSTIC_CREDENTIAL_URL}"]]',
+            f'{{"failed {DIAGNOSTIC_SAFE_URL}#tag":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
         ):
             with self.subTest(title=title), patch.object(
                 cli,

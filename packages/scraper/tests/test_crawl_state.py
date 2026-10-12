@@ -681,6 +681,58 @@ class CrawlStateTest(unittest.TestCase):
                 f'{{"{DIAGNOSTIC_SAFE_URL}":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
                 f'{{"{DIAGNOSTIC_SAFE_URL}":"{DIAGNOSTIC_REDACTED_URL}"}}',
             ),
+            (
+                f'{{"msg":"failed {DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+                f'{{"msg":"failed {DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_REDACTED_URL}"}}',
+            ),
+            (
+                f'["failed {DIAGNOSTIC_SAFE_URL}","{DIAGNOSTIC_CREDENTIAL_URL}"]',
+                f'["failed {DIAGNOSTIC_SAFE_URL}","{DIAGNOSTIC_REDACTED_URL}"]',
+            ),
+            (
+                f"('failed {DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}')",
+                f"('failed {DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_REDACTED_URL}')",
+            ),
+            (
+                f"('{DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}')",
+                f"('{DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_REDACTED_URL}')",
+            ),
+            (
+                (
+                    f'{{"msg":"失敗 {DIAGNOSTIC_SAFE_URL}/press/item",'
+                    f'"nested":{{"href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}}}'
+                ),
+                (
+                    f'{{"msg":"失敗 {DIAGNOSTIC_SAFE_URL}/press/item",'
+                    f'"nested":{{"href":"{DIAGNOSTIC_REDACTED_URL}"}}}}'
+                ),
+            ),
+            (
+                f'["failed {DIAGNOSTIC_SAFE_URL}?ref=item",["{DIAGNOSTIC_CREDENTIAL_URL}"]]',
+                f'["failed {DIAGNOSTIC_SAFE_URL}?ref=item",["{DIAGNOSTIC_REDACTED_URL}"]]',
+            ),
+            (
+                f'{{"failed {DIAGNOSTIC_SAFE_URL}#tag":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+                f'{{"failed {DIAGNOSTIC_SAFE_URL}#tag":"{DIAGNOSTIC_REDACTED_URL}"}}',
+            ),
+            (
+                (
+                    f'{{"msg":"failed {DIAGNOSTIC_SAFE_URL}",'
+                    f'"email":"person@example.org","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}'
+                ),
+                (
+                    f'{{"msg":"failed {DIAGNOSTIC_SAFE_URL}",'
+                    f'"email":"person@example.org","href":"{DIAGNOSTIC_REDACTED_URL}"}}'
+                ),
+            ),
+            *(
+                (reason, reason)
+                for reason in (
+                    f'''["failed {EXAMPLE_BASE_URL}/press/a'//tag@item","person@example.org"]''',
+                    f'{{"msg":"failed {EXAMPLE_BASE_URL}?email=a@b.test","tag":"x@y"}}',
+                    f"('failed {EXAMPLE_BASE_URL}/press/(//tag@item)','person@example.org')",
+                )
+            ),
             *(
                 (url, url)
                 for url in (

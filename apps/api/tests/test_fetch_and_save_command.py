@@ -262,7 +262,7 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         self.assertEqual(stderr.getvalue().count(safe_url), 2)
 
     def test_main_redacts_relative_url_after_root_url(self) -> None:
-        """別項目・括弧・JSON・配列の後続URLを伏せ、Sessionを作らないこと"""
+        """別項目・括弧・JSON・配列・タプルの後続URLを伏せ、Sessionを作らないこと"""
 
         for reason in (
             f"url='{DIAGNOSTIC_SAFE_URL}' href='{DIAGNOSTIC_CREDENTIAL_URL}'",
@@ -285,6 +285,16 @@ class FetchAndSaveCommandTest(unittest.TestCase):
             ),
             f'["{DIAGNOSTIC_SAFE_URL}?ref=item",["{DIAGNOSTIC_CREDENTIAL_URL}"]]',
             f'{{"{DIAGNOSTIC_SAFE_URL}":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f'{{"msg":"failed {DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f'["failed {DIAGNOSTIC_SAFE_URL}","{DIAGNOSTIC_CREDENTIAL_URL}"]',
+            f"('failed {DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}')",
+            f"('{DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}')",
+            (
+                f'{{"msg":"失敗 {DIAGNOSTIC_SAFE_URL}/press/item",'
+                f'"nested":{{"href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}}}'
+            ),
+            f'["failed {DIAGNOSTIC_SAFE_URL}?ref=item",["{DIAGNOSTIC_CREDENTIAL_URL}"]]',
+            f'{{"failed {DIAGNOSTIC_SAFE_URL}#tag":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
         ):
             with self.subTest(reason=reason):
                 session_factory = Mock()

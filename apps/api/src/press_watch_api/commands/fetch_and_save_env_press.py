@@ -71,13 +71,13 @@ URL_AUTHORITY_RE = re.compile(
     r"((?:(?<!\s)/|[?#])(?:(?!https?://)\S)*|)",
     re.IGNORECASE,
 )
-# JSON・配列の独立した引用付きURLを、次の値や項目名と分けて処理する。
+# JSON・配列・タプルの引用付き値を、説明文の有無によらず先に分離する。
 # URL自身のパスに含まれる引用符は、先に始まるURL候補へ保持する。
-QUOTED_URL_TOKEN_PATTERN = (
-    rf"(?<![^\s\[{{,:]){QUOTED_URL_PATTERN}(?=\s*[:,}}\]])"
+QUOTED_VALUE_TOKEN_PATTERN = (
+    rf"(?<![^\s\[\({{,:]){QUOTED_VALUE_PATTERN}(?=\s*[:,}}\]\)])"
 )
 URL_TOKEN_PATTERN = (
-    f"{URL_AUTHORITY_RE.pattern}|(?P<quoted_url>{QUOTED_URL_TOKEN_PATTERN})"
+    f"{URL_AUTHORITY_RE.pattern}|(?P<quoted_value>{QUOTED_VALUE_TOKEN_PATTERN})"
 )
 URL_TOKEN_RE = re.compile(URL_TOKEN_PATTERN, re.IGNORECASE)
 DIAGNOSTIC_TOKEN_RE = re.compile(
@@ -994,7 +994,7 @@ def _normalize_diagnostic(value: str) -> str:
     パス・クエリ・fragment内の@と、別のURL候補は認証部分へ含めない。
     URL拒否診断は引用付きの値ごとに処理し、取得元とタイトルなどを分離する。
     =や:を使う項目名・引用符・括弧を挟んだスキーム相対URLも分離し、パス以降は保持する。
-    JSON・配列の引用付きURLは、値・キーを空白の有無や入れ子に関わらず個別に処理する。
+    JSON・配列・タプルの引用付き値は、説明文の有無や入れ子に関わらず個別に処理する。
 
     Args:
         value: stderrへ埋め込む文字列
@@ -1004,10 +1004,10 @@ def _normalize_diagnostic(value: str) -> str:
     """
 
     def redact_authority(match: re.Match[str]) -> str:
-        """URL候補・引用付きURL・URL拒否診断の認証部分を伏字へ置換
+        """URL候補・引用付き値・URL拒否診断の認証部分を伏字へ置換
 
         Args:
-            match: URLの各部分、引用付きURL、またはURL拒否診断全体のマッチ結果
+            match: URLの各部分、引用付き値、またはURL拒否診断全体のマッチ結果
 
         Returns:
             項目の境界を保持して認証部分を伏せた文字列、認証区切りがなければ元の文字列
@@ -1019,10 +1019,10 @@ def _normalize_diagnostic(value: str) -> str:
                 return match.group(0)
             return f"{match.group(1)}[redacted]@{host}{match.group(3)}"
 
-        quoted_url = match.group("quoted_url")
-        if quoted_url is not None:
-            redacted = URL_AUTHORITY_RE.sub(redact_authority, quoted_url[1:-1])
-            return f"{quoted_url[0]}{redacted}{quoted_url[-1]}"
+        quoted_value = match.group("quoted_value")
+        if quoted_value is not None:
+            redacted = URL_AUTHORITY_RE.sub(redact_authority, quoted_value[1:-1])
+            return f"{quoted_value[0]}{redacted}{quoted_value[-1]}"
         return DIAGNOSTIC_FIELD_RE.sub(redact_field, match.group(0))
 
     def redact_field(match: re.Match[str]) -> str:
