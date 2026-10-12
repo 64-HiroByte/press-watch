@@ -23,10 +23,7 @@ from ._diagnostics import redact_url_credentials
 
 BASE_URL = 'https://www.env.go.jp'
 PRESS_INDEX_URL = f'{BASE_URL}/press/index.html'
-USER_AGENT = (
-    'PressWatchScraper/0.1 '
-    '(+https://www.env.go.jp/press/index.html)'
-)
+USER_AGENT = f'PressWatchScraper/0.1 (+{PRESS_INDEX_URL})'
 
 ATTR_ARIA_LABEL = 'aria-label'
 ATTR_CLASS = 'class'
