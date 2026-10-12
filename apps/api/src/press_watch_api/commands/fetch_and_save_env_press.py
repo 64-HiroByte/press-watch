@@ -1005,7 +1005,7 @@ def _unquote_diagnostic_value(
 ) -> tuple[str, list[int]]:
     """引用付きの値を一段読み、元の文字列への対応位置を保持
 
-    引用符とバックスラッシュのエスケープだけを解釈する。
+    引用符・バックスラッシュと、TAB・CR・LFのエスケープだけを解釈する。
     置換時は元の表記を使うため、認証部分以外のエスケープを変更しない。
 
     Args:
@@ -1018,11 +1018,12 @@ def _unquote_diagnostic_value(
 
     characters: list[str] = []
     decoded_positions: list[int] = []
+    escapes = {"\\": "\\", '"': '"', "'": "'", "t": "\t", "r": "\r", "n": "\n"}
     index = 1
     while index < len(value) - 1:
         decoded_positions.append(positions[index])
-        if value[index] == "\\" and value[index + 1] in ("\\", '"', "'"):
-            characters.append(value[index + 1])
+        if value[index] == "\\" and value[index + 1] in escapes:
+            characters.append(escapes[value[index + 1]])
             index += 2
         else:
             characters.append(value[index])
@@ -1038,7 +1039,7 @@ def _redact_url_credentials(value: str) -> str:
     パス・クエリ・fragment内の@と、別のURL候補は認証部分へ含めない。
     URL拒否診断は引用付きの値ごとに処理し、取得元とタイトルなどを分離する。
     JSON・配列・タプルの引用付き値は、説明文付きの値や内側の構造も順に処理する。
-    引用符とバックスラッシュのエスケープを読み、元の認証部分だけを置き換える。
+    引用符・バックスラッシュ・TAB・CR・LFのエスケープを読み、元の認証部分だけを置き換える。
     再帰呼び出しは使わず、正常URL・診断項目・引用符の表記を保持する。
 
     Args:

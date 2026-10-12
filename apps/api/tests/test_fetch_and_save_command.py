@@ -236,6 +236,44 @@ class FetchAndSaveCommandTest(unittest.TestCase):
                         2,
                     )
 
+    def test_main_redacts_escaped_url_without_changing_fields(self) -> None:
+        """引用や入れ子でエスケープされたURLも認証部分だけを伏せ、項目を保ちSessionを作らないこと"""
+
+        for prefix, _ in DIAGNOSTIC_URL_PREFIX_CASES:
+            fields = {
+                "url": f"{prefix}{DIAGNOSTIC_USERNAME}:{DIAGNOSTIC_PASSWORD}\ntail@host/path=//tag@item",
+                "reference": DIAGNOSTIC_SAFE_URL,
+                "email": "person@example.org",
+            }
+            expected_fields = {
+                "url": f"{prefix}[redacted]@host/path=//tag@item",
+                "reference": DIAGNOSTIC_SAFE_URL,
+                "email": "person@example.org",
+            }
+            for reason, expected in (
+                (repr(fields), repr(expected_fields)),
+                (json.dumps(fields), json.dumps(expected_fields)),
+                (json.dumps(json.dumps(fields)), json.dumps(json.dumps(expected_fields))),
+            ):
+                with self.subTest(prefix=prefix, reason=reason):
+                    session_factory = Mock()
+                    stdout, stderr = io.StringIO(), io.StringIO()
+                    exit_code = main(
+                        ["--url", INDEX_URL],
+                        session_factory=session_factory,
+                        collect_releases=Mock(side_effect=RuntimeError(reason)),
+                        stdout=stdout,
+                        stderr=stderr,
+                    )
+
+                    self.assertEqual(exit_code, 1)
+                    self.assertEqual(stdout.getvalue(), "")
+                    session_factory.assert_not_called()
+                    self.assertIn(f"reason={expected}", stderr.getvalue())
+                    self.assertEqual(len(stderr.getvalue().splitlines()), 1)
+                    self.assertNotIn(DIAGNOSTIC_USERNAME, stderr.getvalue())
+                    self.assertNotIn(DIAGNOSTIC_PASSWORD, stderr.getvalue())
+
     def test_main_keeps_diagnostic_url_boundaries(self) -> None:
         """複数URLを個別に伏せ、非認証URLのパス・クエリ・fragmentを保持すること"""
 

@@ -31,6 +31,19 @@ DIAGNOSTIC_URL_PREFIX_CASES = (
     ("h\tt\nt\rps:\r/\t/", "h t t ps: / /"),
 )
 
+# HTML解析でCR・CRLFはLFとなる。診断では解析後の制御文字をエスケープ表記で保持する。
+DIAGNOSTIC_HTML_URL_PREFIX_CASES = (
+    ("https://", "https://"),
+    ("//", "//"),
+    ("HTTP://", "HTTP://"),
+    ("https:/\n/", r"https:/\n/"),
+    ("https:/\r/", r"https:/\n/"),
+    ("https:/\t/", r"https:/\t/"),
+    ("http:\t//", r"http:\t//"),
+    ("/\r\n/", r"/\n/"),
+    ("h\tt\nt\rps:\r/\t/", r"h\tt\nt\nps:\n/\t/"),
+)
+
 # 製品側の定数変更による契約違反を検出するため、独立した期待値を保持する。
 EXPECTED_MAX_FIXED_CATEGORY_COUNT = 20
 EXPECTED_MAX_FIXED_CATEGORY_LENGTH = 100

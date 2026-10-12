@@ -10,7 +10,7 @@ from press_watch_scraper.env_press import (
 )
 
 from scraper_test_constants import (
-    DIAGNOSTIC_URL_PREFIX_CASES,
+    DIAGNOSTIC_HTML_URL_PREFIX_CASES,
     DIAGNOSTIC_USERNAME,
     ENV_HOST,
     MAY_ARCHIVE_PATH,
@@ -504,7 +504,7 @@ class EnvPressParserTest(unittest.TestCase):
     def test_press_release_url_error_redacts_credentials(self) -> None:
         """接頭辞や認証部分に制御文字がある発表URLも拒否し、認証情報を伏せること"""
 
-        for prefix, expected_prefix in DIAGNOSTIC_URL_PREFIX_CASES:
+        for prefix, expected_prefix in DIAGNOSTIC_HTML_URL_PREFIX_CASES:
             for password in (
                 'secret',
                 'secret@credential-tail',
@@ -687,7 +687,7 @@ class EnvPressParserTest(unittest.TestCase):
     def test_archive_month_url_error_redacts_credentials(self) -> None:
         """接頭辞や認証部分に制御文字がある月別URLも拒否し、認証情報を伏せること"""
 
-        for prefix, expected_prefix in DIAGNOSTIC_URL_PREFIX_CASES:
+        for prefix, expected_prefix in DIAGNOSTIC_HTML_URL_PREFIX_CASES:
             for password in (
                 'secret',
                 'secret@credential-tail',
