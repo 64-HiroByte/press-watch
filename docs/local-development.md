@@ -1811,6 +1811,12 @@ URL接頭辞内のTAB・CR・LFによる伏字漏れの修正では、発表・�
 引用・JSON・入れ子のエスケープも含む修正後のscraper unittest全150件・API unittest全286件が成功し、補助検証800ケースではparser診断へCLI・API・manifestの整形を繰り返しても結果が保たれました。
 これらも合成HTMLによるローカル検証であり、実HTTP・実DBは使用していません。
 
+既知の軽微な制約として、取得開始URLの拒否診断には、再処理でパスが余計に伏字になるケースがあります。
+実際の改行を含む`https:/\n/host/path=//tag@item`を`--url`へ渡すと、`InvalidFetchUrlError`の`url`項目で`path=//tag@item`が`path=//[redacted]@item`になります。
+APIから実scraper子プロセスを起動する経路では、先に一行化された子プロセスの`target`でも同じ変化が起きます。
+認証情報の漏えいはなく、URLはHTTP実行前に拒否され、成功用JSONの出力とDB保存も開始されません。
+正常なページ送りには影響せず、Phase 6-8の完了を妨げない診断表示の制約として受け入れ、PR #112では追加修正を行わない方針です。
+
 主なURL検証理由は次のとおりです。
 
 - `unsupported_scheme`: HTTPまたはHTTPS以外
