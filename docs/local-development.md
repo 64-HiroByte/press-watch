@@ -744,7 +744,8 @@ workflow全体にパス条件を付けず、変更判定と空白検査を実行
 実行対象を一つでも含むと、Ubuntu 24.04、Node.js 24.21.0、pnpm 12.8.1でfrozen install、型生成、型チェック、lint、format確認、ビルド、Chromium画面テストを順に実行します。
 ChromiumのLinux依存はActions内で取得し、ブラウザーとテスト生成物はルートの`tmp/playwright/`へ保存します。
 画面テスト失敗時のtrace・スクリーンショットは`playwright-diagnostics` artifactで7日間保持する設定です。
-実CIでの失敗時アップロードは未確認であり、成功runではこのstepが省略されています。
+[PR #112の初回Web CI](https://github.com/64-HiroByte/press-watch/actions/runs/38200939844)で、失敗時の保存stepの成功と`playwright-diagnostics` artifactの生成を確認済みです。
+成功runではこのstepが省略されます。
 変更判定や空白検査の失敗、不正な判定出力を成功や省略へ置き換えません。
 新しくWebで使う共有設定や別のソース配置を追加した場合は、変更判定の対象も見直します。
 
