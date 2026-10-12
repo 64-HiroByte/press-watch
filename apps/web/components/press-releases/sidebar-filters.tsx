@@ -69,9 +69,16 @@ export function SidebarFilters({
 
   useEffect(() => {
     const panel = panelRef.current;
+    const trigger = triggerRef.current;
     if (!panel) return;
     const narrowScreen = window.matchMedia("(width < 768px)");
     let wasNarrow: boolean | undefined;
+
+    function forgetTriggerFocus(event: FocusEvent) {
+      // 表示中のトリガーなら、余白クリックでbodyへ戻った場合も参照を消す。
+      // 幅変更でトリガーが隠れた場合のフォーカス復元は残す。
+      if (event.relatedTarget || trigger?.getClientRects().length) lastFilterFocus.current = null;
+    }
 
     function syncLayout() {
       if (!panel) return;
@@ -125,8 +132,10 @@ export function SidebarFilters({
     }
 
     syncLayout();
+    trigger?.addEventListener("blur", forgetTriggerFocus);
     window.addEventListener("resize", syncLayout);
     return () => {
+      trigger?.removeEventListener("blur", forgetTriggerFocus);
       window.removeEventListener("resize", syncLayout);
       restoreTriggerFocus.current = false;
       if (panel.open) panel.close();
@@ -236,7 +245,14 @@ export function SidebarFilters({
             lastFilterFocus.current = event.target;
           }}
           onBlurCapture={(event) => {
-            if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget))
+            // PCのパネルはdisplay: contentsなので、離れた入力自体の表示状態を確認する。
+            // 余白クリックでは参照を消し、幅変更で入力が隠れた場合の復元は残す。
+            if (
+              (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) ||
+              (!event.relatedTarget &&
+                event.target instanceof HTMLElement &&
+                event.target.getClientRects().length > 0)
+            )
               lastFilterFocus.current = null;
           }}
         >

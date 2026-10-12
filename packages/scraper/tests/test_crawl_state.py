@@ -15,9 +15,18 @@ from press_watch_scraper.crawl_state import (
 )
 from press_watch_scraper.env_press import ArchiveMonthLink
 
+from scraper_test_constants import (
+    DIAGNOSTIC_CREDENTIAL_URL,
+    DIAGNOSTIC_PASSWORD,
+    DIAGNOSTIC_REDACTED_URL,
+    DIAGNOSTIC_SAFE_URL,
+    DIAGNOSTIC_URL_PREFIX_CASES,
+    EXAMPLE_BASE_URL,
+    EXAMPLE_INDEX_URL as INDEX_URL,
+    EXAMPLE_MAY_ARCHIVE_URL as ARCHIVE_URL,
+)
 
-INDEX_URL = 'https://example.com/press/index.html'
-ARCHIVE_URL = 'https://example.com/press/202605.html'
+
 INDEX_HTML = '<html>index</html>'
 ARCHIVE_HTML = '<html>archive</html>'
 COMPLETED_REASON = 'archive_month_links_exhausted'
@@ -331,7 +340,7 @@ class CrawlStateTest(unittest.TestCase):
                     'all_archive_months': True,
                 },
                 {
-                    'start_url': 'https://example.com/press/other.html',
+                    'start_url': f'{EXAMPLE_BASE_URL}/press/other.html',
                     'archive_month_limit': 0,
                     'all_archive_months': True,
                 },
@@ -585,29 +594,203 @@ class CrawlStateTest(unittest.TestCase):
         fetcher.assert_not_called()
 
     def test_failure_reason_is_redacted_and_written_on_one_line(self) -> None:
-        """失敗理由からURL認証情報と改行を除いてmanifestへ記録すること"""
+        """接頭辞の制御文字も認識して認証情報を伏せ、失敗理由を1行で記録すること"""
 
-        def failing_fetcher(_url: str) -> str:
-            raise RuntimeError(
-                'failed https://user:secret@example.com/path\nnext line'
-            )
+        for prefix, expected_prefix in DIAGNOSTIC_URL_PREFIX_CASES:
+            for password in (
+                'secret',
+                'secret@credential-tail',
+                'secret tail',
+                'secret\ttail',
+                'secret\ntail',
+                'secret\r\ntail',
+                'secret\x1btail',
+                'secret@credential-tail tail',
+            ):
+                with self.subTest(prefix=prefix, password=password):
+                    def failing_fetcher(_url: str) -> str:
+                        """認証情報付きURLを含む取得例外を再現
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir) / 'state'
-            state = _create_state(root)
+                        HTMLを返さず、必ず取得失敗の例外を送出する。
 
-            with self.assertRaises(RuntimeError):
-                state.load_or_fetch(INDEX_URL, failing_fetcher)
+                        Args:
+                            _url: 取得対象URL（この例外再現では使用しない）
 
-            manifest = json.loads(
-                (root / 'manifest.json').read_text(encoding='utf-8')
-            )
-            failure = manifest['pages'][0]['failure']
+                        Raises:
+                            RuntimeError: 認証情報付きURLと改行を含む取得失敗
+                        """
 
-        self.assertEqual(failure['exception'], 'RuntimeError')
-        self.assertNotIn('secret', failure['reason'])
-        self.assertNotIn('\n', failure['reason'])
-        self.assertIn('https://[redacted]@example.com/path', failure['reason'])
+                        raise RuntimeError(
+                            f'failed {prefix}user:{password}@example.com/path\nnext line'
+                        )
+
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        root = Path(temp_dir) / 'state'
+                        state = _create_state(root)
+
+                        with self.assertRaises(RuntimeError):
+                            state.load_or_fetch(INDEX_URL, failing_fetcher)
+
+                        manifest = json.loads(
+                            (root / 'manifest.json').read_text(encoding='utf-8')
+                        )
+                        failure = manifest['pages'][0]['failure']
+
+                    self.assertEqual(failure['exception'], 'RuntimeError')
+                    self.assertNotIn('user:', failure['reason'])
+                    self.assertNotIn('secret', failure['reason'])
+                    self.assertNotIn('credential-tail', failure['reason'])
+                    self.assertNotIn('\n', failure['reason'])
+                    self.assertIn(f'{expected_prefix}[redacted]@example.com/path', failure['reason'])
+
+    def test_failure_reason_keeps_url_boundaries_in_manifest(self) -> None:
+        """複数URLの認証部分を伏せ、引用付き構造と通常URLの表記をmanifestへ保持すること"""
+
+        cases = (
+            (
+                f"url='{DIAGNOSTIC_SAFE_URL}' href='{DIAGNOSTIC_CREDENTIAL_URL}'",
+                f"url='{DIAGNOSTIC_SAFE_URL}' href='{DIAGNOSTIC_REDACTED_URL}'",
+            ),
+            (
+                f'{DIAGNOSTIC_SAFE_URL} href={DIAGNOSTIC_CREDENTIAL_URL}',
+                f'{DIAGNOSTIC_SAFE_URL} href={DIAGNOSTIC_REDACTED_URL}',
+            ),
+            *(
+                (
+                    f'{DIAGNOSTIC_SAFE_URL} {opening}{DIAGNOSTIC_CREDENTIAL_URL}{closing}',
+                    f'{DIAGNOSTIC_SAFE_URL} {opening}{DIAGNOSTIC_REDACTED_URL}{closing}',
+                )
+                for opening, closing in (('(', ')'), ('[', ']'), ('{', '}'), (':', ''))
+            ),
+            (
+                f"{DIAGNOSTIC_SAFE_URL} href:'{DIAGNOSTIC_CREDENTIAL_URL}'",
+                f"{DIAGNOSTIC_SAFE_URL} href:'{DIAGNOSTIC_REDACTED_URL}'",
+            ),
+            (
+                f'{DIAGNOSTIC_SAFE_URL} 参照:({DIAGNOSTIC_CREDENTIAL_URL})',
+                f'{DIAGNOSTIC_SAFE_URL} 参照:({DIAGNOSTIC_REDACTED_URL})',
+            ),
+            (
+                f'{{"url":"{DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+                f'{{"url":"{DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_REDACTED_URL}"}}',
+            ),
+            (
+                f"['{DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}']",
+                f"['{DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_REDACTED_URL}']",
+            ),
+            (
+                f'{{"{DIAGNOSTIC_SAFE_URL}":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+                f'{{"{DIAGNOSTIC_SAFE_URL}":"{DIAGNOSTIC_REDACTED_URL}"}}',
+            ),
+            (
+                f'{{"msg":"failed {DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+                f'{{"msg":"failed {DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_REDACTED_URL}"}}',
+            ),
+            (
+                f'["failed {DIAGNOSTIC_SAFE_URL}","{DIAGNOSTIC_CREDENTIAL_URL}"]',
+                f'["failed {DIAGNOSTIC_SAFE_URL}","{DIAGNOSTIC_REDACTED_URL}"]',
+            ),
+            (
+                f"('failed {DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}')",
+                f"('failed {DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_REDACTED_URL}')",
+            ),
+            (
+                f"('{DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}')",
+                f"('{DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_REDACTED_URL}')",
+            ),
+            (
+                (
+                    f'{{"msg":"失敗 {DIAGNOSTIC_SAFE_URL}/press/item",'
+                    f'"nested":{{"href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}}}'
+                ),
+                (
+                    f'{{"msg":"失敗 {DIAGNOSTIC_SAFE_URL}/press/item",'
+                    f'"nested":{{"href":"{DIAGNOSTIC_REDACTED_URL}"}}}}'
+                ),
+            ),
+            (
+                f'["failed {DIAGNOSTIC_SAFE_URL}?ref=item",["{DIAGNOSTIC_CREDENTIAL_URL}"]]',
+                f'["failed {DIAGNOSTIC_SAFE_URL}?ref=item",["{DIAGNOSTIC_REDACTED_URL}"]]',
+            ),
+            (
+                f'{{"failed {DIAGNOSTIC_SAFE_URL}#tag":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+                f'{{"failed {DIAGNOSTIC_SAFE_URL}#tag":"{DIAGNOSTIC_REDACTED_URL}"}}',
+            ),
+            (
+                (
+                    f'{{"msg":"failed {DIAGNOSTIC_SAFE_URL}",'
+                    f'"email":"person@example.org","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}'
+                ),
+                (
+                    f'{{"msg":"failed {DIAGNOSTIC_SAFE_URL}",'
+                    f'"email":"person@example.org","href":"{DIAGNOSTIC_REDACTED_URL}"}}'
+                ),
+            ),
+            (
+                f'''['{{"url":"{DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}']''',
+                f'''['{{"url":"{DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_REDACTED_URL}"}}']''',
+            ),
+            (
+                f'''['{{"msg":"failed {DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}']''',
+                f'''['{{"msg":"failed {DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_REDACTED_URL}"}}']''',
+            ),
+            (
+                fr'{{"payload":"{{\"url\":\"{DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"}}',
+                fr'{{"payload":"{{\"url\":\"{DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_REDACTED_URL}\"}}"}}',
+            ),
+            (
+                fr'["{{\"msg\":\"failed {DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"]',
+                fr'["{{\"msg\":\"failed {DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_REDACTED_URL}\"}}"]',
+            ),
+            (
+                fr'"{{\"msg\":\"failed {DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"',
+                fr'"{{\"msg\":\"failed {DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_REDACTED_URL}\"}}"',
+            ),
+            *(
+                (reason, reason)
+                for reason in (
+                    f'''["failed {EXAMPLE_BASE_URL}/press/a'//tag@item","person@example.org"]''',
+                    f'{{"msg":"failed {EXAMPLE_BASE_URL}?email=a@b.test","tag":"x@y"}}',
+                    json.dumps(
+                        {
+                            'payload': json.dumps(
+                                {
+                                    'msg': f'failed {DIAGNOSTIC_SAFE_URL}?ref={{"href":"//tag@item"}}',
+                                    'email': 'person@example.org',
+                                },
+                                separators=(',', ':'),
+                            ),
+                        },
+                        separators=(',', ':'),
+                    ),
+                    f"('failed {EXAMPLE_BASE_URL}/press/(//tag@item)','person@example.org')",
+                )
+            ),
+            *(
+                (url, url)
+                for url in (
+                    f"{EXAMPLE_BASE_URL}/press/a'//tag@item",
+                    f"{EXAMPLE_BASE_URL}?ref=a'//tag@item",
+                    f"{EXAMPLE_BASE_URL}#a'//tag@item",
+                    f'{EXAMPLE_BASE_URL}/press/(//tag@item)',
+                    f'{EXAMPLE_BASE_URL}?ref=(//tag@item)',
+                    f'{EXAMPLE_BASE_URL}#(//tag@item)',
+                )
+            ),
+        )
+        for reason, expected in cases:
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir) / 'state'
+                state = _create_state(root)
+                state.load_or_fetch(INDEX_URL, Mock(return_value=INDEX_HTML))
+                state.mark_parsing(INDEX_URL)
+                state.mark_parse_failed(INDEX_URL, RuntimeError(reason))
+                manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+
+                failure = manifest['pages'][0]['failure']
+                self.assertEqual(failure['exception'], 'RuntimeError')
+                self.assertEqual(failure['reason'], expected)
+                self.assertNotIn(DIAGNOSTIC_PASSWORD, failure['reason'])
 
     def test_resume_rejects_invalid_manifest_schema_values(self) -> None:
         """version、列挙値、必須型が不正なmanifestを拒否すること"""

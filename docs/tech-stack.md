@@ -214,8 +214,9 @@ Phase 6-2ではNeutralを初期テーマとし、ライト・ダーク・シス�
 
 Phase 6-4で合意した取得設計をPhase 6-7の一覧へ実装した。
 Serverの入口は`apps/web/app/(list)/page.tsx`、取得・応答検証は`apps/web/lib/press-releases-api.ts`、URL検証は`apps/web/lib/press-release-query.ts`に置く。
-再試行・復旧操作と下書きは`apps/web/components/press-releases/workbench.tsx`で扱い、Serverの一覧・件数表示を子として渡す。
-通常の検索・リセット・カテゴリ選択・ページ送りはPhase 6-8〜6-10へ残す。
+再試行・復旧操作・ページ遷移と下書きは`apps/web/components/press-releases/workbench.tsx`で扱い、Serverの一覧・件数表示を子として渡す。
+Phase 6-8のページ送りはServerで検証した`pagination`をClientへ渡し、`apps/web/components/press-releases/pagination.tsx`から既存のURL遷移へ接続する。
+通常の検索・リセット・カテゴリ選択はPhase 6-9〜6-10へ残す。
 FastAPIが入力検証・検索・DB取得を担当し、Next.jsサーバーが`GET /press-releases`と`GET /fixed-categories`を共通の取得方針で呼び出す。
 ブラウザはキーワード・日付の下書き、カテゴリ操作、URLへの反映、テーマ・文字サイズ・ドロワーを担当する。
 一覧の取得・描画はServer側を基本とし、入力状態と操作に必要な部分だけをClient側へ置く。

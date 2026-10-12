@@ -18,13 +18,12 @@ from urllib.request import (
 from bs4 import BeautifulSoup
 from bs4.element import AttributeValueList, Tag
 
+from ._diagnostics import redact_url_credentials
+
 
 BASE_URL = 'https://www.env.go.jp'
 PRESS_INDEX_URL = f'{BASE_URL}/press/index.html'
-USER_AGENT = (
-    'PressWatchScraper/0.1 '
-    '(+https://www.env.go.jp/press/index.html)'
-)
+USER_AGENT = f'PressWatchScraper/0.1 (+{PRESS_INDEX_URL})'
 
 ATTR_ARIA_LABEL = 'aria-label'
 ATTR_CLASS = 'class'
@@ -37,9 +36,6 @@ HTTP_URL_SCHEMES = frozenset({'http', 'https'})
 UNSAFE_ASCII_URL_CHARACTERS = frozenset('<>"\\^`{|}')
 UNSAFE_REDIRECT_REASON = 'redirect target rejected'
 INVALID_PERCENT_ESCAPE_RE = re.compile(r'%(?![0-9A-Fa-f]{2})')
-CREDENTIALS_IN_URL_RE = re.compile(
-    r'(?i)(https?://)[^/@\s]+@'
-)
 MAX_DIAGNOSTIC_VALUE_LENGTH = 200
 
 CLASS_ARCHIVE_MONTH_LINK = 'c-table-month__col__link'
@@ -915,21 +911,19 @@ def _unsafe_url_reason(value: str) -> UrlValidationReason | None:
 
 
 def _diagnostic_value(value: str) -> str:
-    """エラー表示用の値を伏字・1行・最大長付きで整形
+    """エラー表示用の値を伏字・引用付きの1行・最大長付きで整形
+
+    制御文字は空白へ潰さずエスケープ表記にし、後段の伏字処理でもURL構造を保持する。
 
     Args:
         value: エラーの調査情報として表示する値
 
     Returns:
-        認証情報を伏せて1行へ正規化した文字列
+        認証情報を伏せ、制御文字をエスケープした引用付きの1行文字列
     """
 
-    redacted_value = CREDENTIALS_IN_URL_RE.sub(
-        r'\1[redacted]@',
-        value,
-    )
-    one_line_value = ' '.join(redacted_value.split())
-    rendered_value = repr(one_line_value)
+    redacted_value = redact_url_credentials(value)
+    rendered_value = repr(redacted_value)
     if len(rendered_value) > MAX_DIAGNOSTIC_VALUE_LENGTH:
         rendered_value = (
             rendered_value[:MAX_DIAGNOSTIC_VALUE_LENGTH - 4]

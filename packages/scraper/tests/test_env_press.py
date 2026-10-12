@@ -9,6 +9,13 @@ from press_watch_scraper.env_press import (
     parse_press_releases,
 )
 
+from scraper_test_constants import (
+    DIAGNOSTIC_HTML_URL_PREFIX_CASES,
+    DIAGNOSTIC_USERNAME,
+    ENV_HOST,
+    MAY_ARCHIVE_PATH,
+)
+
 
 EXPECTED_PRESS_URL = 'https://www.env.go.jp/press/press_00001.html'
 EXPECTED_OLD_STYLE_PRESS_URL = 'https://www.env.go.jp/press/111111_00001.html'
@@ -494,6 +501,39 @@ class EnvPressParserTest(unittest.TestCase):
                 self.assertIn('href=', message)
                 self.assertNotIn('user:password', message)
 
+    def test_press_release_url_error_redacts_credentials(self) -> None:
+        """接頭辞や認証部分に制御文字がある発表URLも拒否し、認証情報を伏せること"""
+
+        for prefix, expected_prefix in DIAGNOSTIC_HTML_URL_PREFIX_CASES:
+            for password in (
+                'secret',
+                'secret@credential-tail',
+                'secret tail',
+                'secret\ttail',
+                'secret\ntail',
+                'secret\r\ntail',
+                'secret\x1btail',
+                'secret@credential-tail tail',
+            ):
+                with self.subTest(prefix=prefix, password=password):
+                    href = f'{prefix}{DIAGNOSTIC_USERNAME}:{password}@{ENV_HOST}/press/1'
+                    with self.assertRaises(InvalidPressReleaseUrlError) as raised:
+                        parse_press_releases(
+                            _press_release_block('2026年05月01日発表', href)
+                        )
+
+                    message = str(raised.exception)
+                    reason = (
+                        'unsafe_character'
+                        if any(c.isspace() or ord(c) < 0x20 for c in prefix + password)
+                        else 'credentials_not_allowed'
+                    )
+                    self.assertIn(f'validation={reason}', message)
+                    self.assertIn(f'{expected_prefix}[redacted]@{ENV_HOST}/press/1', message)
+                    self.assertNotIn(DIAGNOSTIC_USERNAME, message)
+                    self.assertNotIn('secret', message)
+                    self.assertNotIn('credential-tail', message)
+
     def test_parse_press_releases_stops_instead_of_returning_partial_data(
         self,
     ) -> None:
@@ -643,6 +683,42 @@ class EnvPressParserTest(unittest.TestCase):
                 self.assertIn('archive_month=2026-05', message)
                 self.assertIn('href=', message)
                 self.assertNotIn('user:password', message)
+
+    def test_archive_month_url_error_redacts_credentials(self) -> None:
+        """接頭辞や認証部分に制御文字がある月別URLも拒否し、認証情報を伏せること"""
+
+        for prefix, expected_prefix in DIAGNOSTIC_HTML_URL_PREFIX_CASES:
+            for password in (
+                'secret',
+                'secret@credential-tail',
+                'secret tail',
+                'secret\ttail',
+                'secret\ntail',
+                'secret\r\ntail',
+                'secret\x1btail',
+                'secret@credential-tail tail',
+            ):
+                with self.subTest(prefix=prefix, password=password):
+                    href = (
+                        f'{prefix}{DIAGNOSTIC_USERNAME}:{password}'
+                        f'@{ENV_HOST}{MAY_ARCHIVE_PATH}'
+                    )
+                    with self.assertRaises(InvalidArchiveMonthUrlError) as raised:
+                        parse_archive_month_links(_archive_month_link('2026年5月', href))
+
+                    message = str(raised.exception)
+                    reason = (
+                        'unsafe_character'
+                        if any(c.isspace() or ord(c) < 0x20 for c in prefix + password)
+                        else 'credentials_not_allowed'
+                    )
+                    self.assertIn(f'validation={reason}', message)
+                    self.assertIn(
+                        f'{expected_prefix}[redacted]@{ENV_HOST}{MAY_ARCHIVE_PATH}', message
+                    )
+                    self.assertNotIn(DIAGNOSTIC_USERNAME, message)
+                    self.assertNotIn('secret', message)
+                    self.assertNotIn('credential-tail', message)
 
     # 不完全なHTMLや想定外の表記はスキップする。
     def test_parse_press_releases_skips_invalid_date(self) -> None:

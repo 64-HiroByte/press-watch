@@ -1,6 +1,7 @@
 """scraper子プロセスの起動条件、JSON復元、入出力、一時ファイルを検証"""
 
 from datetime import date
+from html import escape
 import io
 import json
 from pathlib import Path
@@ -22,6 +23,13 @@ from press_watch_api.commands.fetch_and_save_env_press import (
 )
 
 from api_test_constants import (
+    DIAGNOSTIC_CREDENTIAL_URL,
+    DIAGNOSTIC_HTML_URL_PREFIX_CASES,
+    DIAGNOSTIC_PASSWORD,
+    DIAGNOSTIC_REDACTED_URL,
+    DIAGNOSTIC_SAFE_URL,
+    DIAGNOSTIC_USERNAME,
+    ENV_ORIGIN_URL,
     ENV_PRESS_INDEX_URL as INDEX_URL,
     ENV_PRESS_RELEASE_URL_1 as SOURCE_URL_1,
     ENV_PRESS_RELEASE_URL_2 as SOURCE_URL_2,
@@ -83,6 +91,103 @@ class FetchAndSaveScraperTest(unittest.TestCase):
         self.assertIn("URL形式が不正な発表", stderr.getvalue())
         self.assertIn("href='/press/日本語.html'", stderr.getvalue())
         session_factory.assert_not_called()
+
+    def test_main_redacts_multiple_urls_in_actual_scraper_diagnostic(self) -> None:
+        """実scraper子プロセスの複数URLを伏せ、拒否理由を保持し保存を開始しないこと"""
+
+        for title in (
+            f"url='{DIAGNOSTIC_SAFE_URL}' href='{DIAGNOSTIC_CREDENTIAL_URL}'",
+            f"{DIAGNOSTIC_SAFE_URL} ({DIAGNOSTIC_CREDENTIAL_URL})",
+            f"{DIAGNOSTIC_SAFE_URL} [{DIAGNOSTIC_CREDENTIAL_URL}]",
+            f"{DIAGNOSTIC_SAFE_URL} {{{DIAGNOSTIC_CREDENTIAL_URL}}}",
+            f"{DIAGNOSTIC_SAFE_URL} href:'{DIAGNOSTIC_CREDENTIAL_URL}'",
+            f"{DIAGNOSTIC_SAFE_URL} 参照:({DIAGNOSTIC_CREDENTIAL_URL})",
+            f'{{"url":"{DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f"['{DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}']",
+            f'{{"{DIAGNOSTIC_SAFE_URL}":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f'{{"msg":"failed {DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f'''['{{"url":"{DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}']''',
+            f'''['{{"msg":"failed {DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}']''',
+            fr'{{"payload":"{{\"url\":\"{DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"}}',
+            fr'["{{\"msg\":\"failed {DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"]',
+            fr'"{{\"msg\":\"failed {DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"',
+            f'["failed {DIAGNOSTIC_SAFE_URL}","{DIAGNOSTIC_CREDENTIAL_URL}"]',
+        ):
+            with self.subTest(title=title), tempfile.TemporaryDirectory() as temp_dir:
+                html = f"""
+                <details class="p-press-release-list__block">
+                  <span class="p-press-release-list__heading">2026年05月01日発表</span>
+                  <a href="/press/invalid path" class="c-news-link__link">{escape(title)}</a>
+                </details>
+                """
+                session_factory = Mock()
+                stdout, stderr = io.StringIO(), io.StringIO()
+                html_path = Path(temp_dir) / "invalid-release-url.html"
+                html_path.write_text(html, encoding="utf-8")
+                exit_code = main(
+                    ["--from-file", str(html_path)],
+                    session_factory=session_factory,
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(stdout.getvalue(), "")
+                session_factory.assert_not_called()
+                self.assertNotIn(DIAGNOSTIC_USERNAME, stderr.getvalue())
+                self.assertNotIn(DIAGNOSTIC_PASSWORD, stderr.getvalue())
+                self.assertIn(DIAGNOSTIC_SAFE_URL, stderr.getvalue())
+                self.assertIn(DIAGNOSTIC_REDACTED_URL, stderr.getvalue())
+                self.assertIn("validation=unsafe_character", stderr.getvalue())
+                self.assertIn("title=", stderr.getvalue())
+                self.assertIn("href='/press/invalid path'", stderr.getvalue())
+
+    def test_main_redacts_split_url_prefix_rejected_by_actual_scraper(self) -> None:
+        """分断URLを実scraperで拒否し、認証情報だけを伏せてパスと項目を保ちSessionを作らないこと"""
+
+        title = "review@example.org の調査"
+        suffix = "host/path=//tag@item?email=a@b.test#tag@item"
+        for prefix, expected_prefix in DIAGNOSTIC_HTML_URL_PREFIX_CASES:
+            if prefix == expected_prefix:
+                continue
+            for credentials in ("", f"{DIAGNOSTIC_USERNAME}:{DIAGNOSTIC_PASSWORD}@"):
+                href = f"{prefix}{credentials}{suffix}"
+                expected_credentials = "[redacted]@" if credentials else ""
+                expected_href = f"{expected_prefix}{expected_credentials}{suffix}"
+                with (
+                    self.subTest(prefix=prefix, credentials=bool(credentials)),
+                    tempfile.TemporaryDirectory() as temp_dir,
+                ):
+                    html = f"""
+                    <details class="p-press-release-list__block">
+                      <span class="p-press-release-list__heading">2026年05月01日発表</span>
+                      <a href="{escape(href, quote=True)}" class="c-news-link__link">{title}</a>
+                    </details>
+                    """
+                    html_path = Path(temp_dir) / "split-url-prefix.html"
+                    html_path.write_text(html, encoding="utf-8")
+                    session_factory = Mock()
+                    stdout, stderr = io.StringIO(), io.StringIO()
+                    exit_code = main(
+                        ["--from-file", str(html_path)],
+                        session_factory=session_factory,
+                        stdout=stdout,
+                        stderr=stderr,
+                    )
+
+                    self.assertEqual(exit_code, 1)
+                    self.assertEqual(stdout.getvalue(), "")
+                    session_factory.assert_not_called()
+                    self.assertIn("validation=unsafe_character", stderr.getvalue())
+                    self.assertIn(f"page_url={INDEX_URL!r}", stderr.getvalue())
+                    self.assertIn(f"title={title!r}", stderr.getvalue())
+                    self.assertIn(f"href='{expected_href}'", stderr.getvalue())
+                    self.assertEqual(
+                        stderr.getvalue().count("[redacted]"), int(bool(credentials)),
+                    )
+                    self.assertEqual(len(stderr.getvalue().splitlines()), 1)
+                    self.assertNotIn(DIAGNOSTIC_USERNAME, stderr.getvalue())
+                    self.assertNotIn(DIAGNOSTIC_PASSWORD, stderr.getvalue())
 
     def test_parse_scraper_snapshot_restores_releases(self) -> None:
         """scraperのJSONから日付・カテゴリを含む取得結果を復元すること"""
@@ -207,7 +312,7 @@ class FetchAndSaveScraperTest(unittest.TestCase):
     def test_collect_releases_from_scraper_cli_reports_subprocess_error(
         self,
     ) -> None:
-        """scraper CLI失敗時の理由を上位のstderrへ渡せること"""
+        """子プロセスのURL拒否診断から取得元と@を含むタイトルを保持すること"""
 
         from press_watch_api.commands import fetch_and_save_env_press
 
@@ -219,7 +324,8 @@ class FetchAndSaveScraperTest(unittest.TestCase):
                 "exception=InvalidPressReleaseUrlError "
                 "reason=invalid press release URL: "
                 "validation=non_ascii_character "
-                "title='URL形式が不正な発表' "
+                f"page_url='{ENV_ORIGIN_URL}' "
+                "title='review@example.org の調査結果' "
                 "href='/press/日本語.html'\n"
             ),
         )
@@ -247,7 +353,8 @@ class FetchAndSaveScraperTest(unittest.TestCase):
         self.assertIn("scraper command failed: exit_code=1", message)
         self.assertIn("InvalidPressReleaseUrlError", message)
         self.assertIn("validation=non_ascii_character", message)
-        self.assertIn("URL形式が不正な発表", message)
+        self.assertIn(f"page_url='{ENV_ORIGIN_URL}'", message)
+        self.assertIn("title='review@example.org の調査結果'", message)
         self.assertIn("href='/press/日本語.html'", message)
 
     def test_collect_releases_keeps_final_error_after_long_progress(

@@ -16,11 +16,12 @@ import { DisplayTooltip } from "@/components/press-releases/display-tooltip";
 import { SidebarFilters, SidebarForm } from "@/components/press-releases/sidebar-filters";
 import { ListThemeToggle } from "@/components/press-releases/theme-toggle";
 import { PressReleaseStatus } from "@/components/press-releases/status";
+import { ListPagination } from "@/components/press-releases/pagination";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { CategoryOption } from "@/lib/press-releases-api";
+import type { CategoryOption, ListData } from "@/lib/press-releases-api";
 import {
   parseQuery,
   queryString,
@@ -35,6 +36,7 @@ type Props = {
   dateError: boolean;
   outOfRange: boolean;
   summary: ReactNode;
+  pagination: ListData["pagination"] | null;
   children: ReactNode;
 };
 
@@ -66,7 +68,15 @@ function subscribeWidth(callback: () => void) {
   return () => media.removeEventListener("change", callback);
 }
 
-export function ListWorkbench({ query, options, dateError, outOfRange, summary, children }: Props) {
+export function ListWorkbench({
+  query,
+  options,
+  dateError,
+  outOfRange,
+  summary,
+  pagination,
+  children,
+}: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [navigationURL, setNavigationURL] = useState<string | null>(null);
@@ -84,6 +94,7 @@ export function ListWorkbench({ query, options, dateError, outOfRange, summary, 
   const headerRef = useRef<HTMLElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const lock = useRef(false);
+  const pageFocusURL = useRef<string | null>(null);
   const normalizing = !query.errors.length && query.original !== query.canonical;
   const busy =
     pending || normalizing || (navigationURL !== null && navigationURL !== query.original);
@@ -95,6 +106,20 @@ export function ListWorkbench({ query, options, dateError, outOfRange, summary, 
   }, [busy]);
 
   useEffect(() => {
+    if (busy || pageFocusURL.current !== query.original) return;
+    pageFocusURL.current = null;
+    titleRef.current?.focus({ preventScroll: true });
+    if (window.matchMedia("(width < 768px)").matches) {
+      titleRef.current?.scrollIntoView({ block: "start", behavior: "instant" });
+    } else {
+      headerRef.current
+        ?.querySelector(".release-header-body")
+        ?.scrollTo({ top: 0, behavior: "instant" });
+      mainRef.current?.scrollTo({ top: 0, behavior: "instant" });
+    }
+  }, [busy, query.original]);
+
+  useEffect(() => {
     if (normalizing)
       startTransition(() => {
         setNavigationURL(query.canonical);
@@ -104,6 +129,7 @@ export function ListWorkbench({ query, options, dateError, outOfRange, summary, 
 
   useEffect(() => {
     function restore() {
+      pageFocusURL.current = null;
       const restored = parseQuery(currentValues());
       setDraft(draftValues(restored));
       setLocalErrors([]);
@@ -128,10 +154,12 @@ export function ListWorkbench({ query, options, dateError, outOfRange, summary, 
     };
   }, []);
 
-  function navigate(conditions?: Conditions) {
+  function navigate(conditions?: Conditions, moveToResults = false) {
     if (busy || lock.current || (conditions && !canChange)) return;
-    lock.current = true;
     const target = conditions ? queryString(conditions) : query.original;
+    if (moveToResults && target === query.original) return;
+    lock.current = true;
+    pageFocusURL.current = moveToResults ? target : null;
     setNavigationURL(target);
     startTransition(() => {
       if (target === query.original) router.refresh();
@@ -161,8 +189,10 @@ export function ListWorkbench({ query, options, dateError, outOfRange, summary, 
     return true;
   }
 
-  const updateDraft = (key: keyof typeof draft, value: string) =>
+  const updateDraft = (key: keyof typeof draft, value: string) => {
+    pageFocusURL.current = null;
     setDraft((current) => ({ ...current, [key]: value }));
+  };
   const filtered = !!(
     query.conditions.q ||
     query.conditions.from ||
@@ -171,7 +201,12 @@ export function ListWorkbench({ query, options, dateError, outOfRange, summary, 
   );
 
   return (
-    <main className="release-workbench">
+    <main
+      className="release-workbench"
+      onFocusCapture={() => {
+        pageFocusURL.current = null;
+      }}
+    >
       <section
         className="release-preview"
         data-design="sidebar"
@@ -242,7 +277,10 @@ export function ListWorkbench({ query, options, dateError, outOfRange, summary, 
                       aria-haspopup="dialog"
                       aria-controls="release-filter-panel"
                       aria-expanded={drawerOpen}
-                      onClick={openDrawer}
+                      onClick={() => {
+                        pageFocusURL.current = null;
+                        openDrawer();
+                      }}
                       onFocus={rememberTriggerFocus}
                     >
                       <PencilLineIcon aria-hidden="true" />
@@ -318,12 +356,18 @@ export function ListWorkbench({ query, options, dateError, outOfRange, summary, 
                       </div>
                     )}
                     {children}
+                    <ListPagination
+                      pagination={pagination}
+                      conditions={query.conditions}
+                      disabled={!canChange || repair}
+                      onPageChange={(page) => navigate({ ...query.conditions, page }, true)}
+                    />
                     {outOfRange && (
                       <Button
                         type="button"
                         variant="outline"
                         disabled={!canChange || repair}
-                        onClick={() => navigate({ ...query.conditions, page: 1 })}
+                        onClick={() => navigate({ ...query.conditions, page: 1 }, true)}
                       >
                         1ページ目へ戻る
                       </Button>

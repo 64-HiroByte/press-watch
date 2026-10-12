@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from contextlib import redirect_stderr
+from html import escape
 import io
 import json
 from pathlib import Path
@@ -30,6 +31,18 @@ from cli_test_support import (
     _run_cli_raw,
     _url_args,
     _verbose_args,
+)
+
+from scraper_test_constants import (
+    DIAGNOSTIC_CREDENTIAL_URL,
+    DIAGNOSTIC_HTML_URL_PREFIX_CASES,
+    DIAGNOSTIC_PASSWORD,
+    DIAGNOSTIC_REDACTED_URL,
+    DIAGNOSTIC_SAFE_URL,
+    DIAGNOSTIC_USERNAME,
+    DIAGNOSTIC_URL_PREFIX_CASES,
+    ENV_ORIGIN_URL,
+    EXAMPLE_BASE_URL,
 )
 
 
@@ -237,25 +250,277 @@ class ScraperOutputCliTest(unittest.TestCase):
             stderr.getvalue(),
         )
 
+    def test_main_redacts_split_url_prefix_in_rejected_release(self) -> None:
+        """分断された発表URLを拒否し、認証情報を伏せてタイトルと診断項目を保持すること"""
+
+        title = 'review@example.org の調査'
+        for prefix, expected_prefix in DIAGNOSTIC_HTML_URL_PREFIX_CASES:
+            if prefix == expected_prefix:
+                continue
+            href = prefix + DIAGNOSTIC_CREDENTIAL_URL.removeprefix('//')
+            expected_href = expected_prefix + DIAGNOSTIC_REDACTED_URL.removeprefix('//')
+            with self.subTest(prefix=prefix), patch.object(
+                cli,
+                FETCH_PRESS_PAGE_HTML_ATTR,
+                return_value=_archive_page_html(title, escape(href, quote=True)),
+            ):
+                exit_code, stdout, stderr = _run_cli_raw(*_url_args(ENV_ORIGIN_URL))
+
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(stdout, '')
+                self.assertEqual(len(stderr.splitlines()), 1)
+                self.assertIn('validation=unsafe_character', stderr)
+                self.assertIn(f'page_url={ENV_ORIGIN_URL!r}', stderr)
+                self.assertIn(f'title={title!r}', stderr)
+                self.assertIn(f"href='{expected_href}'", stderr)
+                self.assertNotIn(DIAGNOSTIC_USERNAME, stderr)
+                self.assertNotIn(DIAGNOSTIC_PASSWORD, stderr)
+
+    def test_rejected_url_details_survive_parser_cli_and_manifest(self) -> None:
+        """発表・月別URLを拒否し、CLIとmanifestの両方でパスと項目を保ち認証情報を伏せること"""
+
+        title = 'review@example.org の調査'
+        suffix = 'host/path=//tag@item?email=a@b.test#tag@item'
+        for prefix, expected_prefix in DIAGNOSTIC_HTML_URL_PREFIX_CASES:
+            if prefix == expected_prefix:
+                continue
+            for credentials in ('', f'{DIAGNOSTIC_USERNAME}:{DIAGNOSTIC_PASSWORD}@'):
+                href = f'{prefix}{credentials}{suffix}'
+                expected_credentials = '[redacted]@' if credentials else ''
+                expected_href = f'{expected_prefix}{expected_credentials}{suffix}'
+                for kind in ('release', 'archive'):
+                    with self.subTest(
+                        prefix=prefix, credentials=bool(credentials), kind=kind,
+                    ):
+                        archive_href = EXAMPLE_MAY_ARCHIVE_URL if kind == 'release' else href
+                        link = (
+                            '<a class="c-table-month__col__link" aria-label="2026年5月" '
+                            f'href="{escape(archive_href, quote=True)}">5月</a>'
+                        )
+                        if kind == 'release':
+                            html_by_url = {
+                                EXAMPLE_INDEX_URL: link,
+                                EXAMPLE_MAY_ARCHIVE_URL: _archive_page_html(
+                                    title, escape(href, quote=True),
+                                ),
+                            }
+                            page_url = EXAMPLE_MAY_ARCHIVE_URL
+                            field = f'title={title!r}'
+                            exception = 'InvalidPressReleaseUrlError'
+                        else:
+                            html_by_url = {EXAMPLE_INDEX_URL: link}
+                            page_url = EXAMPLE_INDEX_URL
+                            field = 'archive_month=2026-05'
+                            exception = 'InvalidArchiveMonthUrlError'
+                        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
+                            cli, FETCH_PRESS_PAGE_HTML_ATTR,
+                            side_effect=lambda url, **_kwargs: html_by_url[url],
+                        ) as fetch:
+                            root = Path(temp_dir) / 'state'
+                            exit_code, stdout, stderr = _run_cli_raw(
+                                *_url_args(), '--all-archive-months',
+                                '--crawl-state-dir', str(root),
+                            )
+                            manifest = json.loads(
+                                (root / 'manifest.json').read_text(encoding='utf-8')
+                            )
+
+                        self.assertEqual(exit_code, 1)
+                        self.assertEqual(stdout, '')
+                        self.assertEqual(manifest['status'], 'failed')
+                        self.assertEqual(manifest['pages'][-1]['status'], 'parse_failed')
+                        failure = manifest['pages'][-1]['failure']
+                        self.assertEqual(failure['stage'], 'parse')
+                        self.assertEqual(failure['exception'], exception)
+                        self.assertEqual(
+                            [call.args[0] for call in fetch.call_args_list], list(html_by_url),
+                        )
+                        for message in (stderr.strip(), failure['reason']):
+                            self.assertEqual(len(message.splitlines()), 1)
+                            self.assertIn('validation=unsafe_character', message)
+                            self.assertIn(f'page_url={page_url!r}', message)
+                            self.assertIn(field, message)
+                            self.assertIn(f"href='{expected_href}'", message)
+                            self.assertEqual(
+                                message.count('[redacted]'), int(bool(credentials)),
+                            )
+                            self.assertNotIn(DIAGNOSTIC_USERNAME, message)
+                            self.assertNotIn(DIAGNOSTIC_PASSWORD, message)
+
+    def test_print_runtime_error_keeps_split_prefix_and_separate_urls(self) -> None:
+        """認証なしの分断URLと、改行で分かれた正常URLを診断へ保持すること"""
+
+        for prefix, expected_prefix in DIAGNOSTIC_URL_PREFIX_CASES:
+            with self.subTest(prefix=prefix):
+                safe_url = f'{prefix}host/path=//tag@item?email=a@b.test#tag@item'
+                expected_safe_url = f'{expected_prefix}host/path=//tag@item?email=a@b.test#tag@item'
+                credential_url = prefix + DIAGNOSTIC_CREDENTIAL_URL.removeprefix('//')
+                expected_url = expected_prefix + DIAGNOSTIC_REDACTED_URL.removeprefix('//')
+                reason = f'{DIAGNOSTIC_SAFE_URL}\n{credential_url}'
+                stderr = io.StringIO()
+                with redirect_stderr(stderr):
+                    cli._print_runtime_error(safe_url, RuntimeError(reason))
+
+                message = stderr.getvalue()
+                self.assertIn(f'target={expected_safe_url} ', message)
+                self.assertIn(f'reason={DIAGNOSTIC_SAFE_URL} {expected_url}', message)
+                self.assertEqual(message.count('[redacted]'), 1)
+                self.assertNotIn(DIAGNOSTIC_USERNAME, message)
+                self.assertNotIn(DIAGNOSTIC_PASSWORD, message)
+
+    def test_print_runtime_error_redacts_escaped_url_without_changing_fields(self) -> None:
+        """引用や入れ子でエスケープされたURLも認証部分だけを伏せ、他の項目を保持すること"""
+
+        for prefix, _ in DIAGNOSTIC_URL_PREFIX_CASES:
+            fields = {
+                'url': f'{prefix}{DIAGNOSTIC_USERNAME}:{DIAGNOSTIC_PASSWORD}\ntail@host/path=//tag@item',
+                'reference': DIAGNOSTIC_SAFE_URL,
+                'email': 'person@example.org',
+            }
+            expected_fields = {
+                'url': f'{prefix}[redacted]@host/path=//tag@item',
+                'reference': DIAGNOSTIC_SAFE_URL,
+                'email': 'person@example.org',
+            }
+            for reason, expected in (
+                (repr(fields), repr(expected_fields)),
+                (json.dumps(fields), json.dumps(expected_fields)),
+                (json.dumps(json.dumps(fields)), json.dumps(json.dumps(expected_fields))),
+            ):
+                with self.subTest(prefix=prefix, reason=reason):
+                    stderr = io.StringIO()
+                    with redirect_stderr(stderr):
+                        cli._print_runtime_error(DIAGNOSTIC_SAFE_URL, RuntimeError(reason))
+
+                    message = stderr.getvalue()
+                    self.assertIn(f'reason={expected}', message)
+                    self.assertEqual(len(message.splitlines()), 1)
+                    self.assertNotIn(DIAGNOSTIC_USERNAME, message)
+                    self.assertNotIn(DIAGNOSTIC_PASSWORD, message)
+
+    def test_main_keeps_quoted_diagnostic_fields_after_root_url(self) -> None:
+        """パスなし取得元と@を含むタイトルをURL拒否時の診断へ保持すること"""
+
+        source_url = ENV_ORIGIN_URL
+        title = "review@example.org の '調査' 結果"
+        for href, expected_href in (
+            ('/press/invalid path', '/press/invalid path'),
+            (
+                "https://user:password' title='credential-tail tail@www.env.go.jp/press/1",
+                'https://[redacted]@www.env.go.jp/press/1',
+            ),
+        ):
+            with self.subTest(href=href), patch.object(
+                cli,
+                FETCH_PRESS_PAGE_HTML_ATTR,
+                return_value=_archive_page_html(title, escape(href, quote=True)),
+            ):
+                exit_code, stdout, stderr = _run_cli_raw(
+                    *_url_args(source_url)
+                )
+
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(stdout, '')
+                self.assertIn('validation=unsafe_character', stderr)
+                self.assertIn(f'page_url={source_url!r}', stderr)
+                self.assertIn(f'title={title!r}', stderr)
+                self.assertIn(f'href={expected_href!r}', stderr)
+                self.assertNotIn('user:', stderr)
+                self.assertNotIn('password', stderr)
+                self.assertNotIn('credential-tail', stderr)
+
+    def test_main_redacts_credentials_in_title_with_multiple_urls(self) -> None:
+        """タイトル内の複数URLを個別に伏せ、URL拒否の診断項目を保持すること"""
+
+        for title in (
+            f"url='{DIAGNOSTIC_SAFE_URL}' href='{DIAGNOSTIC_CREDENTIAL_URL}'",
+            f'{DIAGNOSTIC_SAFE_URL} href={DIAGNOSTIC_CREDENTIAL_URL}',
+            f'url=\'{DIAGNOSTIC_SAFE_URL}\' href="{DIAGNOSTIC_CREDENTIAL_URL}"',
+            f'{DIAGNOSTIC_SAFE_URL} リンク={DIAGNOSTIC_CREDENTIAL_URL}',
+            f'{DIAGNOSTIC_SAFE_URL} ({DIAGNOSTIC_CREDENTIAL_URL})',
+            f'{DIAGNOSTIC_SAFE_URL} [{DIAGNOSTIC_CREDENTIAL_URL}]',
+            f'{DIAGNOSTIC_SAFE_URL} {{{DIAGNOSTIC_CREDENTIAL_URL}}}',
+            f'{DIAGNOSTIC_SAFE_URL} :{DIAGNOSTIC_CREDENTIAL_URL}',
+            f"{DIAGNOSTIC_SAFE_URL} links[0]=[('{DIAGNOSTIC_CREDENTIAL_URL}')]",
+            f"{DIAGNOSTIC_SAFE_URL} href:'{DIAGNOSTIC_CREDENTIAL_URL}'",
+            f'{DIAGNOSTIC_SAFE_URL} 参照:({DIAGNOSTIC_CREDENTIAL_URL})',
+            f'{DIAGNOSTIC_SAFE_URL} {{"href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f'{DIAGNOSTIC_SAFE_URL} links[0]:="{DIAGNOSTIC_CREDENTIAL_URL}"',
+            f'{{"url":"{DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f"['{DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}']",
+            (
+                f'{{"url":"{DIAGNOSTIC_SAFE_URL}/press/item",'
+                f'"nested":{{"href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}}}'
+            ),
+            f'["{DIAGNOSTIC_SAFE_URL}?ref=item",["{DIAGNOSTIC_CREDENTIAL_URL}"]]',
+            f'{{"{DIAGNOSTIC_SAFE_URL}":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f'{{"msg":"failed {DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f'''['{{"url":"{DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}']''',
+            f'''['{{"msg":"failed {DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}']''',
+            fr'{{"payload":"{{\"url\":\"{DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"}}',
+            fr'["{{\"msg\":\"failed {DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"]',
+            fr'"{{\"msg\":\"failed {DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"',
+            f'["failed {DIAGNOSTIC_SAFE_URL}","{DIAGNOSTIC_CREDENTIAL_URL}"]',
+            f"('failed {DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}')",
+            f"('{DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}')",
+            (
+                f'{{"msg":"失敗 {DIAGNOSTIC_SAFE_URL}/press/item",'
+                f'"nested":{{"href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}}}'
+            ),
+            f'["failed {DIAGNOSTIC_SAFE_URL}?ref=item",["{DIAGNOSTIC_CREDENTIAL_URL}"]]',
+            f'{{"failed {DIAGNOSTIC_SAFE_URL}#tag":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+        ):
+            with self.subTest(title=title), patch.object(
+                cli,
+                FETCH_PRESS_PAGE_HTML_ATTR,
+                return_value=_archive_page_html(escape(title), '/press/invalid path'),
+            ):
+                exit_code, stdout, stderr = _run_cli_raw(*_url_args())
+
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(stdout, '')
+                self.assertNotIn(DIAGNOSTIC_USERNAME, stderr)
+                self.assertNotIn(DIAGNOSTIC_PASSWORD, stderr)
+                self.assertIn(DIAGNOSTIC_SAFE_URL, stderr)
+                self.assertIn(DIAGNOSTIC_REDACTED_URL, stderr)
+                self.assertIn('validation=unsafe_character', stderr)
+                self.assertIn(f'page_url={EXAMPLE_INDEX_URL!r}', stderr)
+                self.assertIn('title=', stderr)
+                self.assertIn("href='/press/invalid path'", stderr)
+
     def test_print_runtime_error_redacts_url_credentials(self) -> None:
-        """エラー対象と理由に含まれるURL認証情報を伏せること"""
+        """制御文字で分断された接頭辞も認識し、エラー対象と理由の認証情報を伏せること"""
 
-        credential_url = (
-            'https://user:password@example.com/press/index.html'
-        )
-        stderr = io.StringIO()
+        for prefix, expected_prefix in DIAGNOSTIC_URL_PREFIX_CASES:
+            for password in (
+                'password',
+                'password@credential-tail',
+                'password tail',
+                'password\ttail',
+                'password\ntail',
+                'password\r\ntail',
+                'password\x1btail',
+                'password@credential-tail tail',
+                "password' title='credential-tail",
+                'password" tail',
+            ):
+                with self.subTest(prefix=prefix, password=password):
+                    credential_url = f'{prefix}user:{password}@example.com/press/index.html'
+                    stderr = io.StringIO()
 
-        with redirect_stderr(stderr):
-            cli._print_runtime_error(
-                credential_url,
-                RuntimeError(f'invalid URL: {credential_url}'),
-            )
+                    with redirect_stderr(stderr):
+                        cli._print_runtime_error(
+                            credential_url,
+                            RuntimeError(f"invalid URL: href='{credential_url}'"),
+                        )
 
-        self.assertNotIn('user:password', stderr.getvalue())
-        self.assertEqual(
-            stderr.getvalue().count('https://[redacted]@example.com'),
-            2,
-        )
+                    self.assertNotIn('user:', stderr.getvalue())
+                    self.assertNotIn('password', stderr.getvalue())
+                    self.assertNotIn('credential-tail', stderr.getvalue())
+                    self.assertEqual(
+                        stderr.getvalue().count(f'{expected_prefix}[redacted]@example.com'),
+                        2,
+                    )
 
     def test_print_runtime_error_escapes_terminal_control_characters(
         self,
@@ -274,31 +539,112 @@ class ScraperOutputCliTest(unittest.TestCase):
         self.assertIn(r'\x1b[31m', stderr.getvalue())
         self.assertIn(r'\x1b[0m', stderr.getvalue())
 
-    def test_print_progress_sanitizes_message(self) -> None:
-        """verbose進捗の認証情報と制御文字をstderrへ出さないこと"""
+    def test_print_runtime_error_keeps_url_boundaries(self) -> None:
+        """複数URLを個別に伏せ、非認証URLのパス・クエリ・fragmentを保持すること"""
 
-        credential_url = (
-            'https://user:password@example.com/press/index.html'
+        safe_url = f'{EXAMPLE_BASE_URL}/path=//tag@item?email=a@b.test#tag@item'
+        reason = (
+            'failed https://first:secret tail@first.test '
+            'and //second:secret\ttail@second.test/path; '
+            f'reference={safe_url}'
         )
         stderr = io.StringIO()
 
         with redirect_stderr(stderr):
-            cli._print_progress(
-                True,
-                f'fetching index: {credential_url}\ninjected=true\x1b[31m',
-            )
+            cli._print_runtime_error(safe_url, RuntimeError(reason))
 
-        self.assertEqual(len(stderr.getvalue().splitlines()), 1)
-        self.assertNotIn('user:password', stderr.getvalue())
-        self.assertNotIn('\x1b', stderr.getvalue())
-        self.assertIn(
-            (
-                'fetching index: '
-                'https://[redacted]@example.com/press/index.html '
-                r'injected=true\x1b[31m'
-            ),
-            stderr.getvalue(),
+        message = stderr.getvalue()
+        self.assertNotIn('secret', message)
+        self.assertIn('https://[redacted]@first.test and ', message)
+        self.assertIn('//[redacted]@second.test/path;', message)
+        self.assertEqual(message.count(safe_url), 2)
+
+    def test_print_runtime_error_keeps_at_in_url_query_and_fragment(self) -> None:
+        """非認証URLの二重スラッシュのパス・クエリ・fragmentを保持すること"""
+
+        for url in (
+            f'{EXAMPLE_BASE_URL}//value=//tag@item',
+            f'{EXAMPLE_BASE_URL}?email=a@b.test',
+            '//example.com#tag@item',
+            f'{EXAMPLE_BASE_URL}?value=//tag@item',
+            '//example.com#value=//tag@item',
+            f"{EXAMPLE_BASE_URL}/press/a'//tag@item",
+            f"{EXAMPLE_BASE_URL}?ref=a'//tag@item",
+            f"{EXAMPLE_BASE_URL}#a'//tag@item",
+            f'{EXAMPLE_BASE_URL}/press/(//tag@item)',
+            f'{EXAMPLE_BASE_URL}?ref=(//tag@item)',
+            f'{EXAMPLE_BASE_URL}#(//tag@item)',
+            f"{EXAMPLE_BASE_URL}/press/href:'//tag@item",
+            f'{EXAMPLE_BASE_URL}?ref={{"href":"//tag@item"}}',
+            f'{EXAMPLE_BASE_URL}#参照:(//tag@item)',
+            f"{EXAMPLE_BASE_URL}/press/a','//tag@item",
+            f'{EXAMPLE_BASE_URL}?ref="value","href":"//tag@item"',
+            f"{EXAMPLE_BASE_URL}#value','//tag@item",
+        ):
+            with self.subTest(url=url):
+                stderr = io.StringIO()
+
+                with redirect_stderr(stderr):
+                    cli._print_runtime_error(url, RuntimeError(f'failed {url}'))
+
+                self.assertEqual(stderr.getvalue().count(url), 2)
+                self.assertNotIn('[redacted]', stderr.getvalue())
+
+    def test_print_runtime_error_keeps_noncredential_urls_in_quoted_structures(
+        self,
+    ) -> None:
+        """引用付き文字列内の正常URL・メールアドレス・エスケープを診断へ保持すること"""
+
+        inner_value = json.dumps(
+            {
+                'msg': f'failed {DIAGNOSTIC_SAFE_URL}?ref={{"href":"//tag@item"}}',
+                'email': 'person@example.org',
+            },
+            separators=(',', ':'),
         )
+        for reason in (
+            repr([inner_value]),
+            repr(inner_value),
+            json.dumps(inner_value),
+            json.dumps({'payload': inner_value}),
+            json.dumps([json.dumps({'payload': inner_value})]),
+        ):
+            with self.subTest(reason=reason):
+                stderr = io.StringIO()
+                with redirect_stderr(stderr):
+                    cli._print_runtime_error(EXAMPLE_INDEX_URL, RuntimeError(reason))
+
+                self.assertIn(reason, stderr.getvalue())
+                self.assertNotIn('[redacted]', stderr.getvalue())
+
+    def test_print_progress_sanitizes_message(self) -> None:
+        """接頭辞の制御文字も認識して秘密を伏せ、端末制御文字を進捗へ直接出さないこと"""
+
+        for prefix, expected_prefix in DIAGNOSTIC_URL_PREFIX_CASES:
+            for password in ('password', 'password tail', 'password\tcredential-tail'):
+                with self.subTest(prefix=prefix, password=password):
+                    credential_url = f'{prefix}user:{password}@example.com/press/index.html'
+                    stderr = io.StringIO()
+
+                    with redirect_stderr(stderr):
+                        cli._print_progress(
+                            True,
+                            f'fetching index: {credential_url}\ninjected=true\x1b[31m',
+                        )
+
+                    self.assertEqual(len(stderr.getvalue().splitlines()), 1)
+                    self.assertNotIn('user:', stderr.getvalue())
+                    self.assertNotIn('password', stderr.getvalue())
+                    self.assertNotIn('credential-tail', stderr.getvalue())
+                    self.assertNotIn('\x1b', stderr.getvalue())
+                    self.assertIn(
+                        (
+                            'fetching index: '
+                            f'{expected_prefix}[redacted]@example.com/press/index.html '
+                            r'injected=true\x1b[31m'
+                        ),
+                        stderr.getvalue(),
+                    )
 
     def test_main_does_not_create_output_file_on_fetch_error(self) -> None:
         """HTML取得失敗時にJSONスナップショットを作成しないこと"""
