@@ -1,0 +1,13 @@
+# PressWatchでの通常作業の既定値。アプリで選択したモデル・推論量は優先される。
+model = "gpt-6.1-sol"
+model_reasoning_effort = "high"
+
+# 長いツール出力を履歴へ蓄積しない。全文確認は必要な範囲ごとに分割する。
+tool_output_token_limit = 6000
+
+[agents]
+# 本体を除く担当の同時起動上限。独立した敵対的レビューでは3体を使う。
+max_concurrent_threads_per_session = 3
+# 通常作業の担当もSol・High。敵対的レビュー担当はスキルでAstra・Ultraを明示する。
+default_subagent_model = "gpt-6.1-sol"
+default_subagent_reasoning_effort = "high"
