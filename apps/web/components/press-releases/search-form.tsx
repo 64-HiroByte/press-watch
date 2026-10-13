@@ -172,7 +172,6 @@ export function SearchForm({
       >
         リセット
       </Button>
-      <p className="release-feature-notice">カテゴリ選択は後続フェーズで実装します。</p>
     </SidebarForm>
   );
 }

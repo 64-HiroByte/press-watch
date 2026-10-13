@@ -25,7 +25,7 @@ export default defineConfig({
     },
     {
       name: "production-smoke",
-      testMatch: ["production.spec.ts", "list.spec.ts", "search.spec.ts"],
+      testMatch: ["production.spec.ts", "list.spec.ts", "search.spec.ts", "category.spec.ts"],
       use: { baseURL: productionURL },
     },
   ],

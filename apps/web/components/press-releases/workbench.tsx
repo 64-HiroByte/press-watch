@@ -20,6 +20,7 @@ import { ListPagination } from "@/components/press-releases/pagination";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SearchForm } from "@/components/press-releases/search-form";
+import { CategoryFilters } from "@/components/press-releases/category-filters";
 import { periodDates, type Period } from "@/lib/press-release-dates";
 import type { CategoryOption, ListData } from "@/lib/press-releases-api";
 import {
@@ -104,6 +105,7 @@ export function ListWorkbench({
     pending || normalizing || (navigationURL !== null && navigationURL !== query.original);
   const canChange = !busy && options !== null && options.length > 0;
   const repair = query.errors.length > 0 || dateError;
+  const canChangeCategories = canChange && !repair;
 
   useEffect(() => {
     if (!busy) lock.current = false;
@@ -255,6 +257,17 @@ export function ListWorkbench({
     setPeriod(null);
     if (queryString(conditions) !== query.original) navigate(conditions);
   }
+  function changeCategories(values: string[]) {
+    if (!canChangeCategories || lock.current) return;
+    const categories = [...new Set(values)].sort();
+    if (categories.length > 20) return;
+    if (
+      categories.length === query.conditions.categories.length &&
+      categories.every((slug, index) => slug === query.conditions.categories[index])
+    )
+      return;
+    navigate({ ...query.conditions, categories, page: 1 });
+  }
   const filtered = !!(
     query.conditions.q ||
     query.conditions.from ||
@@ -383,13 +396,11 @@ export function ListWorkbench({
                                     disabled={!canChange || repair}
                                     aria-label={`${slug}を解除`}
                                     onClick={() =>
-                                      navigate({
-                                        ...query.conditions,
-                                        categories: query.conditions.categories.filter(
+                                      changeCategories(
+                                        query.conditions.categories.filter(
                                           (value) => value !== slug,
                                         ),
-                                        page: 1,
-                                      })
+                                      )
                                     }
                                   >
                                     解除
@@ -480,33 +491,26 @@ export function ListWorkbench({
             onApply={submit}
             onReset={resetSearch}
           />
-          <div className="release-sidebar-categories">
-            <fieldset className="release-category-field">
-              <legend>カテゴリ</legend>
-              {busy ? (
-                <output>カテゴリを読み込んでいます</output>
-              ) : options === null ? (
-                <p role="alert">カテゴリ選択肢を取得できませんでした</p>
-              ) : options.length === 0 ? (
-                <p>カテゴリ選択肢が未登録です</p>
-              ) : (
-                <div className="release-category-toggles">
-                  {options.map((option) => (
-                    <Button
-                      type="button"
-                      key={option.slug}
-                      variant="outline"
-                      disabled
-                      aria-pressed={query.conditions.categories.includes(option.slug)}
-                      className="release-category-pill release-category-toggle"
-                    >
-                      {option.name}
-                    </Button>
-                  ))}
-                </div>
-              )}
-            </fieldset>
-          </div>
+          <CategoryFilters
+            options={options}
+            selected={query.conditions.categories}
+            busy={busy}
+            canChange={canChangeCategories}
+            onToggle={(slug) =>
+              changeCategories(
+                query.conditions.categories.includes(slug)
+                  ? query.conditions.categories.filter((value) => value !== slug)
+                  : [...query.conditions.categories, slug],
+              )
+            }
+            onSelectAll={() =>
+              changeCategories([
+                ...query.conditions.categories,
+                ...(options?.map((option) => option.slug) ?? []),
+              ])
+            }
+            onClear={() => changeCategories([])}
+          />
         </SidebarFilters>
       </section>
     </main>
