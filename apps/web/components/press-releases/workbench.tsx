@@ -23,6 +23,7 @@ import { SearchForm } from "@/components/press-releases/search-form";
 import { CategoryFilters } from "@/components/press-releases/category-filters";
 import { periodDates, type Period } from "@/lib/press-release-dates";
 import type { CategoryOption, ListData } from "@/lib/press-releases-api";
+import { MAX_FIXED_CATEGORY_COUNT } from "@/lib/press-release-values";
 import {
   parseQuery,
   queryString,
@@ -260,7 +261,7 @@ export function ListWorkbench({
   function changeCategories(values: string[]) {
     if (!canChangeCategories || lock.current) return;
     const categories = [...new Set(values)].sort();
-    if (categories.length > 20) return;
+    if (categories.length > MAX_FIXED_CATEGORY_COUNT) return;
     if (
       categories.length === query.conditions.categories.length &&
       categories.every((slug, index) => slug === query.conditions.categories[index])

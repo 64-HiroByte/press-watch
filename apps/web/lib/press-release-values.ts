@@ -1,3 +1,7 @@
+export const MAX_FIXED_CATEGORY_COUNT = 20;
+export const MAX_FIXED_CATEGORY_SLUG_LENGTH = 100;
+export const MAX_SEARCH_KEYWORD_LENGTH = 100;
+
 export const categorySlug = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/;
 
 export function validDate(value: string): boolean {

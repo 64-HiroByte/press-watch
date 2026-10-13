@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import type { CategoryOption } from "@/lib/press-releases-api";
+import { MAX_FIXED_CATEGORY_COUNT } from "@/lib/press-release-values";
 
 type Props = {
   options: CategoryOption[] | null;
@@ -22,9 +23,10 @@ export function CategoryFilters({
   onSelectAll,
   onClear,
 }: Props) {
-  const atLimit = selected.length >= 20;
+  const atLimit = selected.length >= MAX_FIXED_CATEGORY_COUNT;
   const allExceedsLimit =
-    new Set([...selected, ...(options?.map((option) => option.slug) ?? [])]).size > 20;
+    new Set([...selected, ...(options?.map((option) => option.slug) ?? [])]).size >
+    MAX_FIXED_CATEGORY_COUNT;
   // 取得中はaria-disabledと操作ガードで停止し、操作元のDOMとフォーカスを維持する。
   return (
     <div className="release-sidebar-categories">
@@ -74,12 +76,12 @@ export function CategoryFilters({
         </p>
         {atLimit && (
           <p id="release-category-limit" className="release-category-help">
-            カテゴリは20個まで選択できます。解除してから追加してください。
+            カテゴリは{MAX_FIXED_CATEGORY_COUNT}個まで選択できます。解除してから追加してください。
           </p>
         )}
         {allExceedsLimit && (
           <p id="release-category-all-limit" className="release-category-help">
-            全選択は20個を超えるため利用できません。個別に選択してください。
+            全選択は{MAX_FIXED_CATEGORY_COUNT}個を超えるため利用できません。個別に選択してください。
           </p>
         )}
         {busy && <output>カテゴリを読み込んでいます</output>}

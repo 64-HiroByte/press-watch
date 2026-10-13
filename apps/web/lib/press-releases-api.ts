@@ -1,7 +1,12 @@
 import "server-only";
 
 import type { FixedCategoryLabel } from "@/components/press-releases/list";
-import { categorySlug, safeHttpURL, validDate } from "@/lib/press-release-values";
+import {
+  categorySlug,
+  MAX_FIXED_CATEGORY_SLUG_LENGTH,
+  safeHttpURL,
+  validDate,
+} from "@/lib/press-release-values";
 
 export type CategoryOption = FixedCategoryLabel & { display_order: number };
 export type ListData = {
@@ -24,7 +29,7 @@ function label(value: unknown): value is FixedCategoryLabel {
   return (
     object(value) &&
     typeof value.slug === "string" &&
-    value.slug.length <= 100 &&
+    value.slug.length <= MAX_FIXED_CATEGORY_SLUG_LENGTH &&
     categorySlug.test(value.slug) &&
     typeof value.name === "string" &&
     !!value.name.trim() &&

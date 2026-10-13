@@ -1,4 +1,10 @@
-import { categorySlug, validDate } from "./press-release-values";
+import {
+  categorySlug,
+  MAX_FIXED_CATEGORY_COUNT,
+  MAX_FIXED_CATEGORY_SLUG_LENGTH,
+  MAX_SEARCH_KEYWORD_LENGTH,
+  validDate,
+} from "./press-release-values";
 import { tokyoToday } from "./press-release-dates";
 
 export type SearchValues = Record<string, string | string[] | undefined>;
@@ -69,16 +75,20 @@ export function parseQuery(values: SearchValues, now = new Date()): QueryState {
   const size = single("page_size", "page");
   const categoryValues = values.fixed_category;
   const categories = typeof categoryValues === "string" ? [categoryValues] : (categoryValues ?? []);
-  if (Array.from(q).length > 100 || q.includes("\0"))
-    error("キーワードは100文字以内で指定してください", "q");
+  if (Array.from(q).length > MAX_SEARCH_KEYWORD_LENGTH || q.includes("\0"))
+    error(`キーワードは${MAX_SEARCH_KEYWORD_LENGTH}文字以内で指定してください`, "q");
   if (
-    categories.length > 20 ||
+    categories.length > MAX_FIXED_CATEGORY_COUNT ||
     categories.some(
       (slug) =>
-        Array.from(slug).length > 100 || (trim(slug) !== "" && !categorySlug.test(trim(slug))),
+        Array.from(slug).length > MAX_FIXED_CATEGORY_SLUG_LENGTH ||
+        (trim(slug) !== "" && !categorySlug.test(trim(slug))),
     )
   )
-    error("カテゴリは正しいslugを20個以内、各100文字以内で指定してください", "categories");
+    error(
+      `カテゴリは正しいslugを${MAX_FIXED_CATEGORY_COUNT}個以内、各${MAX_FIXED_CATEGORY_SLUG_LENGTH}文字以内で指定してください`,
+      "categories",
+    );
   if (
     (values.published_from !== undefined && !validDate(from)) ||
     (values.published_to !== undefined && !validDate(to))

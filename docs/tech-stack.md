@@ -222,6 +222,9 @@ URLと送信前の検証は共通の`parseQuery`を使い、検証した欄を�
 Phase 6-10のカテゴリ変更も`workbench.tsx`の既存URL遷移へ接続し、選択状態はURLから求める。
 `apps/web/components/press-releases/category-filters.tsx`はカテゴリの描画・上限の案内・操作可否を担当し、取得・履歴・検索下書きの更新は行わない。
 未定義slugの個別解除も同じカテゴリ変更処理を使用し、変更のない選択集合や20指定超過では遷移しない。
+カテゴリ指定数の上限は`apps/web/lib/press-release-values.ts`の`MAX_FIXED_CATEGORY_COUNT`に置き、URL検証・操作ガード・UI判定と説明文で共有する。
+同じファイルにカテゴリslug長の`MAX_FIXED_CATEGORY_SLUG_LENGTH`とキーワード長の`MAX_SEARCH_KEYWORD_LENGTH`を別々に定義し、判定とエラー文言で共有する。
+カテゴリslug長はAPI応答の検証にも使用し、数値が同じでも意味の異なる契約は結び付けない。
 FastAPIが入力検証・検索・DB取得を担当し、Next.jsサーバーが`GET /press-releases`と`GET /fixed-categories`を共通の取得方針で呼び出す。
 ブラウザはキーワード・日付の下書き、カテゴリ操作、URLへの反映、テーマ・文字サイズ・ドロワーを担当する。
 一覧の取得・描画はServer側を基本とし、入力状態と操作に必要な部分だけをClient側へ置く。
