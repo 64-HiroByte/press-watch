@@ -1,7 +1,9 @@
 import {
   categorySlug,
+  LIST_PAGE_SIZE,
   MAX_FIXED_CATEGORY_COUNT,
   MAX_FIXED_CATEGORY_SLUG_LENGTH,
+  MAX_LIST_PAGE,
   MAX_SEARCH_KEYWORD_LENGTH,
   validDate,
 } from "./press-release-values";
@@ -100,11 +102,11 @@ export function parseQuery(values: SearchValues, now = new Date()): QueryState {
     );
   if (
     values.page !== undefined &&
-    (!/^[0-9]+$/.test(page) || Number(page) < 1 || Number(page) > 10000)
+    (!/^[0-9]+$/.test(page) || Number(page) < 1 || Number(page) > MAX_LIST_PAGE)
   )
-    error("ページは1から10000で指定してください", "page");
-  if ((size && size !== "50") || (values.page_size !== undefined && size === ""))
-    error("page_sizeは50だけを指定できます", "page");
+    error(`ページは1から${MAX_LIST_PAGE}で指定してください`, "page");
+  if ((size && size !== String(LIST_PAGE_SIZE)) || (values.page_size !== undefined && size === ""))
+    error(`page_sizeは${LIST_PAGE_SIZE}だけを指定できます`, "page");
   const conditions: Conditions = {
     q: trim(q),
     from,

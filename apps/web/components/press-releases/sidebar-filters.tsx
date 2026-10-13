@@ -16,6 +16,7 @@ import {
 import { XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { NARROW_SCREEN_QUERY } from "@/lib/press-release-layout";
 
 type SidebarFiltersProps = {
   children: ReactNode;
@@ -71,7 +72,7 @@ export function SidebarFilters({
     const panel = panelRef.current;
     const trigger = triggerRef.current;
     if (!panel) return;
-    const narrowScreen = window.matchMedia("(width < 768px)");
+    const narrowScreen = window.matchMedia(NARROW_SCREEN_QUERY);
     let wasNarrow: boolean | undefined;
 
     function forgetTriggerFocus(event: FocusEvent) {
@@ -144,7 +145,7 @@ export function SidebarFilters({
 
   function openDrawer() {
     const panel = panelRef.current;
-    if (!panel || !window.matchMedia("(width < 768px)").matches) return;
+    if (!panel || !window.matchMedia(NARROW_SCREEN_QUERY).matches) return;
     pagePosition.current = { left: window.scrollX, top: window.scrollY };
     if (panel.open) panel.close();
     restoreTriggerFocus.current = true;

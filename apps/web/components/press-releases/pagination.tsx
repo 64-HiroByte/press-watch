@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/pagination";
 import { queryString, type Conditions } from "@/lib/press-release-query";
 import type { ListData } from "@/lib/press-releases-api";
+import { MAX_LIST_PAGE } from "@/lib/press-release-values";
 
 function pageNumbers(page: number, last: number): (number | string)[] {
   if (last <= 5) return Array.from({ length: last }, (_, index) => index + 1);
@@ -40,7 +41,7 @@ export function ListPagination({
 }) {
   if (!pagination || pagination.total_items === 0) return null;
   const { page, total_pages: total } = pagination;
-  const last = Math.min(total, 10000);
+  const last = Math.min(total, MAX_LIST_PAGE);
   function destination(number: number) {
     const unavailable = disabled || number < 1 || number > last;
     const query = queryString({ ...conditions, page: number });
@@ -92,8 +93,10 @@ export function ListPagination({
           </PaginationContent>
         </Pagination>
       )}
-      {total > 10000 && (
-        <span className="release-page-description">移動できるのは10000ページ目までです</span>
+      {total > MAX_LIST_PAGE && (
+        <span className="release-page-description">
+          移動できるのは{MAX_LIST_PAGE}ページ目までです
+        </span>
       )}
     </footer>
   );

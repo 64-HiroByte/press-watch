@@ -24,6 +24,7 @@ import { CategoryFilters } from "@/components/press-releases/category-filters";
 import { periodDates, type Period } from "@/lib/press-release-dates";
 import type { CategoryOption, ListData } from "@/lib/press-releases-api";
 import { MAX_FIXED_CATEGORY_COUNT } from "@/lib/press-release-values";
+import { NARROW_SCREEN_QUERY } from "@/lib/press-release-layout";
 import {
   parseQuery,
   queryString,
@@ -66,7 +67,7 @@ function draftValues(query: QueryState) {
 }
 
 function subscribeWidth(callback: () => void) {
-  const media = window.matchMedia("(width < 768px)");
+  const media = window.matchMedia(NARROW_SCREEN_QUERY);
   media.addEventListener("change", callback);
   return () => media.removeEventListener("change", callback);
 }
@@ -91,7 +92,7 @@ export function ListWorkbench({
   const [textSize, setTextSize] = useState<"standard" | "large">("standard");
   const narrow = useSyncExternalStore(
     subscribeWidth,
-    () => window.matchMedia("(width < 768px)").matches,
+    () => window.matchMedia(NARROW_SCREEN_QUERY).matches,
     () => false,
   );
   const conditionsExpanded = expanded ?? !narrow;
@@ -116,7 +117,7 @@ export function ListWorkbench({
     if (busy || pageFocusURL.current !== query.original) return;
     pageFocusURL.current = null;
     titleRef.current?.focus({ preventScroll: true });
-    if (window.matchMedia("(width < 768px)").matches) {
+    if (window.matchMedia(NARROW_SCREEN_QUERY).matches) {
       titleRef.current?.scrollIntoView({ block: "start", behavior: "instant" });
     } else {
       headerRef.current

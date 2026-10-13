@@ -6,12 +6,12 @@ import type { Conditions } from "@/lib/press-release-query";
 export function ListSummary({ list }: { list: ApiResult<ListData> | null }) {
   if (!list?.ok) return null;
   const { items, pagination } = list.data;
+  const offset = (pagination.page - 1) * pagination.page_size;
   return (
     <div className="release-results-summary">
       <p>
         <strong>{pagination.total_items}</strong> 件
-        {items.length > 0 &&
-          `中 ${(pagination.page - 1) * 50 + 1}–${(pagination.page - 1) * 50 + items.length}件`}
+        {items.length > 0 && `中 ${offset + 1}–${offset + items.length}件`}
       </p>
       <span>公開日の新しい順</span>
     </div>

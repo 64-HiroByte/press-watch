@@ -27,6 +27,8 @@ export function CategoryFilters({
   const allExceedsLimit =
     new Set([...selected, ...(options?.map((option) => option.slug) ?? [])]).size >
     MAX_FIXED_CATEGORY_COUNT;
+  const operationBlocked = !canChange || busy;
+  const nativeDisabled = !canChange && !busy;
   // 取得中はaria-disabledと操作ガードで停止し、操作元のDOMとフォーカスを維持する。
   return (
     <div className="release-sidebar-categories">
@@ -39,15 +41,15 @@ export function CategoryFilters({
               variant="outline"
               className="release-category-action"
               aria-label="カテゴリを全選択"
-              disabled={(!canChange && !busy) || allExceedsLimit}
-              aria-disabled={!canChange || busy || allExceedsLimit}
+              disabled={nativeDisabled || allExceedsLimit}
+              aria-disabled={operationBlocked || allExceedsLimit}
               aria-describedby={
                 allExceedsLimit
                   ? "release-category-select-help release-category-all-limit"
                   : "release-category-select-help"
               }
               onClick={() => {
-                if (canChange && !busy && !allExceedsLimit) onSelectAll();
+                if (!operationBlocked && !allExceedsLimit) onSelectAll();
               }}
             >
               全選択
@@ -58,10 +60,10 @@ export function CategoryFilters({
               className="release-category-action"
               aria-label="カテゴリを全解除"
               aria-describedby="release-category-clear-help"
-              disabled={!canChange && !busy}
-              aria-disabled={!canChange || busy}
+              disabled={nativeDisabled}
+              aria-disabled={operationBlocked}
               onClick={() => {
-                if (canChange && !busy) onClear();
+                if (!operationBlocked) onClear();
               }}
             >
               全解除
@@ -97,13 +99,13 @@ export function CategoryFilters({
                   type="button"
                   key={option.slug}
                   variant="outline"
-                  disabled={(!canChange && !busy) || cannotAdd}
-                  aria-disabled={!canChange || busy || cannotAdd}
+                  disabled={nativeDisabled || cannotAdd}
+                  aria-disabled={operationBlocked || cannotAdd}
                   aria-describedby={cannotAdd ? "release-category-limit" : undefined}
                   aria-pressed={pressed}
                   className="release-category-pill release-category-toggle"
                   onClick={() => {
-                    if (canChange && !busy && !cannotAdd) onToggle(option.slug);
+                    if (!operationBlocked && !cannotAdd) onToggle(option.slug);
                   }}
                 >
                   {option.name}
