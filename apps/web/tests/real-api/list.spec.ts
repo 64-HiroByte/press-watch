@@ -67,3 +67,92 @@ test("専用実APIのページ送りを往復し順序・全文タイトル・�
   await expect(page.getByText("0", { exact: true })).toBeVisible();
   expect(external).toEqual([]);
 });
+
+test("通常検索と公開日・リセットを実APIへ接続しカテゴリ付き検索をページ送りする", async ({
+  page,
+  request,
+}) => {
+  const external: string[] = [];
+  page.on("request", (call) => {
+    if (new URL(call.url()).origin !== "http://127.0.0.1:3108") external.push(call.url());
+  });
+  const search = page.getByRole("button", { name: "検索", exact: true });
+  const keyword = page.getByLabel("キーワード", { exact: true });
+  const rows = page.getByRole("list", { name: "報道発表一覧" }).locator("li");
+  async function compare(query: string, count: number) {
+    const response = await request.get(`http://127.0.0.1:8001/press-releases?${query}`);
+    expect(response.ok()).toBe(true);
+    const data = await response.json();
+    expect(data.pagination.total_items).toBe(count);
+    await expect(search).toBeEnabled();
+    await expect(rows).toHaveCount(data.items.length);
+    expect(await rows.getByRole("link").allTextContents()).toEqual(
+      data.items.map((item: Item) => item.title),
+    );
+    expect(
+      await rows
+        .locator("time")
+        .evaluateAll((items) => items.map((item) => item.getAttribute("datetime"))),
+    ).toEqual(data.items.map((item: Item) => item.published_at));
+  }
+  await page.goto("/?fixed_category=air&page=2");
+  await keyword.fill("　土壌　");
+  await search.click();
+  await expect(page).toHaveURL(
+    (url) => url.searchParams.get("q") === "土壌" && !url.searchParams.has("page"),
+  );
+  await compare("q=土壌&fixed_category=air", 1);
+  await expect(rows.getByText("土壌", { exact: true })).toBeVisible();
+  await expect(rows.getByText("大気", { exact: true })).toBeVisible();
+  await keyword.fill("ページ");
+  await search.click();
+  await expect(page).toHaveURL((url) => url.searchParams.get("q") === "ページ");
+  await compare("q=ページ&fixed_category=air", 51);
+  await page.getByRole("navigation", { name: "ページ送り" }).getByLabel("次のページへ").click();
+  await expect(page).toHaveURL(
+    (url) =>
+      url.searchParams.get("page") === "2" &&
+      url.searchParams.get("q") === "ページ" &&
+      url.searchParams.get("fixed_category") === "air",
+  );
+  await compare("q=ページ&fixed_category=air&page=2", 51);
+  await expect(rows).toHaveCount(1);
+  await page.getByLabel("開始日", { exact: true }).fill("2026-01-04");
+  await page.getByLabel("終了日", { exact: true }).fill("2026-01-02");
+  await search.click();
+  await expect(page).toHaveURL(
+    (url) =>
+      !url.searchParams.has("page") && url.searchParams.get("published_from") === "2026-01-02",
+  );
+  await compare(
+    "q=ページ&fixed_category=air&published_from=2026-01-02&published_to=2026-01-04",
+    51,
+  );
+  await page.getByLabel("開始日", { exact: true }).fill("2026-01-03");
+  await page.getByLabel("終了日", { exact: true }).fill("2026-01-03");
+  await search.click();
+  await expect(page).toHaveURL((url) => url.searchParams.get("published_to") === "2026-01-03");
+  await compare(
+    "q=ページ&fixed_category=air&published_from=2026-01-03&published_to=2026-01-03",
+    51,
+  );
+  await page.getByLabel("開始日", { exact: true }).fill("2026-01-04");
+  await page.getByLabel("終了日", { exact: true }).fill("2026-01-05");
+  await search.click();
+  await expect(page).toHaveURL((url) => url.searchParams.get("published_to") === "2026-01-05");
+  await compare("q=ページ&fixed_category=air&published_from=2026-01-04&published_to=2026-01-05", 0);
+  await page.getByRole("button", { name: "リセット", exact: true }).click();
+  await expect(page).toHaveURL("/?fixed_category=air");
+  await compare("fixed_category=air", 52);
+  await keyword.fill("%_");
+  await search.click();
+  await expect(page).toHaveURL((url) => url.searchParams.get("q") === "%_");
+  await compare("q=%25_&fixed_category=air", 0);
+  await expect(page.getByText("条件に一致する報道発表がありません")).toBeVisible();
+  await page.getByRole("button", { name: "リセット", exact: true }).click();
+  await expect(page).toHaveURL("/?fixed_category=air");
+  await compare("fixed_category=air", 52);
+  for (const label of ["キーワード", "開始日", "終了日"])
+    await expect(page.getByLabel(label, { exact: true })).toHaveValue("");
+  expect(external).toEqual([]);
+});

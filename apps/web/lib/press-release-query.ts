@@ -1,4 +1,5 @@
 import { categorySlug, validDate } from "./press-release-values";
+import { tokyoToday } from "./press-release-dates";
 
 export type SearchValues = Record<string, string | string[] | undefined>;
 export type Conditions = {
@@ -12,9 +13,11 @@ export type QueryState = {
   conditions: Conditions;
   raw: { q: string; from: string; to: string; categories: string; page: string };
   errors: string[];
+  errorFields: QueryField[];
   canonical: string;
   original: string;
 };
+export type QueryField = keyof QueryState["raw"];
 function whitespace(code: number) {
   return (
     (code >= 9 && code <= 13) ||
@@ -49,20 +52,25 @@ export function parseQuery(values: SearchValues, now = new Date()): QueryState {
     for (const item of typeof value === "string" ? [value] : (value ?? []))
       original.append(key, item);
   const errors: string[] = [];
-  function single(key: string) {
+  const errorFields: QueryField[] = [];
+  function error(message: string, ...fields: QueryField[]) {
+    errors.push(message);
+    errorFields.push(...fields);
+  }
+  function single(key: string, field: QueryField) {
     const value = values[key];
-    if (Array.isArray(value)) errors.push(`${key}を複数指定できません`);
+    if (Array.isArray(value)) error(`${key}を複数指定できません`, field);
     return typeof value === "string" ? value : (value?.[0] ?? "");
   }
-  const q = single("q");
-  const from = single("published_from");
-  const to = single("published_to");
-  const page = single("page");
-  const size = single("page_size");
+  const q = single("q", "q");
+  const from = single("published_from", "from");
+  const to = single("published_to", "to");
+  const page = single("page", "page");
+  const size = single("page_size", "page");
   const categoryValues = values.fixed_category;
   const categories = typeof categoryValues === "string" ? [categoryValues] : (categoryValues ?? []);
   if (Array.from(q).length > 100 || q.includes("\0"))
-    errors.push("キーワードは100文字以内で指定してください");
+    error("キーワードは100文字以内で指定してください", "q");
   if (
     categories.length > 20 ||
     categories.some(
@@ -70,19 +78,23 @@ export function parseQuery(values: SearchValues, now = new Date()): QueryState {
         Array.from(slug).length > 100 || (trim(slug) !== "" && !categorySlug.test(trim(slug))),
     )
   )
-    errors.push("カテゴリは正しいslugを20個以内、各100文字以内で指定してください");
+    error("カテゴリは正しいslugを20個以内、各100文字以内で指定してください", "categories");
   if (
     (values.published_from !== undefined && !validDate(from)) ||
     (values.published_to !== undefined && !validDate(to))
   )
-    errors.push("公開日はYYYY-MM-DDの実在日で指定してください");
+    error(
+      "公開日はYYYY-MM-DDの実在日で指定してください",
+      ...(values.published_from !== undefined && !validDate(from) ? ["from" as const] : []),
+      ...(values.published_to !== undefined && !validDate(to) ? ["to" as const] : []),
+    );
   if (
     values.page !== undefined &&
     (!/^[0-9]+$/.test(page) || Number(page) < 1 || Number(page) > 10000)
   )
-    errors.push("ページは1から10000で指定してください");
+    error("ページは1から10000で指定してください", "page");
   if ((size && size !== "50") || (values.page_size !== undefined && size === ""))
-    errors.push("page_sizeは50だけを指定できます");
+    error("page_sizeは50だけを指定できます", "page");
   const conditions: Conditions = {
     q: trim(q),
     from,
@@ -95,13 +107,8 @@ export function parseQuery(values: SearchValues, now = new Date()): QueryState {
       conditions.from = to;
       conditions.to = from;
     } else if (from && !to) {
-      const today = new Intl.DateTimeFormat("en-CA", {
-        timeZone: "Asia/Tokyo",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      }).format(now);
-      if (from > today) errors.push("開始日だけを指定する場合は今日以前にしてください");
+      const today = tokyoToday(now);
+      if (from > today) error("開始日だけを指定する場合は今日以前にしてください", "from");
       else conditions.to = today;
     }
   }
@@ -109,6 +116,7 @@ export function parseQuery(values: SearchValues, now = new Date()): QueryState {
     conditions,
     raw: { q, from, to, categories: categories.join("\n"), page },
     errors,
+    errorFields: [...new Set(errorFields)],
     canonical: queryString(conditions),
     original: original.toString(),
   };

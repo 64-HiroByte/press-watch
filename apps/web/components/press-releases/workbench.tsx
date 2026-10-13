@@ -13,20 +13,21 @@ import { useRouter } from "next/navigation";
 import { ChevronDownIcon, PencilLineIcon } from "lucide-react";
 import { ScrollRegion } from "@/components/press-releases/scroll-region";
 import { DisplayTooltip } from "@/components/press-releases/display-tooltip";
-import { SidebarFilters, SidebarForm } from "@/components/press-releases/sidebar-filters";
+import { SidebarFilters } from "@/components/press-releases/sidebar-filters";
 import { ListThemeToggle } from "@/components/press-releases/theme-toggle";
 import { PressReleaseStatus } from "@/components/press-releases/status";
 import { ListPagination } from "@/components/press-releases/pagination";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { SearchForm } from "@/components/press-releases/search-form";
+import { periodDates, type Period } from "@/lib/press-release-dates";
 import type { CategoryOption, ListData } from "@/lib/press-releases-api";
 import {
   parseQuery,
   queryString,
   type Conditions,
   type QueryState,
+  type QueryField,
   type SearchValues,
 } from "@/lib/press-release-query";
 
@@ -82,6 +83,8 @@ export function ListWorkbench({
   const [navigationURL, setNavigationURL] = useState<string | null>(null);
   const [draft, setDraft] = useState(() => draftValues(query));
   const [localErrors, setLocalErrors] = useState<string[]>([]);
+  const [localErrorFields, setLocalErrorFields] = useState<QueryField[]>([]);
+  const [period, setPeriod] = useState<{ value: Period; from: string; to: string } | null>(null);
   const [expanded, setExpanded] = useState<boolean | null>(null);
   const [textSize, setTextSize] = useState<"standard" | "large">("standard");
   const narrow = useSyncExternalStore(
@@ -91,6 +94,7 @@ export function ListWorkbench({
   );
   const conditionsExpanded = expanded ?? !narrow;
   const mainRef = useRef<HTMLDivElement>(null);
+  const searchFormRef = useRef<HTMLFormElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const lock = useRef(false);
@@ -131,8 +135,11 @@ export function ListWorkbench({
     function restore() {
       pageFocusURL.current = null;
       const restored = parseQuery(currentValues());
+      clearIncompleteDates();
       setDraft(draftValues(restored));
       setLocalErrors([]);
+      setLocalErrorFields([]);
+      setPeriod(null);
       setNavigationURL(restored.original);
     }
     window.addEventListener("popstate", restore);
@@ -169,7 +176,27 @@ export function ListWorkbench({
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canChange || !repair) return false;
+    if (!canChange || lock.current) return false;
+    const incomplete = (["from", "to"] as const).filter(
+      (field) =>
+        event.currentTarget.querySelector<HTMLInputElement>(`#release-date-${field}`)?.validity
+          .badInput,
+    );
+    function reject(errors: string[], fields: QueryField[]) {
+      setLocalErrors(errors);
+      setLocalErrorFields(fields);
+      const ids = {
+        q: "release-keyword",
+        from: "release-date-from",
+        to: "release-date-to",
+        categories: "release-repair-categories",
+        page: "release-repair-page",
+      };
+      if (fields[0]) event.currentTarget.querySelector<HTMLElement>(`#${ids[fields[0]]}`)?.focus();
+      return false;
+    }
+    if (incomplete.length)
+      return reject(["公開日はYYYY-MM-DDの実在日で指定してください"], incomplete);
     const corrected = parseQuery({
       q: draft.q,
       published_from: draft.from || undefined,
@@ -177,22 +204,57 @@ export function ListWorkbench({
       fixed_category: query.errors.length
         ? draft.categories.split("\n")
         : query.conditions.categories,
-      page: draft.page || undefined,
+      page: query.errors.length ? draft.page || undefined : "1",
     });
     if (corrected.errors.length) {
-      setLocalErrors(corrected.errors);
-      return false;
+      return reject(corrected.errors, corrected.errorFields);
     }
     setLocalErrors([]);
+    setLocalErrorFields([]);
     setDraft(draftValues(corrected));
+    if (
+      period &&
+      (corrected.conditions.from !== period.from || corrected.conditions.to !== period.to)
+    )
+      setPeriod(null);
     navigate({ ...corrected.conditions, page: 1 });
     return true;
   }
 
+  function clearIncompleteDates() {
+    // 未完成の日付はvalueが既に空なので、状態更新だけでは表示が消えない。
+    searchFormRef.current
+      ?.querySelectorAll<HTMLInputElement>('input[type="date"]')
+      .forEach((input) => {
+        if (input.validity.badInput) input.value = "";
+      });
+  }
+
   const updateDraft = (key: keyof typeof draft, value: string) => {
     pageFocusURL.current = null;
+    if (period && (key === "from" || key === "to") && value !== period[key]) setPeriod(null);
     setDraft((current) => ({ ...current, [key]: value }));
   };
+  function selectPeriod(value: Period) {
+    pageFocusURL.current = null;
+    if (value === "custom") setPeriod(null);
+    else {
+      const dates = periodDates(value, new Date());
+      setPeriod({ value, ...dates });
+      setDraft((current) => ({ ...current, ...dates }));
+    }
+  }
+  function resetSearch() {
+    if (!canChange || lock.current || query.errors.length) return;
+    clearIncompleteDates();
+    const conditions = { ...query.conditions, q: "", from: "", to: "", page: 1 };
+    pageFocusURL.current = null;
+    setDraft({ ...draft, q: "", from: "", to: "", page: "1" });
+    setLocalErrors([]);
+    setLocalErrorFields([]);
+    setPeriod(null);
+    if (queryString(conditions) !== query.original) navigate(conditions);
+  }
   const filtered = !!(
     query.conditions.q ||
     query.conditions.from ||
@@ -388,8 +450,11 @@ export function ListWorkbench({
                     variant="outline"
                     disabled={!canChange || (!filtered && !repair)}
                     onClick={() => {
+                      clearIncompleteDates();
                       setDraft({ q: "", from: "", to: "", categories: "", page: "1" });
                       setLocalErrors([]);
+                      setLocalErrorFields([]);
+                      setPeriod(null);
                       navigate({ q: "", from: "", to: "", categories: [], page: 1 });
                     }}
                   >
@@ -400,82 +465,21 @@ export function ListWorkbench({
             </ScrollRegion>
           )}
         >
-          <SidebarForm className="release-search" onApply={submit} noValidate>
-            <div className="release-search-field">
-              <Label htmlFor="release-keyword">キーワード</Label>
-              <Input
-                id="release-keyword"
-                type="search"
-                value={draft.q}
-                onChange={(event) => updateDraft("q", event.target.value)}
-                placeholder="タイトル内のキーワード"
-              />
-            </div>
-            <fieldset className="release-date-range">
-              <legend>公開日</legend>
-              <div className="release-date-inputs">
-                {(["from", "to"] as const).map((key) => (
-                  <div key={key} className="release-date-field">
-                    <Label htmlFor={`release-date-${key}`}>
-                      {key === "from" ? "開始日" : "終了日"}
-                    </Label>
-                    <Input
-                      id={`release-date-${key}`}
-                      type={query.errors.length ? "text" : "date"}
-                      value={draft[key]}
-                      onChange={(event) => updateDraft(key, event.target.value)}
-                      aria-invalid={dateError || undefined}
-                      aria-describedby={dateError ? "release-date-error" : undefined}
-                    />
-                  </div>
-                ))}
-              </div>
-            </fieldset>
-            {dateError && (
-              <p id="release-date-error" role="alert">
-                公開日の開始日・終了日を確認して修正してください。
-              </p>
-            )}
-            {query.errors.length > 0 && (
-              <>
-                <Label htmlFor="release-repair-categories">カテゴリslug（1行に1個）</Label>
-                <textarea
-                  id="release-repair-categories"
-                  value={draft.categories}
-                  onChange={(event) => updateDraft("categories", event.target.value)}
-                />
-                <Label htmlFor="release-repair-page">ページ</Label>
-                <Input
-                  id="release-repair-page"
-                  type="text"
-                  inputMode="numeric"
-                  value={draft.page}
-                  onChange={(event) => updateDraft("page", event.target.value)}
-                />
-              </>
-            )}
-            {localErrors.length > 0 && (
-              <div role="alert">
-                {localErrors.map((error) => (
-                  <p key={error}>{error}</p>
-                ))}
-              </div>
-            )}
-            {repair && (
-              <Button type="submit" disabled={!canChange}>
-                条件を修正して適用
-              </Button>
-            )}
-            <Button type="button" className="release-search-button" disabled>
-              検索
-            </Button>
-            <Button type="button" variant="outline" className="release-search-reset" disabled>
-              リセット
-            </Button>
-            <p className="release-feature-notice">
-              検索・リセット・カテゴリ選択は後続フェーズで実装します。
-            </p>
-          </SidebarForm>
+          <SearchForm
+            formRef={searchFormRef}
+            draft={draft}
+            updateDraft={updateDraft}
+            period={period?.value ?? "custom"}
+            onPeriodChange={selectPeriod}
+            canChange={canChange}
+            invalidURL={query.errors.length > 0}
+            repair={repair}
+            dateError={!busy && dateError}
+            errors={localErrors.length ? localErrors : query.errors}
+            errorFields={localErrors.length ? localErrorFields : query.errorFields}
+            onApply={submit}
+            onReset={resetSearch}
+          />
           <div className="release-sidebar-categories">
             <fieldset className="release-category-field">
               <legend>カテゴリ</legend>

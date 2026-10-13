@@ -710,10 +710,13 @@ test("日付をまたぐ履歴復元の正規化後に一覧と再取得が使�
     await rename(`${clockFile}.tmp`, clockFile);
     await page.clock.setFixedTime(new Date(now));
   }
+  const dateError = page
+    .getByRole("region", { name: "報道発表一覧のスクロール領域" })
+    .getByText("開始日だけを指定する場合は今日以前にしてください");
   try {
     await setDate("2026-10-10T03:00:00Z");
     await page.goto("/?published_from=2026-10-11");
-    await expect(page.getByText("開始日だけを指定する場合は今日以前にしてください")).toBeVisible();
+    await expect(dateError).toBeVisible();
     await page.getByRole("button", { name: "すべての条件を解除", exact: true }).click();
     await expect(page).toHaveURL((url) => url.search === "");
     await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
@@ -723,8 +726,7 @@ test("日付をまたぐ履歴復元の正規化後に一覧と再取得が使�
     await expect
       .poll(
         async () =>
-          new URL(page.url()).searchParams.has("published_to") ||
-          (await page.getByText("開始日だけを指定する場合は今日以前にしてください").isVisible()),
+          new URL(page.url()).searchParams.has("published_to") || (await dateError.isVisible()),
       )
       .toBe(true);
     // 履歴キャッシュに前日の入力エラーが残る場合も、利用者の再取得で復旧する。
