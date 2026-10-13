@@ -219,7 +219,9 @@ Phase 6-8のページ送りはServerで検証した`pagination`をClientへ渡�
 Phase 6-9の通常検索・リセットも既存のURL遷移へ接続し、下書きと適用条件は`workbench.tsx`で管理する。
 フォームの描画・入力エラーの関連付け・IME対応は`apps/web/components/press-releases/search-form.tsx`、日本時間の今日と暦による期間計算は`apps/web/lib/press-release-dates.ts`に置く。
 URLと送信前の検証は共通の`parseQuery`を使い、検証した欄をフォームのエラー表示・フォーカスへ渡す。
-カテゴリ選択はPhase 6-10へ残す。
+Phase 6-10のカテゴリ変更も`workbench.tsx`の既存URL遷移へ接続し、選択状態はURLから求める。
+`apps/web/components/press-releases/category-filters.tsx`はカテゴリの描画・上限の案内・操作可否を担当し、取得・履歴・検索下書きの更新は行わない。
+未定義slugの個別解除も同じカテゴリ変更処理を使用し、変更のない選択集合や20指定超過では遷移しない。
 FastAPIが入力検証・検索・DB取得を担当し、Next.jsサーバーが`GET /press-releases`と`GET /fixed-categories`を共通の取得方針で呼び出す。
 ブラウザはキーワード・日付の下書き、カテゴリ操作、URLへの反映、テーマ・文字サイズ・ドロワーを担当する。
 一覧の取得・描画はServer側を基本とし、入力状態と操作に必要な部分だけをClient側へ置く。
@@ -276,7 +278,8 @@ URL・下書きの復元、ローディング、片側失敗、再試行、空�
   必須チェック設定の変更は、workflowの実装・動作確認と分けて扱う。
 
 具体的な作業順序と完成条件は[Phase 6のタスク](tasks.md#phase-6-フロントエンド実装)に整理する。
-検索・カテゴリ操作・URL状態・取得方針はPhase 6-4で設計済みであり、上記の設計と[公開APIの契約](requirements.md#26-api)に沿って後続タスクで実装する。
+検索・カテゴリ操作・URL状態・取得方針はPhase 6-4で設計し、上記の設計と[公開APIの契約](requirements.md#26-api)に沿ってPhase 6-7〜6-10で実装した。
+全操作の最終結合確認とPhase全体の文書点検はPhase 6-11へ残す。
 
 ---
 
