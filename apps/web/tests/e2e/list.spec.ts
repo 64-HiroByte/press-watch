@@ -21,6 +21,29 @@ test("正規化待ちのHTMLで選択肢の取得失敗を誤表示しない", a
   expect(html.includes("カテゴリ選択肢を取得できませんでした")).toBe(false);
   expect(await (await request.get(`${control}/__requests`)).json()).toEqual([]);
 });
+
+for (const width of [1280, 390]) {
+  test(`条件の詳細は閉じて開始し利用者の開閉を幅変更でも維持する 幅${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto("/?q=大気&fixed_category=air");
+    const disclosure = page.getByRole("button", { name: "条件の詳細", exact: true });
+    const details = page.locator("#release-applied-values");
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    await expect(details).toBeHidden();
+    await disclosure.click();
+    await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    await expect(details).toBeVisible();
+    await expect(details.getByText("大気", { exact: true })).toHaveCount(2);
+    await page.setViewportSize({ width: width === 1280 ? 390 : 1280, height: 844 });
+    await expect(details).toBeVisible();
+    await disclosure.click();
+    await expect(details).toBeHidden();
+    await page.reload();
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    await expect(details).toBeHidden();
+  });
+}
+
 function result(
   total = 1,
   items: ListData["items"] = [
@@ -148,6 +171,8 @@ for (const width of [1280, 390, 767, 768]) {
     await page.goto(`/?${params}`);
     const header = page.locator(".release-header-body");
     if (width >= 768) {
+      await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
+      await expect(page.locator("#release-applied-values")).toBeVisible();
       // ストリーミング中は非表示のDOMも取得できるため、表示後に高さを測る。
       await expect(header).toBeVisible();
       await header.evaluate((element) => {
@@ -577,6 +602,7 @@ for (const [label, scenario] of [
       },
     });
     await page.goto("/?fixed_category=unknown");
+    await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
     await page.getByLabel("キーワード", { exact: true }).fill("保持する下書き");
     await expect(page.getByRole("button", { name: "すべての条件を解除" })).toBeDisabled();
     const paging = page.getByRole("navigation", { name: "ページ送り" });
@@ -655,6 +681,7 @@ test("履歴変更後の再取得を古い応答が上書きせず下書きを�
     data: { "/press-releases": { body: named("履歴の一覧", 3) } },
   });
   await page.goto("/?q=履歴&fixed_category=unknown");
+  await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
   await page.getByRole("button", { name: "unknownを解除" }).click();
   await expect(page).toHaveURL((url) => !url.searchParams.has("fixed_category"));
   await expect(page.getByRole("button", { name: "再取得", exact: true })).toBeEnabled();
@@ -946,6 +973,8 @@ for (const action of ["すべての条件を解除", "unknownを解除", "1ペ�
       data: { "/press-releases": [range ? { body: result(62, [], 3) } : {}, { hold: "gate" }] },
     });
     await page.goto(range ? "/?q=適用済み&page=3" : "/?q=適用済み&fixed_category=unknown");
+    if (action === "unknownを解除")
+      await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
     await expect(page.getByRole("button", { name: action, exact: true })).toBeEnabled();
     await page.getByLabel("キーワード", { exact: true }).fill("未検索の下書き");
     await page.getByRole("button", { name: action, exact: true }).click();
@@ -1082,6 +1111,7 @@ for (const path of ["/press-releases", "/fixed-categories"]) {
 
 test("未定義カテゴリを保持し個別解除できる", async ({ page }) => {
   await page.goto("/?fixed_category=air&fixed_category=unknown&page=2");
+  await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
   await expect(page.getByText("未定義カテゴリ：unknown")).toBeVisible();
   await page.getByRole("button", { name: "unknownを解除" }).click();
   await expect(page).toHaveURL(/\?fixed_category=air$/);
@@ -1142,6 +1172,7 @@ for (const remaining of [[], ["air"]]) {
     query.set("published_from", "2026-01-01");
     query.set("published_to", "2026-01-05");
     await page.goto(`/?${query}`);
+    await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
     await page.getByRole("button", { name: "unknownを解除", exact: true }).click();
     await expect(page.getByLabel("終了日", { exact: true })).toHaveAttribute(
       "aria-invalid",

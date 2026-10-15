@@ -123,6 +123,11 @@ html.dark .release-workbench {
   border-radius: 9999px;
 }
 
+/* 無効な一括操作も、ホバーで補助説明を確認できるようにする。 */
+.release-preview .release-category-action:disabled {
+  pointer-events: auto;
+}
+
 .release-preview .release-search-reset:hover,
 .release-preview .release-category-action:hover {
   background: var(--muted);

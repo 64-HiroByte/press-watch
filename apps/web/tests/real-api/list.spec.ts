@@ -92,6 +92,7 @@ test("カテゴリ操作のOR・検索とのAND・全選択と全解除を既存
   await compare("page=2", 62);
   await expect(rows.getByText("カテゴリなし")).toHaveCount(1);
   await page.goto("/?fixed_category=unknown");
+  await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
   await compare("fixed_category=unknown", 0);
   await air.click();
   await compare("fixed_category=air&fixed_category=unknown", 52);

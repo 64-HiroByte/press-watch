@@ -1,14 +1,6 @@
 "use client";
 
-import {
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  useTransition,
-  type FormEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDownIcon, PencilLineIcon } from "lucide-react";
 import { ScrollRegion } from "@/components/press-releases/scroll-region";
@@ -66,12 +58,6 @@ function draftValues(query: QueryState) {
       };
 }
 
-function subscribeWidth(callback: () => void) {
-  const media = window.matchMedia(NARROW_SCREEN_QUERY);
-  media.addEventListener("change", callback);
-  return () => media.removeEventListener("change", callback);
-}
-
 export function ListWorkbench({
   query,
   options,
@@ -88,14 +74,8 @@ export function ListWorkbench({
   const [localErrors, setLocalErrors] = useState<string[]>([]);
   const [localErrorFields, setLocalErrorFields] = useState<QueryField[]>([]);
   const [period, setPeriod] = useState<{ value: Period; from: string; to: string } | null>(null);
-  const [expanded, setExpanded] = useState<boolean | null>(null);
+  const [conditionsExpanded, setExpanded] = useState(false);
   const [textSize, setTextSize] = useState<"standard" | "large">("standard");
-  const narrow = useSyncExternalStore(
-    subscribeWidth,
-    () => window.matchMedia(NARROW_SCREEN_QUERY).matches,
-    () => false,
-  );
-  const conditionsExpanded = expanded ?? !narrow;
   const mainRef = useRef<HTMLDivElement>(null);
   const searchFormRef = useRef<HTMLFormElement>(null);
   const headerRef = useRef<HTMLElement>(null);

@@ -1,8 +1,12 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { DisplayTooltip } from "@/components/press-releases/display-tooltip";
 import type { CategoryOption } from "@/lib/press-releases-api";
 import { MAX_FIXED_CATEGORY_COUNT } from "@/lib/press-release-values";
+
+const selectHelp = "分類済みの全カテゴリを対象";
+const clearHelp = "未分類も含めて表示";
 
 type Props = {
   options: CategoryOption[] | null;
@@ -29,6 +33,10 @@ export function CategoryFilters({
     MAX_FIXED_CATEGORY_COUNT;
   const operationBlocked = !canChange || isBusy;
   const nativeDisabled = !canChange && !isBusy;
+  const allSelected =
+    !!options?.length && options.every((option) => selected.includes(option.slug));
+  const canSelectAll = !allExceedsLimit && !allSelected;
+  const hasSelection = selected.length > 0;
   // 取得中はaria-disabledと操作ガードで停止し、操作元のDOMとフォーカスを維持する。
   return (
     <div className="release-sidebar-categories">
@@ -36,45 +44,49 @@ export function CategoryFilters({
         <legend>
           <span id="release-category-label">カテゴリ</span>
           <span className="release-category-actions">
-            <Button
-              type="button"
-              variant="outline"
-              className="release-category-action"
-              aria-label="カテゴリを全選択"
-              disabled={nativeDisabled || allExceedsLimit}
-              aria-disabled={operationBlocked || allExceedsLimit}
-              aria-describedby={
-                allExceedsLimit
-                  ? "release-category-select-help release-category-all-limit"
-                  : "release-category-select-help"
-              }
-              onClick={() => {
-                if (!operationBlocked && !allExceedsLimit) onSelectAll();
-              }}
-            >
-              全選択
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="release-category-action"
-              aria-label="カテゴリを全解除"
-              aria-describedby="release-category-clear-help"
-              disabled={nativeDisabled}
-              aria-disabled={operationBlocked}
-              onClick={() => {
-                if (!operationBlocked) onClear();
-              }}
-            >
-              全解除
-            </Button>
+            <DisplayTooltip label={selectHelp}>
+              <Button
+                type="button"
+                variant="outline"
+                className="release-category-action"
+                aria-label="カテゴリを全選択"
+                disabled={nativeDisabled || !canSelectAll}
+                aria-disabled={operationBlocked || !canSelectAll}
+                aria-describedby={
+                  allExceedsLimit
+                    ? "release-category-select-help release-category-all-limit"
+                    : "release-category-select-help"
+                }
+                onClick={() => {
+                  if (!operationBlocked && canSelectAll) onSelectAll();
+                }}
+              >
+                全選択
+              </Button>
+            </DisplayTooltip>
+            <DisplayTooltip label={clearHelp}>
+              <Button
+                type="button"
+                variant="outline"
+                className="release-category-action"
+                aria-label="カテゴリを全解除"
+                aria-describedby="release-category-clear-help"
+                disabled={nativeDisabled || !hasSelection}
+                aria-disabled={operationBlocked || !hasSelection}
+                onClick={() => {
+                  if (!operationBlocked && hasSelection) onClear();
+                }}
+              >
+                全解除
+              </Button>
+            </DisplayTooltip>
           </span>
         </legend>
-        <p id="release-category-select-help" className="release-category-help">
-          分類済みの全カテゴリを対象
+        <p id="release-category-select-help" hidden>
+          {selectHelp}
         </p>
-        <p id="release-category-clear-help" className="release-category-help">
-          未分類も含めて表示
+        <p id="release-category-clear-help" hidden>
+          {clearHelp}
         </p>
         {atLimit && (
           <p id="release-category-limit" className="release-category-help">
