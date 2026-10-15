@@ -219,7 +219,16 @@ Phase 6-8のページ送りはServerで検証した`pagination`をClientへ渡�
 Phase 6-9の通常検索・リセットも既存のURL遷移へ接続し、下書きと適用条件は`workbench.tsx`で管理する。
 フォームの描画・入力エラーの関連付け・IME対応は`apps/web/components/press-releases/search-form.tsx`、日本時間の今日と暦による期間計算は`apps/web/lib/press-release-dates.ts`に置く。
 URLと送信前の検証は共通の`parseQuery`を使い、検証した欄をフォームのエラー表示・フォーカスへ渡す。
-カテゴリ選択はPhase 6-10へ残す。
+Phase 6-10のカテゴリ変更も`workbench.tsx`の既存URL遷移へ接続し、選択状態はURLから求める。
+`apps/web/components/press-releases/category-filters.tsx`はカテゴリの描画・上限の案内・操作可否を担当し、取得・履歴・検索下書きの更新は行わない。
+未定義slugの個別解除も同じカテゴリ変更処理を使用し、変更のない選択集合や20指定超過では遷移しない。
+カテゴリ指定数の上限は`apps/web/lib/press-release-values.ts`の`MAX_FIXED_CATEGORY_COUNT`に置き、URL検証・操作ガード・UI判定と説明文で共有する。
+同じファイルにカテゴリslug長の`MAX_FIXED_CATEGORY_SLUG_LENGTH`とキーワード長の`MAX_SEARCH_KEYWORD_LENGTH`を別々に定義し、判定とエラー文言で共有する。
+カテゴリslug長はAPI応答の検証にも使用し、数値が同じでも意味の異なる契約は結び付けない。
+同じ契約値の表示件数`LIST_PAGE_SIZE`と最大ページ番号`MAX_LIST_PAGE`も共有し、URL検証・API応答検証・ページ送りの判定と説明文を揃える。
+表示範囲は検証済みの`pagination.page_size`から計算し、API由来のページ情報を使用する。
+狭い画面のJavaScript判定は`apps/web/lib/press-release-layout.ts`の`NARROW_SCREEN_QUERY`で共有し、ドロワー・条件表示・ページ送り完了時のフォーカスで同じ境界を使う。
+CSSのメディア条件は同じ768pxの境界を宣言し、APIの値の定義と画面配置の定義は分ける。
 FastAPIが入力検証・検索・DB取得を担当し、Next.jsサーバーが`GET /press-releases`と`GET /fixed-categories`を共通の取得方針で呼び出す。
 ブラウザはキーワード・日付の下書き、カテゴリ操作、URLへの反映、テーマ・文字サイズ・ドロワーを担当する。
 一覧の取得・描画はServer側を基本とし、入力状態と操作に必要な部分だけをClient側へ置く。
@@ -230,6 +239,7 @@ FastAPIが入力検証・検索・DB取得を担当し、Next.jsサーバーが`
 - 両APIへ`cache: "no-store"`を指定する。
   戻る／進むでは取得済みの画面の再利用を許容し、明示的な検索・再読み込み・再試行では再取得する。
 - 各APIの通信開始からレスポンス本文の読み取り完了までの期限は10秒とする。
+  値は取得処理内の`API_REQUEST_TIMEOUT_MS`に置き、同じ数値の最大ページ番号とは別の契約として扱う。
   超過した通信を中断して、そのAPIの取得失敗として扱い、成功したもう一方の結果を保持する。
   10秒は合意した初期値であり、実環境の応答時間を測定した結果ではない。
 - 通信の期限超過はNext.js側の取得失敗であり、FastAPIの既存500・503応答へ置き換える契約を追加しない。
@@ -276,7 +286,8 @@ URL・下書きの復元、ローディング、片側失敗、再試行、空�
   必須チェック設定の変更は、workflowの実装・動作確認と分けて扱う。
 
 具体的な作業順序と完成条件は[Phase 6のタスク](tasks.md#phase-6-フロントエンド実装)に整理する。
-検索・カテゴリ操作・URL状態・取得方針はPhase 6-4で設計済みであり、上記の設計と[公開APIの契約](requirements.md#26-api)に沿って後続タスクで実装する。
+検索・カテゴリ操作・URL状態・取得方針はPhase 6-4で設計し、上記の設計と[公開APIの契約](requirements.md#26-api)に沿ってPhase 6-7〜6-10で実装した。
+全操作の最終結合確認とPhase全体の文書点検はPhase 6-11へ残す。
 
 ---
 

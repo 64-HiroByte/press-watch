@@ -94,6 +94,17 @@ html.dark .release-workbench {
   margin-left: auto;
 }
 
+.release-preview .release-category-help {
+  margin: 6px 0 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.release-preview .release-sidebar-categories button[aria-disabled="true"] {
+  opacity: 0.5;
+}
+
 .release-preview .release-search-reset,
 .release-preview .release-category-action {
   height: 32px;
@@ -465,12 +476,6 @@ html:has(.release-filter-panel:modal) {
   margin: 0;
   padding: 0;
   border: 0;
-}
-
-.release-preview .release-feature-notice {
-  font-size: 12px;
-  line-height: 1.7;
-  color: var(--muted-foreground);
 }
 
 .release-preview .release-recovery-actions {

@@ -20,8 +20,11 @@ import { ListPagination } from "@/components/press-releases/pagination";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SearchForm } from "@/components/press-releases/search-form";
+import { CategoryFilters } from "@/components/press-releases/category-filters";
 import { periodDates, type Period } from "@/lib/press-release-dates";
 import type { CategoryOption, ListData } from "@/lib/press-releases-api";
+import { MAX_FIXED_CATEGORY_COUNT } from "@/lib/press-release-values";
+import { NARROW_SCREEN_QUERY } from "@/lib/press-release-layout";
 import {
   parseQuery,
   queryString,
@@ -64,7 +67,7 @@ function draftValues(query: QueryState) {
 }
 
 function subscribeWidth(callback: () => void) {
-  const media = window.matchMedia("(width < 768px)");
+  const media = window.matchMedia(NARROW_SCREEN_QUERY);
   media.addEventListener("change", callback);
   return () => media.removeEventListener("change", callback);
 }
@@ -89,7 +92,7 @@ export function ListWorkbench({
   const [textSize, setTextSize] = useState<"standard" | "large">("standard");
   const narrow = useSyncExternalStore(
     subscribeWidth,
-    () => window.matchMedia("(width < 768px)").matches,
+    () => window.matchMedia(NARROW_SCREEN_QUERY).matches,
     () => false,
   );
   const conditionsExpanded = expanded ?? !narrow;
@@ -100,20 +103,21 @@ export function ListWorkbench({
   const lock = useRef(false);
   const pageFocusURL = useRef<string | null>(null);
   const normalizing = !query.errors.length && query.original !== query.canonical;
-  const busy =
+  const isBusy =
     pending || normalizing || (navigationURL !== null && navigationURL !== query.original);
-  const canChange = !busy && options !== null && options.length > 0;
+  const canChange = !isBusy && options !== null && options.length > 0;
   const repair = query.errors.length > 0 || dateError;
+  const canChangeCategories = canChange && !repair;
 
   useEffect(() => {
-    if (!busy) lock.current = false;
-  }, [busy]);
+    if (!isBusy) lock.current = false;
+  }, [isBusy]);
 
   useEffect(() => {
-    if (busy || pageFocusURL.current !== query.original) return;
+    if (isBusy || pageFocusURL.current !== query.original) return;
     pageFocusURL.current = null;
     titleRef.current?.focus({ preventScroll: true });
-    if (window.matchMedia("(width < 768px)").matches) {
+    if (window.matchMedia(NARROW_SCREEN_QUERY).matches) {
       titleRef.current?.scrollIntoView({ block: "start", behavior: "instant" });
     } else {
       headerRef.current
@@ -121,7 +125,7 @@ export function ListWorkbench({
         ?.scrollTo({ top: 0, behavior: "instant" });
       mainRef.current?.scrollTo({ top: 0, behavior: "instant" });
     }
-  }, [busy, query.original]);
+  }, [isBusy, query.original]);
 
   useEffect(() => {
     if (normalizing)
@@ -162,7 +166,7 @@ export function ListWorkbench({
   }, []);
 
   function navigate(conditions?: Conditions, moveToResults = false) {
-    if (busy || lock.current || (conditions && !canChange)) return;
+    if (isBusy || lock.current || (conditions && !canChange)) return;
     const target = conditions ? queryString(conditions) : query.original;
     if (moveToResults && target === query.original) return;
     lock.current = true;
@@ -254,6 +258,17 @@ export function ListWorkbench({
     setLocalErrorFields([]);
     setPeriod(null);
     if (queryString(conditions) !== query.original) navigate(conditions);
+  }
+  function changeCategories(values: string[]) {
+    if (!canChangeCategories || lock.current) return;
+    const categories = [...new Set(values)].sort();
+    if (categories.length > MAX_FIXED_CATEGORY_COUNT) return;
+    if (
+      categories.length === query.conditions.categories.length &&
+      categories.every((slug, index) => slug === query.conditions.categories[index])
+    )
+      return;
+    navigate({ ...query.conditions, categories, page: 1 });
   }
   const filtered = !!(
     query.conditions.q ||
@@ -383,13 +398,11 @@ export function ListWorkbench({
                                     disabled={!canChange || repair}
                                     aria-label={`${slug}を解除`}
                                     onClick={() =>
-                                      navigate({
-                                        ...query.conditions,
-                                        categories: query.conditions.categories.filter(
+                                      changeCategories(
+                                        query.conditions.categories.filter(
                                           (value) => value !== slug,
                                         ),
-                                        page: 1,
-                                      })
+                                      )
                                     }
                                   >
                                     解除
@@ -401,11 +414,11 @@ export function ListWorkbench({
                       </dd>
                     </div>
                   </dl>
-                  {!busy && summary}
+                  {!isBusy && summary}
                 </div>
               </header>
               <div className="release-content">
-                {busy ? (
+                {isBusy ? (
                   <PressReleaseStatus state="loading" />
                 ) : (
                   <>
@@ -440,7 +453,7 @@ export function ListWorkbench({
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={busy}
+                    disabled={isBusy}
                     onClick={() => navigate()}
                   >
                     再取得
@@ -474,39 +487,32 @@ export function ListWorkbench({
             canChange={canChange}
             invalidURL={query.errors.length > 0}
             repair={repair}
-            dateError={!busy && dateError}
+            dateError={!isBusy && dateError}
             errors={localErrors.length ? localErrors : query.errors}
             errorFields={localErrors.length ? localErrorFields : query.errorFields}
             onApply={submit}
             onReset={resetSearch}
           />
-          <div className="release-sidebar-categories">
-            <fieldset className="release-category-field">
-              <legend>カテゴリ</legend>
-              {busy ? (
-                <output>カテゴリを読み込んでいます</output>
-              ) : options === null ? (
-                <p role="alert">カテゴリ選択肢を取得できませんでした</p>
-              ) : options.length === 0 ? (
-                <p>カテゴリ選択肢が未登録です</p>
-              ) : (
-                <div className="release-category-toggles">
-                  {options.map((option) => (
-                    <Button
-                      type="button"
-                      key={option.slug}
-                      variant="outline"
-                      disabled
-                      aria-pressed={query.conditions.categories.includes(option.slug)}
-                      className="release-category-pill release-category-toggle"
-                    >
-                      {option.name}
-                    </Button>
-                  ))}
-                </div>
-              )}
-            </fieldset>
-          </div>
+          <CategoryFilters
+            options={options}
+            selected={query.conditions.categories}
+            isBusy={isBusy}
+            canChange={canChangeCategories}
+            onToggle={(slug) =>
+              changeCategories(
+                query.conditions.categories.includes(slug)
+                  ? query.conditions.categories.filter((value) => value !== slug)
+                  : [...query.conditions.categories, slug],
+              )
+            }
+            onSelectAll={() =>
+              changeCategories([
+                ...query.conditions.categories,
+                ...(options?.map((option) => option.slug) ?? []),
+              ])
+            }
+            onClear={() => changeCategories([])}
+          />
         </SidebarFilters>
       </section>
     </main>

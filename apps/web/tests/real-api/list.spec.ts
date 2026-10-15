@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
 type Item = {
   title: string;
@@ -6,6 +6,99 @@ type Item = {
   published_at: string;
   fixed_categories: { slug: string; name: string }[];
 };
+
+function createAPIComparison(page: Page, request: APIRequestContext) {
+  const rows = page.getByRole("list", { name: "報道発表一覧" }).locator("li");
+  return async (query: string, count: number) => {
+    await expect(page).toHaveURL(query ? `/?${query}` : "/");
+    const response = await request.get(`http://127.0.0.1:8001/press-releases?${query}`);
+    expect(response.ok()).toBe(true);
+    const data: { items: Item[]; pagination: { total_items: number } } = await response.json();
+    expect(data.pagination.total_items).toBe(count);
+    await expect(page.getByRole("button", { name: "検索", exact: true })).toBeEnabled();
+    await expect(page.locator(".release-results-summary strong")).toHaveText(String(count));
+    await expect(rows).toHaveCount(data.items.length);
+    for (const [index, item] of data.items.entries()) {
+      const row = rows.nth(index);
+      await expect(row.getByRole("link")).toHaveText(item.title);
+      await expect(row.getByRole("link")).toHaveAttribute("href", item.source_url);
+      await expect(row.locator("time")).toHaveAttribute("datetime", item.published_at);
+      expect(await row.locator(".release-category").allTextContents()).toEqual(
+        item.fixed_categories.map((category) => category.name),
+      );
+      if (item.fixed_categories.length === 0)
+        await expect(row.getByText("カテゴリなし")).toBeVisible();
+    }
+    return data;
+  };
+}
+
+test("カテゴリ操作のOR・検索とのAND・全選択と全解除を既存実APIで照合する", async ({
+  page,
+  request,
+}) => {
+  const external: string[] = [];
+  page.on("request", (call) => {
+    if (new URL(call.url()).origin !== "http://127.0.0.1:3108") external.push(call.url());
+  });
+  const rows = page.getByRole("list", { name: "報道発表一覧" }).locator("li");
+  const filters = page.locator(".release-sidebar-categories");
+  const air = filters.getByRole("button", { name: "大気", exact: true });
+  const soil = filters.getByRole("button", { name: "土壌", exact: true });
+  const keyword = page.getByLabel("キーワード", { exact: true });
+  const compare = createAPIComparison(page, request);
+  await page.goto("/");
+  await air.click();
+  await compare("fixed_category=air", 52);
+  await page.getByRole("navigation", { name: "ページ送り" }).getByLabel("次のページへ").click();
+  await compare("fixed_category=air&page=2", 52);
+  await soil.click();
+  await compare("fixed_category=air&fixed_category=soil", 53);
+  await keyword.fill("土壌");
+  await page.getByLabel("開始日", { exact: true }).fill("2026-01-02");
+  await page.getByLabel("終了日", { exact: true }).fill("2026-01-04");
+  await page.getByRole("button", { name: "検索", exact: true }).click();
+  await compare(
+    "q=土壌&fixed_category=air&fixed_category=soil&published_from=2026-01-02&published_to=2026-01-04",
+    2,
+  );
+  await keyword.fill("未検索");
+  await soil.click();
+  await compare("q=土壌&fixed_category=air&published_from=2026-01-02&published_to=2026-01-04", 1);
+  await expect(keyword).toHaveValue("未検索");
+  await expect(rows.getByText("大気", { exact: true })).toBeVisible();
+  await expect(rows.getByText("土壌", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "リセット", exact: true }).click();
+  await filters.getByRole("button", { name: "カテゴリを全選択", exact: true }).click();
+  const selected = [
+    "fixed_category=air",
+    "fixed_category=common",
+    "fixed_category=effluent",
+    "fixed_category=environmental_water",
+    "fixed_category=noise",
+    "fixed_category=odor",
+    "fixed_category=other",
+    "fixed_category=soil",
+    "fixed_category=tap_water",
+    "fixed_category=vibration",
+  ].join("&");
+  await compare(selected, 61);
+  await page.getByRole("navigation", { name: "ページ送り" }).getByLabel("次のページへ").click();
+  await compare(`${selected}&page=2`, 61);
+  await expect(rows.getByText("カテゴリなし")).toHaveCount(0);
+  await filters.getByRole("button", { name: "カテゴリを全解除", exact: true }).click();
+  await compare("", 62);
+  await page.getByRole("navigation", { name: "ページ送り" }).getByLabel("次のページへ").click();
+  await compare("page=2", 62);
+  await expect(rows.getByText("カテゴリなし")).toHaveCount(1);
+  await page.goto("/?fixed_category=unknown");
+  await compare("fixed_category=unknown", 0);
+  await air.click();
+  await compare("fixed_category=air&fixed_category=unknown", 52);
+  await page.getByRole("button", { name: "unknownを解除", exact: true }).click();
+  await expect(page).toHaveURL("/?fixed_category=air");
+  expect(external).toEqual([]);
+});
 
 test("専用実APIのページ送りを往復し順序・全文タイトル・リンク・日付・全所属と未分類を表示する", async ({
   page,
@@ -17,13 +110,9 @@ test("専用実APIのページ送りを往復し順序・全文タイトル・�
   });
   const categories = await (await request.get("http://127.0.0.1:8001/fixed-categories")).json();
   expect(categories.items).toHaveLength(10);
+  const compare = createAPIComparison(page, request);
   await page.goto("/");
   for (const [index, number] of [1, 2, 1].entries()) {
-    const response = await request.get(`http://127.0.0.1:8001/press-releases?page=${number}`);
-    expect(response.ok()).toBe(true);
-    const data = await response.json();
-    expect(data.pagination.total_items).toBe(62);
-    expect(data.items).toHaveLength(number === 1 ? 50 : 12);
     if (index > 0) {
       await page
         .getByRole("navigation", { name: "ページ送り" })
@@ -32,21 +121,8 @@ test("専用実APIのページ送りを往復し順序・全文タイトル・�
       await expect(page).toHaveURL(number === 1 ? "/" : "/?page=2");
       await expect(page.getByRole("heading", { name: "報道発表一覧", exact: true })).toBeFocused();
     }
-    await expect(page.getByText("62", { exact: true })).toBeVisible();
-    const rows = page.getByRole("list", { name: "報道発表一覧" }).locator("li");
-    await expect(rows).toHaveCount(data.items.length);
-    for (let index = 0; index < data.items.length; index++) {
-      const item: Item = data.items[index];
-      const row = rows.nth(index);
-      await expect(row.getByRole("link")).toHaveText(item.title);
-      await expect(row.getByRole("link")).toHaveAttribute("href", item.source_url);
-      await expect(row.locator("time")).toHaveAttribute("datetime", item.published_at);
-      expect(await row.locator(".release-category").allTextContents()).toEqual(
-        item.fixed_categories.map((category) => category.name),
-      );
-      if (item.fixed_categories.length === 0)
-        await expect(row.getByText("カテゴリなし")).toBeVisible();
-    }
+    const data = await compare(number === 1 ? "" : "page=2", 62);
+    expect(data.items).toHaveLength(number === 1 ? 50 : 12);
     expect(await page.locator(".release-category-pill").allTextContents()).toEqual(
       categories.items.map((category: { name: string }) => category.name),
     );
@@ -79,22 +155,7 @@ test("通常検索と公開日・リセットを実APIへ接続しカテゴリ�
   const search = page.getByRole("button", { name: "検索", exact: true });
   const keyword = page.getByLabel("キーワード", { exact: true });
   const rows = page.getByRole("list", { name: "報道発表一覧" }).locator("li");
-  async function compare(query: string, count: number) {
-    const response = await request.get(`http://127.0.0.1:8001/press-releases?${query}`);
-    expect(response.ok()).toBe(true);
-    const data = await response.json();
-    expect(data.pagination.total_items).toBe(count);
-    await expect(search).toBeEnabled();
-    await expect(rows).toHaveCount(data.items.length);
-    expect(await rows.getByRole("link").allTextContents()).toEqual(
-      data.items.map((item: Item) => item.title),
-    );
-    expect(
-      await rows
-        .locator("time")
-        .evaluateAll((items) => items.map((item) => item.getAttribute("datetime"))),
-    ).toEqual(data.items.map((item: Item) => item.published_at));
-  }
+  const compare = createAPIComparison(page, request);
   await page.goto("/?fixed_category=air&page=2");
   await keyword.fill("　土壌　");
   await search.click();

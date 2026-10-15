@@ -1,7 +1,16 @@
 import "server-only";
 
 import type { FixedCategoryLabel } from "@/components/press-releases/list";
-import { categorySlug, safeHttpURL, validDate } from "@/lib/press-release-values";
+import {
+  categorySlug,
+  LIST_PAGE_SIZE,
+  MAX_FIXED_CATEGORY_SLUG_LENGTH,
+  MAX_LIST_PAGE,
+  safeHttpURL,
+  validDate,
+} from "@/lib/press-release-values";
+
+const API_REQUEST_TIMEOUT_MS = 10_000;
 
 export type CategoryOption = FixedCategoryLabel & { display_order: number };
 export type ListData = {
@@ -24,7 +33,7 @@ function label(value: unknown): value is FixedCategoryLabel {
   return (
     object(value) &&
     typeof value.slug === "string" &&
-    value.slug.length <= 100 &&
+    value.slug.length <= MAX_FIXED_CATEGORY_SLUG_LENGTH &&
     categorySlug.test(value.slug) &&
     typeof value.name === "string" &&
     !!value.name.trim() &&
@@ -40,7 +49,7 @@ function listData(value: unknown): value is ListData {
   if (
     !object(value) ||
     !Array.isArray(value.items) ||
-    value.items.length > 50 ||
+    value.items.length > LIST_PAGE_SIZE ||
     !object(value.pagination)
   )
     return false;
@@ -48,10 +57,10 @@ function listData(value: unknown): value is ListData {
   if (
     ![p.page, p.page_size, p.total_items, p.total_pages].every(Number.isSafeInteger) ||
     (p.page as number) < 1 ||
-    (p.page as number) > 10000 ||
-    p.page_size !== 50 ||
+    (p.page as number) > MAX_LIST_PAGE ||
+    p.page_size !== LIST_PAGE_SIZE ||
     (p.total_items as number) < 0 ||
-    p.total_pages !== Math.ceil((p.total_items as number) / 50)
+    p.total_pages !== Math.ceil((p.total_items as number) / LIST_PAGE_SIZE)
   )
     return false;
   if (
@@ -100,7 +109,7 @@ async function get<T>(
   validate: (value: unknown) => value is T,
 ): Promise<ApiResult<T>> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
+  const timer = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
   try {
     const configured = process.env.PRESSWATCH_API_BASE_URL;
     if (!configured || !safeHttpURL(configured)) return { ok: false, dateError: false };

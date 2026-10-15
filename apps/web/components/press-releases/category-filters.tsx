@@ -1,0 +1,120 @@
+"use client";
+
+import { Button } from "@/components/ui/button";
+import type { CategoryOption } from "@/lib/press-releases-api";
+import { MAX_FIXED_CATEGORY_COUNT } from "@/lib/press-release-values";
+
+type Props = {
+  options: CategoryOption[] | null;
+  selected: string[];
+  isBusy: boolean;
+  canChange: boolean;
+  onToggle: (slug: string) => void;
+  onSelectAll: () => void;
+  onClear: () => void;
+};
+
+export function CategoryFilters({
+  options,
+  selected,
+  isBusy,
+  canChange,
+  onToggle,
+  onSelectAll,
+  onClear,
+}: Props) {
+  const atLimit = selected.length >= MAX_FIXED_CATEGORY_COUNT;
+  const allExceedsLimit =
+    new Set([...selected, ...(options?.map((option) => option.slug) ?? [])]).size >
+    MAX_FIXED_CATEGORY_COUNT;
+  const operationBlocked = !canChange || isBusy;
+  const nativeDisabled = !canChange && !isBusy;
+  // 取得中はaria-disabledと操作ガードで停止し、操作元のDOMとフォーカスを維持する。
+  return (
+    <div className="release-sidebar-categories">
+      <fieldset className="release-category-field" aria-labelledby="release-category-label">
+        <legend>
+          <span id="release-category-label">カテゴリ</span>
+          <span className="release-category-actions">
+            <Button
+              type="button"
+              variant="outline"
+              className="release-category-action"
+              aria-label="カテゴリを全選択"
+              disabled={nativeDisabled || allExceedsLimit}
+              aria-disabled={operationBlocked || allExceedsLimit}
+              aria-describedby={
+                allExceedsLimit
+                  ? "release-category-select-help release-category-all-limit"
+                  : "release-category-select-help"
+              }
+              onClick={() => {
+                if (!operationBlocked && !allExceedsLimit) onSelectAll();
+              }}
+            >
+              全選択
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="release-category-action"
+              aria-label="カテゴリを全解除"
+              aria-describedby="release-category-clear-help"
+              disabled={nativeDisabled}
+              aria-disabled={operationBlocked}
+              onClick={() => {
+                if (!operationBlocked) onClear();
+              }}
+            >
+              全解除
+            </Button>
+          </span>
+        </legend>
+        <p id="release-category-select-help" className="release-category-help">
+          分類済みの全カテゴリを対象
+        </p>
+        <p id="release-category-clear-help" className="release-category-help">
+          未分類も含めて表示
+        </p>
+        {atLimit && (
+          <p id="release-category-limit" className="release-category-help">
+            カテゴリは{MAX_FIXED_CATEGORY_COUNT}個まで選択できます。解除してから追加してください。
+          </p>
+        )}
+        {allExceedsLimit && (
+          <p id="release-category-all-limit" className="release-category-help">
+            全選択は{MAX_FIXED_CATEGORY_COUNT}個を超えるため利用できません。個別に選択してください。
+          </p>
+        )}
+        {isBusy && <output>カテゴリを読み込んでいます</output>}
+        {!isBusy && options === null && <p role="alert">カテゴリ選択肢を取得できませんでした</p>}
+        {!isBusy && options?.length === 0 && <p>カテゴリ選択肢が未登録です</p>}
+        {options && options.length > 0 && (
+          <div className="release-category-toggles">
+            {options.map((option) => {
+              const pressed = selected.includes(option.slug);
+              const cannotAdd = atLimit && !pressed;
+              return (
+                <Button
+                  type="button"
+                  key={option.slug}
+                  variant="outline"
+                  disabled={nativeDisabled || cannotAdd}
+                  aria-disabled={operationBlocked || cannotAdd}
+                  aria-describedby={cannotAdd ? "release-category-limit" : undefined}
+                  aria-pressed={pressed}
+                  className="release-category-pill release-category-toggle"
+                  onClick={() => {
+                    if (!operationBlocked && !cannotAdd) onToggle(option.slug);
+                  }}
+                >
+                  {option.name}
+                </Button>
+              );
+            })}
+          </div>
+        )}
+      </fieldset>
+    </div>
+  );
+}
