@@ -39,7 +39,7 @@ export function CategoryFilters({
     !!options?.length && options.every((option) => selected.includes(option.slug));
   const canSelectAll = !allExceedsLimit && !allSelected;
   const hasSelection = selected.length > 0;
-  // 取得中の操作を停止し、一括操作の完了後もフォーカスを維持する。
+  // 一括操作はaria-disabledとガードで停止し、フォーカスとEscの標準動作を維持する。
   return (
     <div ref={tooltipContainerRef} className="release-sidebar-categories">
       <fieldset className="release-category-field" aria-labelledby="release-category-label">
@@ -52,8 +52,7 @@ export function CategoryFilters({
                 variant="outline"
                 className="release-category-action"
                 aria-label="カテゴリを全選択"
-                disabled={nativeDisabled || !canSelectAll}
-                focusableWhenDisabled={!nativeDisabled}
+                disabled={nativeDisabled}
                 aria-disabled={operationBlocked || !canSelectAll}
                 aria-describedby={
                   allExceedsLimit
@@ -74,8 +73,7 @@ export function CategoryFilters({
                 className="release-category-action"
                 aria-label="カテゴリを全解除"
                 aria-describedby="release-category-clear-help"
-                disabled={nativeDisabled || !hasSelection}
-                focusableWhenDisabled={!nativeDisabled}
+                disabled={nativeDisabled}
                 aria-disabled={operationBlocked || !hasSelection}
                 onClick={() => {
                   if (!operationBlocked && hasSelection) onClear();

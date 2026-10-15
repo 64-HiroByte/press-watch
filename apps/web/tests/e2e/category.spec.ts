@@ -83,6 +83,27 @@ for (const action of ["カテゴリを全選択", "カテゴリを全解除"]) {
     expect(await page.evaluate(() => window.history.length)).toBe(history);
     await expect(button).toBeFocused();
   });
+
+  test(`一括操作の完了後もEscでドロワーを閉じてフォーカスを戻す ${action}`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/?fixed_category=air");
+    const trigger = page.getByRole("button", { name: /^(条件を変更|検索条件を設定)$/ });
+    await trigger.click();
+    const drawer = page.getByRole("dialog", { name: "検索条件", exact: true });
+    const button = drawer.getByRole("button", { name: action, exact: true });
+    await expect(drawer.getByRole("button", { name: "検索", exact: true })).toBeEnabled();
+    await button.focus();
+    await button.press("Enter");
+    await expect(page).toHaveURL(
+      action === "カテゴリを全選択" ? "/?fixed_category=air&fixed_category=soil" : "/",
+    );
+    await expect(drawer.getByRole("button", { name: "検索", exact: true })).toBeEnabled();
+    await expect(button).toBeDisabled();
+    await expect(button).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(drawer).not.toBeVisible();
+    await expect(trigger).toBeFocused();
+  });
 }
 
 test("一括カテゴリ操作の補助説明を常時表示せずホバーとフォーカスで示す", async ({ page }) => {
