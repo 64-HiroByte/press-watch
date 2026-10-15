@@ -7,7 +7,7 @@ import { MAX_FIXED_CATEGORY_COUNT } from "@/lib/press-release-values";
 type Props = {
   options: CategoryOption[] | null;
   selected: string[];
-  busy: boolean;
+  isBusy: boolean;
   canChange: boolean;
   onToggle: (slug: string) => void;
   onSelectAll: () => void;
@@ -17,7 +17,7 @@ type Props = {
 export function CategoryFilters({
   options,
   selected,
-  busy,
+  isBusy,
   canChange,
   onToggle,
   onSelectAll,
@@ -27,8 +27,8 @@ export function CategoryFilters({
   const allExceedsLimit =
     new Set([...selected, ...(options?.map((option) => option.slug) ?? [])]).size >
     MAX_FIXED_CATEGORY_COUNT;
-  const operationBlocked = !canChange || busy;
-  const nativeDisabled = !canChange && !busy;
+  const operationBlocked = !canChange || isBusy;
+  const nativeDisabled = !canChange && !isBusy;
   // 取得中はaria-disabledと操作ガードで停止し、操作元のDOMとフォーカスを維持する。
   return (
     <div className="release-sidebar-categories">
@@ -86,9 +86,9 @@ export function CategoryFilters({
             全選択は{MAX_FIXED_CATEGORY_COUNT}個を超えるため利用できません。個別に選択してください。
           </p>
         )}
-        {busy && <output>カテゴリを読み込んでいます</output>}
-        {!busy && options === null && <p role="alert">カテゴリ選択肢を取得できませんでした</p>}
-        {!busy && options?.length === 0 && <p>カテゴリ選択肢が未登録です</p>}
+        {isBusy && <output>カテゴリを読み込んでいます</output>}
+        {!isBusy && options === null && <p role="alert">カテゴリ選択肢を取得できませんでした</p>}
+        {!isBusy && options?.length === 0 && <p>カテゴリ選択肢が未登録です</p>}
         {options && options.length > 0 && (
           <div className="release-category-toggles">
             {options.map((option) => {

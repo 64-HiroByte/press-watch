@@ -103,18 +103,18 @@ export function ListWorkbench({
   const lock = useRef(false);
   const pageFocusURL = useRef<string | null>(null);
   const normalizing = !query.errors.length && query.original !== query.canonical;
-  const busy =
+  const isBusy =
     pending || normalizing || (navigationURL !== null && navigationURL !== query.original);
-  const canChange = !busy && options !== null && options.length > 0;
+  const canChange = !isBusy && options !== null && options.length > 0;
   const repair = query.errors.length > 0 || dateError;
   const canChangeCategories = canChange && !repair;
 
   useEffect(() => {
-    if (!busy) lock.current = false;
-  }, [busy]);
+    if (!isBusy) lock.current = false;
+  }, [isBusy]);
 
   useEffect(() => {
-    if (busy || pageFocusURL.current !== query.original) return;
+    if (isBusy || pageFocusURL.current !== query.original) return;
     pageFocusURL.current = null;
     titleRef.current?.focus({ preventScroll: true });
     if (window.matchMedia(NARROW_SCREEN_QUERY).matches) {
@@ -125,7 +125,7 @@ export function ListWorkbench({
         ?.scrollTo({ top: 0, behavior: "instant" });
       mainRef.current?.scrollTo({ top: 0, behavior: "instant" });
     }
-  }, [busy, query.original]);
+  }, [isBusy, query.original]);
 
   useEffect(() => {
     if (normalizing)
@@ -166,7 +166,7 @@ export function ListWorkbench({
   }, []);
 
   function navigate(conditions?: Conditions, moveToResults = false) {
-    if (busy || lock.current || (conditions && !canChange)) return;
+    if (isBusy || lock.current || (conditions && !canChange)) return;
     const target = conditions ? queryString(conditions) : query.original;
     if (moveToResults && target === query.original) return;
     lock.current = true;
@@ -414,11 +414,11 @@ export function ListWorkbench({
                       </dd>
                     </div>
                   </dl>
-                  {!busy && summary}
+                  {!isBusy && summary}
                 </div>
               </header>
               <div className="release-content">
-                {busy ? (
+                {isBusy ? (
                   <PressReleaseStatus state="loading" />
                 ) : (
                   <>
@@ -453,7 +453,7 @@ export function ListWorkbench({
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={busy}
+                    disabled={isBusy}
                     onClick={() => navigate()}
                   >
                     再取得
@@ -487,7 +487,7 @@ export function ListWorkbench({
             canChange={canChange}
             invalidURL={query.errors.length > 0}
             repair={repair}
-            dateError={!busy && dateError}
+            dateError={!isBusy && dateError}
             errors={localErrors.length ? localErrors : query.errors}
             errorFields={localErrors.length ? localErrorFields : query.errorFields}
             onApply={submit}
@@ -496,7 +496,7 @@ export function ListWorkbench({
           <CategoryFilters
             options={options}
             selected={query.conditions.categories}
-            busy={busy}
+            isBusy={isBusy}
             canChange={canChangeCategories}
             onToggle={(slug) =>
               changeCategories(
