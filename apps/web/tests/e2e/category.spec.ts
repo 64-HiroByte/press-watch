@@ -59,6 +59,32 @@ test("カテゴリ指定なしでは全解除を無効にし選択後は再び�
   await expect(air).toHaveAttribute("aria-pressed", "false");
 });
 
+for (const action of ["カテゴリを全選択", "カテゴリを全解除"]) {
+  test(`一括操作の完了後もフォーカスを維持して重複操作を停止する ${action}`, async ({
+    page,
+    request,
+  }) => {
+    await page.goto("/?fixed_category=air");
+    const button = page.getByRole("button", { name: action, exact: true });
+    await expect(page.getByRole("button", { name: "検索", exact: true })).toBeEnabled();
+    await button.focus();
+    await button.press("Enter");
+    await expect(page).toHaveURL(
+      action === "カテゴリを全選択" ? "/?fixed_category=air&fixed_category=soil" : "/",
+    );
+    await expect(page.getByRole("button", { name: "検索", exact: true })).toBeEnabled();
+    await expect(button).toBeDisabled();
+    await expect(button).toBeFocused();
+    const history = await page.evaluate(() => window.history.length);
+    await button.press("Enter");
+    await button.press("Space");
+    await button.evaluate((element: HTMLButtonElement) => element.click());
+    expect(await (await request.get(`${control}/__requests`)).json()).toHaveLength(4);
+    expect(await page.evaluate(() => window.history.length)).toBe(history);
+    await expect(button).toBeFocused();
+  });
+}
+
 test("一括カテゴリ操作の補助説明を常時表示せずホバーとフォーカスで示す", async ({ page }) => {
   await page.goto("/?fixed_category=air");
   const tooltip = page.locator(".release-display-tooltip");
@@ -88,6 +114,37 @@ test("一括カテゴリ操作の補助説明を常時表示せずホバーと�
   await expect(tooltip).toHaveText("未分類も含めて表示");
   await page.getByRole("heading", { name: "報道発表一覧", exact: true }).hover();
   await expect(tooltip).toHaveCount(0);
+});
+
+test("狭い画面でも一括操作の補助説明をドロワーの前面へ表示する", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/?fixed_category=air");
+  await page.getByRole("button", { name: "条件を変更", exact: true }).click();
+  const tooltip = page.locator(".release-display-tooltip");
+  const heading = page.getByRole("heading", { name: "検索条件", exact: true });
+  const all = page.getByRole("button", { name: "カテゴリを全選択", exact: true });
+  const clear = page.getByRole("button", { name: "カテゴリを全解除", exact: true });
+  for (const [button, text] of [
+    [all, "分類済みの全カテゴリを対象"],
+    [clear, "未分類も含めて表示"],
+  ] as const) {
+    await button.hover();
+    await expect(tooltip).toHaveText(text);
+    await expect
+      .poll(() =>
+        tooltip.evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          const front = document.elementFromPoint(
+            bounds.x + bounds.width / 2,
+            bounds.y + bounds.height / 2,
+          );
+          return element === front || element.contains(front);
+        }),
+      )
+      .toBe(true);
+    await heading.hover();
+    await expect(tooltip).toHaveCount(0);
+  }
 });
 
 test.afterEach(async ({ request }) => {

@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { DisplayTooltip } from "@/components/press-releases/display-tooltip";
 import type { CategoryOption } from "@/lib/press-releases-api";
@@ -27,6 +28,7 @@ export function CategoryFilters({
   onSelectAll,
   onClear,
 }: Props) {
+  const tooltipContainerRef = useRef<HTMLDivElement>(null);
   const atLimit = selected.length >= MAX_FIXED_CATEGORY_COUNT;
   const allExceedsLimit =
     new Set([...selected, ...(options?.map((option) => option.slug) ?? [])]).size >
@@ -37,20 +39,21 @@ export function CategoryFilters({
     !!options?.length && options.every((option) => selected.includes(option.slug));
   const canSelectAll = !allExceedsLimit && !allSelected;
   const hasSelection = selected.length > 0;
-  // 取得中はaria-disabledと操作ガードで停止し、操作元のDOMとフォーカスを維持する。
+  // 取得中の操作を停止し、一括操作の完了後もフォーカスを維持する。
   return (
-    <div className="release-sidebar-categories">
+    <div ref={tooltipContainerRef} className="release-sidebar-categories">
       <fieldset className="release-category-field" aria-labelledby="release-category-label">
         <legend>
           <span id="release-category-label">カテゴリ</span>
           <span className="release-category-actions">
-            <DisplayTooltip label={selectHelp}>
+            <DisplayTooltip label={selectHelp} container={tooltipContainerRef}>
               <Button
                 type="button"
                 variant="outline"
                 className="release-category-action"
                 aria-label="カテゴリを全選択"
                 disabled={nativeDisabled || !canSelectAll}
+                focusableWhenDisabled={!nativeDisabled}
                 aria-disabled={operationBlocked || !canSelectAll}
                 aria-describedby={
                   allExceedsLimit
@@ -64,7 +67,7 @@ export function CategoryFilters({
                 全選択
               </Button>
             </DisplayTooltip>
-            <DisplayTooltip label={clearHelp}>
+            <DisplayTooltip label={clearHelp} container={tooltipContainerRef}>
               <Button
                 type="button"
                 variant="outline"
@@ -72,6 +75,7 @@ export function CategoryFilters({
                 aria-label="カテゴリを全解除"
                 aria-describedby="release-category-clear-help"
                 disabled={nativeDisabled || !hasSelection}
+                focusableWhenDisabled={!nativeDisabled}
                 aria-disabled={operationBlocked || !hasSelection}
                 onClick={() => {
                   if (!operationBlocked && hasSelection) onClear();
