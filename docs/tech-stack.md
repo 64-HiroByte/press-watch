@@ -227,7 +227,7 @@ Phase 6-10のカテゴリ変更も`workbench.tsx`の既存URL遷移へ接続し�
 カテゴリslug長はAPI応答の検証にも使用し、数値が同じでも意味の異なる契約は結び付けない。
 同じ契約値の表示件数`LIST_PAGE_SIZE`と最大ページ番号`MAX_LIST_PAGE`も共有し、URL検証・API応答検証・ページ送りの判定と説明文を揃える。
 表示範囲は検証済みの`pagination.page_size`から計算し、API由来のページ情報を使用する。
-狭い画面のJavaScript判定は`apps/web/lib/press-release-layout.ts`の`NARROW_SCREEN_QUERY`で共有し、ドロワー・条件表示・ページ送り完了時のフォーカスで同じ境界を使う。
+狭い画面のJavaScript判定は`apps/web/lib/press-release-layout.ts`の`NARROW_SCREEN_QUERY`で共有し、ドロワー・ページ送り完了時のフォーカスで同じ境界を使う。
 CSSのメディア条件は同じ768pxの境界を宣言し、APIの値の定義と画面配置の定義は分ける。
 FastAPIが入力検証・検索・DB取得を担当し、Next.jsサーバーが`GET /press-releases`と`GET /fixed-categories`を共通の取得方針で呼び出す。
 ブラウザはキーワード・日付の下書き、カテゴリ操作、URLへの反映、テーマ・文字サイズ・ドロワーを担当する。
@@ -287,7 +287,9 @@ URL・下書きの復元、ローディング、片側失敗、再試行、空�
 
 具体的な作業順序と完成条件は[Phase 6のタスク](tasks.md#phase-6-フロントエンド実装)に整理する。
 検索・カテゴリ操作・URL状態・取得方針はPhase 6-4で設計し、上記の設計と[公開APIの契約](requirements.md#26-api)に沿ってPhase 6-7〜6-10で実装した。
-全操作の最終結合確認とPhase全体の文書点検はPhase 6-11へ残す。
+Phase 6-11では実APIの連続操作と応答制御の自動確認を実施した。
+本人確認で受けたUI調整と記事リンクの別画面化を反映し、条件保持を含む最終再確認を問題なしで終えた。
+検証結果と残る範囲は[結合確認の記録](local-development.md#phase-6-11の結合確認と文書点検)を参照する。
 
 ---
 
