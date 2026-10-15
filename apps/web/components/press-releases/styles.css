@@ -168,6 +168,31 @@ html.dark .release-workbench {
   margin-top: 0;
 }
 
+.release-preview .release-summary-slot {
+  display: grid;
+}
+
+.release-preview .release-summary-slot > * {
+  grid-area: 1 / 1;
+}
+
+.release-preview .release-summary-hidden,
+.release-preview .release-results-body[data-updating="true"] .release-pagination {
+  visibility: hidden;
+}
+
+.release-preview .release-category-progress {
+  align-self: end;
+  justify-self: end;
+  margin-top: 16px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.release-preview .release-results-body[data-updating="true"] {
+  opacity: 0.5;
+}
+
 .release-preview .release-results-summary {
   display: flex;
   align-items: baseline;

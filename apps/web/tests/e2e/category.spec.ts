@@ -261,7 +261,9 @@ test("カテゴリ変更中は重複操作を止め移動したフォーカス�
     button.click();
     button.click();
   });
-  await expect(page.getByText("報道発表を読み込んでいます")).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "カテゴリを更新中" })).toContainText(
+    "カテゴリを更新中",
+  );
   await expect(soil).toBeFocused();
   await expect(soil).toHaveAttribute("aria-disabled", "true");
   await soil.press("Enter");
@@ -280,6 +282,80 @@ test("カテゴリ変更中は重複操作を止め移動したフォーカス�
   await expect(keyword).toBeFocused();
   expect(await (await request.get(`${control}/__requests`)).json()).toHaveLength(4);
 });
+
+for (const [action, status] of [
+  ["カテゴリを全選択", 200],
+  ["カテゴリを全解除", 500],
+] as const) {
+  test(`カテゴリ一括変更中は旧一覧を薄く残し完了後の結果へ切り替える ${action}`, async ({
+    page,
+    request,
+  }) => {
+    await request.post(`${control}/__configure`, {
+      data: {
+        "/press-releases": [
+          {},
+          {
+            hold: "gate",
+            status,
+            body: {
+              items: [
+                {
+                  title: "更新後の記事",
+                  source_url: "https://example.invalid/updated",
+                  published_at: "2026-01-02",
+                  source_categories: null,
+                  fixed_categories: [],
+                },
+              ],
+              pagination: { page: 1, page_size: 50, total_items: 1, total_pages: 1 },
+            },
+          },
+        ],
+      },
+    });
+    await page.goto("/?fixed_category=air");
+    const oldArticle = page.locator(".release-title").filter({ hasText: "API由来の報道発表" });
+    await expect(oldArticle).toBeVisible();
+    const before = await oldArticle.boundingBox();
+    await page.getByRole("button", { name: action, exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "カテゴリを更新中" })).toContainText(
+      "カテゴリを更新中",
+    );
+    await expect(page.getByRole("status").filter({ hasText: "カテゴリを更新中" })).toContainText(
+      "更新前の結果",
+    );
+    await expect(page.locator(".release-skeleton")).toHaveCount(0);
+    await expect(oldArticle).toBeVisible();
+    expect(await oldArticle.boundingBox()).toEqual(before);
+    const retained = page.locator(".release-results-body");
+    await expect(retained).toHaveCSS("opacity", "0.5");
+    await expect(retained).toHaveAttribute("inert", "");
+    await expect(retained).toHaveAttribute("aria-hidden", "true");
+    await oldArticle.evaluate((link: HTMLAnchorElement) => link.focus());
+    await expect(oldArticle).not.toBeFocused();
+    await expect(page.locator(".release-results-summary")).toBeHidden();
+    await expect(page.locator(".release-pagination")).toBeHidden();
+    await expect
+      .poll(async () => (await (await request.get(`${control}/__requests`)).json()).length)
+      .toBe(4);
+    const calls = await (await request.get(`${control}/__requests`)).json();
+    await request.post(`${control}/__release`, {
+      data: { ids: calls.slice(2).map((call: { id: number }) => call.id) },
+    });
+    await expect(page.getByRole("button", { name: "検索", exact: true })).toBeEnabled();
+    await expect(page.getByText("カテゴリを更新中", { exact: false })).toHaveCount(0);
+    await expect(oldArticle).toHaveCount(0);
+    if (status === 200) {
+      await expect(page.getByRole("link", { name: "更新後の記事" })).toBeVisible();
+      await expect(retained).not.toHaveAttribute("inert", "");
+      await expect(retained).toHaveCSS("opacity", "1");
+    } else {
+      await expect(retained.getByRole("alert")).toContainText("報道発表を取得できませんでした");
+    }
+    expect(await (await request.get(`${control}/__requests`)).json()).toHaveLength(4);
+  });
+}
 
 test("カテゴリ変更とページ送り・履歴・再読込で選択と適用条件を復元する", async ({ page }) => {
   await page.goto("/?q=適用済み&fixed_category=air&fixed_category=soil&published_to=2026-01-05");

@@ -967,7 +967,7 @@ test("件数差からの再取得は現在条件と下書きと履歴を維持�
 });
 
 for (const action of ["すべての条件を解除", "unknownを解除", "1ページ目へ戻る"]) {
-  test(`復旧操作でも取得中の旧情報を隠す ${action}`, async ({ page, request }) => {
+  test(`復旧操作中の表示と旧件数の非表示 ${action}`, async ({ page, request }) => {
     const range = action === "1ページ目へ戻る";
     await request.post(`${control}/__reset`, {
       data: { "/press-releases": [range ? { body: result(62, [], 3) } : {}, { hold: "gate" }] },
@@ -978,9 +978,17 @@ for (const action of ["すべての条件を解除", "unknownを解除", "1ペ�
     await expect(page.getByRole("button", { name: action, exact: true })).toBeEnabled();
     await page.getByLabel("キーワード", { exact: true }).fill("未検索の下書き");
     await page.getByRole("button", { name: action, exact: true }).click();
-    await expect(page.getByText("報道発表を読み込んでいます")).toBeVisible();
-    await expect(page.getByText("62", { exact: true })).toHaveCount(0);
-    await expect(page.getByText(/\/ 2ページ/)).toHaveCount(0);
+    if (action === "unknownを解除") {
+      await expect(page.getByRole("status").filter({ hasText: "カテゴリを更新中" })).toContainText(
+        "カテゴリを更新中",
+      );
+      await expect(page.getByText("62", { exact: true })).toBeHidden();
+      await expect(page.getByText(/\/ 2ページ/)).toBeHidden();
+    } else {
+      await expect(page.getByText("報道発表を読み込んでいます")).toBeVisible();
+      await expect(page.getByText("62", { exact: true })).toHaveCount(0);
+      await expect(page.getByText(/\/ 2ページ/)).toHaveCount(0);
+    }
     await expect
       .poll(async () => (await (await request.get(`${control}/__requests`)).json()).length)
       .toBe(4);
