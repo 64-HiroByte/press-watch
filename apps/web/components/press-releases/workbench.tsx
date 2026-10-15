@@ -1,14 +1,6 @@
 "use client";
 
-import {
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  useTransition,
-  type FormEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDownIcon, PencilLineIcon } from "lucide-react";
 import { ScrollRegion } from "@/components/press-releases/scroll-region";
@@ -66,12 +58,6 @@ function draftValues(query: QueryState) {
       };
 }
 
-function subscribeWidth(callback: () => void) {
-  const media = window.matchMedia(NARROW_SCREEN_QUERY);
-  media.addEventListener("change", callback);
-  return () => media.removeEventListener("change", callback);
-}
-
 export function ListWorkbench({
   query,
   options,
@@ -83,19 +69,15 @@ export function ListWorkbench({
 }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [navigationURL, setNavigationURL] = useState<string | null>(null);
+  const [navigation, setNavigation] = useState<{ url: string; categoryChange?: boolean } | null>(
+    null,
+  );
   const [draft, setDraft] = useState(() => draftValues(query));
   const [localErrors, setLocalErrors] = useState<string[]>([]);
   const [localErrorFields, setLocalErrorFields] = useState<QueryField[]>([]);
   const [period, setPeriod] = useState<{ value: Period; from: string; to: string } | null>(null);
-  const [expanded, setExpanded] = useState<boolean | null>(null);
+  const [conditionsExpanded, setExpanded] = useState(false);
   const [textSize, setTextSize] = useState<"standard" | "large">("standard");
-  const narrow = useSyncExternalStore(
-    subscribeWidth,
-    () => window.matchMedia(NARROW_SCREEN_QUERY).matches,
-    () => false,
-  );
-  const conditionsExpanded = expanded ?? !narrow;
   const mainRef = useRef<HTMLDivElement>(null);
   const searchFormRef = useRef<HTMLFormElement>(null);
   const headerRef = useRef<HTMLElement>(null);
@@ -104,7 +86,8 @@ export function ListWorkbench({
   const pageFocusURL = useRef<string | null>(null);
   const normalizing = !query.errors.length && query.original !== query.canonical;
   const isBusy =
-    pending || normalizing || (navigationURL !== null && navigationURL !== query.original);
+    pending || normalizing || (navigation !== null && navigation.url !== query.original);
+  const updatingCategories = isBusy && !normalizing && navigation?.categoryChange === true;
   const canChange = !isBusy && options !== null && options.length > 0;
   const repair = query.errors.length > 0 || dateError;
   const canChangeCategories = canChange && !repair;
@@ -130,7 +113,7 @@ export function ListWorkbench({
   useEffect(() => {
     if (normalizing)
       startTransition(() => {
-        setNavigationURL(query.canonical);
+        setNavigation({ url: query.canonical });
         router.replace(query.canonical ? `/?${query.canonical}` : "/", { scroll: false });
       });
   }, [normalizing, query.canonical, router]);
@@ -144,7 +127,7 @@ export function ListWorkbench({
       setLocalErrors([]);
       setLocalErrorFields([]);
       setPeriod(null);
-      setNavigationURL(restored.original);
+      setNavigation({ url: restored.original });
     }
     window.addEventListener("popstate", restore);
     return () => window.removeEventListener("popstate", restore);
@@ -165,13 +148,19 @@ export function ListWorkbench({
     };
   }, []);
 
-  function navigate(conditions?: Conditions, moveToResults = false) {
+  function navigate(
+    conditions?: Conditions,
+    {
+      moveToResults = false,
+      categoryChange = false,
+    }: { moveToResults?: boolean; categoryChange?: boolean } = {},
+  ) {
     if (isBusy || lock.current || (conditions && !canChange)) return;
     const target = conditions ? queryString(conditions) : query.original;
     if (moveToResults && target === query.original) return;
     lock.current = true;
     pageFocusURL.current = moveToResults ? target : null;
-    setNavigationURL(target);
+    setNavigation({ url: target, categoryChange });
     startTransition(() => {
       if (target === query.original) router.refresh();
       else router.push(target ? `/?${target}` : "/", { scroll: false });
@@ -268,7 +257,7 @@ export function ListWorkbench({
       categories.every((slug, index) => slug === query.conditions.categories[index])
     )
       return;
-    navigate({ ...query.conditions, categories, page: 1 });
+    navigate({ ...query.conditions, categories, page: 1 }, { categoryChange: true });
   }
   const filtered = !!(
     query.conditions.q ||
@@ -414,14 +403,34 @@ export function ListWorkbench({
                       </dd>
                     </div>
                   </dl>
-                  {!isBusy && summary}
+                  {(!isBusy || updatingCategories) && (
+                    <div className="release-summary-slot">
+                      <div
+                        aria-hidden={updatingCategories || undefined}
+                        className={updatingCategories ? "release-summary-hidden" : undefined}
+                      >
+                        {summary}
+                      </div>
+                      {updatingCategories && (
+                        <output className="release-category-progress">
+                          カテゴリを更新中（更新前の結果）
+                        </output>
+                      )}
+                    </div>
+                  )}
                 </div>
               </header>
               <div className="release-content">
-                {isBusy ? (
+                {isBusy && !updatingCategories ? (
                   <PressReleaseStatus state="loading" />
                 ) : (
-                  <>
+                  <div
+                    className="release-results-body"
+                    data-updating={updatingCategories}
+                    inert={updatingCategories}
+                    aria-hidden={updatingCategories || undefined}
+                    aria-busy={updatingCategories}
+                  >
                     {query.errors.length > 0 && (
                       <div role="alert">
                         <p>URLの検索条件を修正してください</p>
@@ -435,19 +444,23 @@ export function ListWorkbench({
                       pagination={pagination}
                       conditions={query.conditions}
                       disabled={!canChange || repair}
-                      onPageChange={(page) => navigate({ ...query.conditions, page }, true)}
+                      onPageChange={(page) =>
+                        navigate({ ...query.conditions, page }, { moveToResults: true })
+                      }
                     />
                     {outOfRange && (
                       <Button
                         type="button"
                         variant="outline"
                         disabled={!canChange || repair}
-                        onClick={() => navigate({ ...query.conditions, page: 1 }, true)}
+                        onClick={() =>
+                          navigate({ ...query.conditions, page: 1 }, { moveToResults: true })
+                        }
                       >
                         1ページ目へ戻る
                       </Button>
                     )}
-                  </>
+                  </div>
                 )}
                 <div className="release-recovery-actions">
                   <Button

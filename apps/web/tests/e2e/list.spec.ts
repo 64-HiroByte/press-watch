@@ -1,9 +1,18 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ListData } from "@/lib/press-releases-api";
 
 const control = "http://127.0.0.1:3107";
+const clockFile = resolve("../../tmp/playwright/server-clock.json");
+
+async function setDate(page: Page, date: string) {
+  const now = Date.parse(date);
+  await mkdir(dirname(clockFile), { recursive: true });
+  await writeFile(`${clockFile}.tmp`, JSON.stringify({ now, startedAt: Date.now() }));
+  await rename(`${clockFile}.tmp`, clockFile);
+  await page.clock.setFixedTime(new Date(now));
+}
 
 test("正規化待ちのHTMLで選択肢の取得失敗を誤表示しない", async ({ request }) => {
   const response = await request.get("http://127.0.0.1:3106/?q=%20a%20");
@@ -12,6 +21,29 @@ test("正規化待ちのHTMLで選択肢の取得失敗を誤表示しない", a
   expect(html.includes("カテゴリ選択肢を取得できませんでした")).toBe(false);
   expect(await (await request.get(`${control}/__requests`)).json()).toEqual([]);
 });
+
+for (const width of [1280, 390]) {
+  test(`条件の詳細は閉じて開始し利用者の開閉を幅変更でも維持する 幅${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto("/?q=大気&fixed_category=air");
+    const disclosure = page.getByRole("button", { name: "条件の詳細", exact: true });
+    const details = page.locator("#release-applied-values");
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    await expect(details).toBeHidden();
+    await disclosure.click();
+    await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    await expect(details).toBeVisible();
+    await expect(details.getByText("大気", { exact: true })).toHaveCount(2);
+    await page.setViewportSize({ width: width === 1280 ? 390 : 1280, height: 844 });
+    await expect(details).toBeVisible();
+    await disclosure.click();
+    await expect(details).toBeHidden();
+    await page.reload();
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    await expect(details).toBeHidden();
+  });
+}
+
 function result(
   total = 1,
   items: ListData["items"] = [
@@ -139,6 +171,8 @@ for (const width of [1280, 390, 767, 768]) {
     await page.goto(`/?${params}`);
     const header = page.locator(".release-header-body");
     if (width >= 768) {
+      await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
+      await expect(page.locator("#release-applied-values")).toBeVisible();
       // ストリーミング中は非表示のDOMも取得できるため、表示後に高さを測る。
       await expect(header).toBeVisible();
       await header.evaluate((element) => {
@@ -568,6 +602,7 @@ for (const [label, scenario] of [
       },
     });
     await page.goto("/?fixed_category=unknown");
+    await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
     await page.getByLabel("キーワード", { exact: true }).fill("保持する下書き");
     await expect(page.getByRole("button", { name: "すべての条件を解除" })).toBeDisabled();
     const paging = page.getByRole("navigation", { name: "ページ送り" });
@@ -646,6 +681,7 @@ test("履歴変更後の再取得を古い応答が上書きせず下書きを�
     data: { "/press-releases": { body: named("履歴の一覧", 3) } },
   });
   await page.goto("/?q=履歴&fixed_category=unknown");
+  await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
   await page.getByRole("button", { name: "unknownを解除" }).click();
   await expect(page).toHaveURL((url) => !url.searchParams.has("fixed_category"));
   await expect(page.getByRole("button", { name: "再取得", exact: true })).toBeEnabled();
@@ -702,26 +738,18 @@ test("履歴変更後の再取得を古い応答が上書きせず下書きを�
 });
 
 test("日付をまたぐ履歴復元の正規化後に一覧と再取得が使える", async ({ page }) => {
-  const clockFile = resolve("../../tmp/playwright/server-clock.json");
-  async function setDate(date: string) {
-    const now = Date.parse(date);
-    await mkdir(dirname(clockFile), { recursive: true });
-    await writeFile(`${clockFile}.tmp`, JSON.stringify({ now, startedAt: Date.now() }));
-    await rename(`${clockFile}.tmp`, clockFile);
-    await page.clock.setFixedTime(new Date(now));
-  }
   const dateError = page
     .getByRole("region", { name: "報道発表一覧のスクロール領域" })
     .getByText("開始日だけを指定する場合は今日以前にしてください");
   try {
-    await setDate("2026-10-10T03:00:00Z");
+    await setDate(page, "2026-10-10T03:00:00Z");
     await page.goto("/?published_from=2026-10-11");
     await expect(dateError).toBeVisible();
     await page.getByRole("button", { name: "すべての条件を解除", exact: true }).click();
     await expect(page).toHaveURL((url) => url.search === "");
     await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
 
-    await setDate("2026-10-11T03:00:00Z");
+    await setDate(page, "2026-10-11T03:00:00Z");
     await page.goBack({ waitUntil: "commit" });
     await expect
       .poll(
@@ -745,11 +773,67 @@ test("日付をまたぐ履歴復元の正規化後に一覧と再取得が使�
 
     await page.goForward({ waitUntil: "commit" });
     await expect(page).toHaveURL((url) => url.search === "");
-    await setDate("2026-10-12T03:00:00Z");
+    await setDate(page, "2026-10-12T03:00:00Z");
     await page.goBack({ waitUntil: "commit" });
     await expect(page).toHaveURL(canonicalURL);
     await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
     await expect(page.getByLabel("終了日", { exact: true })).toHaveValue("2026-10-11");
+  } finally {
+    await rm(clockFile, { force: true });
+    await rm(`${clockFile}.tmp`, { force: true });
+  }
+});
+
+test("開始日だけの検索で確定した終了日を翌日の再読込と履歴でも維持する", async ({
+  page,
+  request,
+}) => {
+  const from = page.getByLabel("開始日", { exact: true });
+  const to = page.getByLabel("終了日", { exact: true });
+  const keyword = page.getByLabel("キーワード", { exact: true });
+  const search = page.getByRole("button", { name: "検索", exact: true });
+  const appliedURL = "/?fixed_category=air&published_from=2026-10-01&published_to=2026-10-10";
+  try {
+    await setDate(page, "2026-10-10T03:00:00Z");
+    await page.goto("/?fixed_category=air");
+    await from.fill("2026-10-01");
+    await search.click();
+    await expect(page).toHaveURL(appliedURL);
+    await expect(search).toBeEnabled();
+    await expect(to).toHaveValue("2026-10-10");
+
+    await setDate(page, "2026-10-11T03:00:00Z");
+    await page.reload();
+    await expect(search).toBeEnabled();
+    await expect(page).toHaveURL(appliedURL);
+    await expect(from).toHaveValue("2026-10-01");
+    await expect(to).toHaveValue("2026-10-10");
+    await expect(page.getByLabel("期間", { exact: true })).toHaveValue("custom");
+    await page.getByRole("button", { name: "リセット", exact: true }).click();
+    await expect(page).toHaveURL("/?fixed_category=air");
+    await expect(search).toBeEnabled();
+    await keyword.fill("履歴で破棄する下書き");
+    await page.goBack();
+    await expect(page).toHaveURL(appliedURL);
+    await expect(search).toBeEnabled();
+    await expect(keyword).toHaveValue("");
+    await expect(from).toHaveValue("2026-10-01");
+    await expect(to).toHaveValue("2026-10-10");
+    await expect(page.getByLabel("期間", { exact: true })).toHaveValue("custom");
+    await page.goForward();
+    await expect(page).toHaveURL("/?fixed_category=air");
+    await expect(search).toBeEnabled();
+    await expect(from).toHaveValue("");
+    await expect(to).toHaveValue("");
+    const calls: { path: string; query: string }[] = await (
+      await request.get(`${control}/__requests`)
+    ).json();
+    const dated = calls
+      .filter((call) => call.path === "/press-releases")
+      .map((call) => new URLSearchParams(call.query))
+      .filter((query) => query.has("published_from"));
+    expect(dated.length).toBeGreaterThanOrEqual(2);
+    expect(dated.every((query) => query.get("published_to") === "2026-10-10")).toBe(true);
   } finally {
     await rm(clockFile, { force: true });
     await rm(`${clockFile}.tmp`, { force: true });
@@ -883,18 +967,28 @@ test("件数差からの再取得は現在条件と下書きと履歴を維持�
 });
 
 for (const action of ["すべての条件を解除", "unknownを解除", "1ページ目へ戻る"]) {
-  test(`復旧操作でも取得中の旧情報を隠す ${action}`, async ({ page, request }) => {
+  test(`復旧操作中の表示と旧件数の非表示 ${action}`, async ({ page, request }) => {
     const range = action === "1ページ目へ戻る";
     await request.post(`${control}/__reset`, {
       data: { "/press-releases": [range ? { body: result(62, [], 3) } : {}, { hold: "gate" }] },
     });
     await page.goto(range ? "/?q=適用済み&page=3" : "/?q=適用済み&fixed_category=unknown");
+    if (action === "unknownを解除")
+      await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
     await expect(page.getByRole("button", { name: action, exact: true })).toBeEnabled();
     await page.getByLabel("キーワード", { exact: true }).fill("未検索の下書き");
     await page.getByRole("button", { name: action, exact: true }).click();
-    await expect(page.getByText("報道発表を読み込んでいます")).toBeVisible();
-    await expect(page.getByText("62", { exact: true })).toHaveCount(0);
-    await expect(page.getByText(/\/ 2ページ/)).toHaveCount(0);
+    if (action === "unknownを解除") {
+      await expect(page.getByRole("status").filter({ hasText: "カテゴリを更新中" })).toContainText(
+        "カテゴリを更新中",
+      );
+      await expect(page.getByText("62", { exact: true })).toBeHidden();
+      await expect(page.getByText(/\/ 2ページ/)).toBeHidden();
+    } else {
+      await expect(page.getByText("報道発表を読み込んでいます")).toBeVisible();
+      await expect(page.getByText("62", { exact: true })).toHaveCount(0);
+      await expect(page.getByText(/\/ 2ページ/)).toHaveCount(0);
+    }
     await expect
       .poll(async () => (await (await request.get(`${control}/__requests`)).json()).length)
       .toBe(4);
@@ -952,6 +1046,37 @@ test("ドロワー内の修正は不正時に保持し成功時に閉じる", as
 });
 
 for (const path of ["/press-releases", "/fixed-categories"]) {
+  test(`応答前の接続切断を個別表示し明示的な再取得で復旧する ${path}`, async ({
+    page,
+    request,
+  }) => {
+    await request.post(`${control}/__reset`, { data: { [path]: { disconnect: true } } });
+    await page.goto("/");
+    await expect(
+      page.getByText(
+        path === "/press-releases"
+          ? "報道発表を取得できませんでした"
+          : "カテゴリ選択肢を取得できませんでした",
+      ),
+    ).toBeVisible();
+    if (path === "/press-releases")
+      await expect(page.getByRole("button", { name: "大気", exact: true })).toBeVisible();
+    else await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
+    await expect(page.getByText("報道発表はまだありません")).toHaveCount(0);
+    const calls = await (await request.get(`${control}/__requests`)).json();
+    expect(calls).toHaveLength(2);
+    expect(calls.find((call: { path: string }) => call.path === path)).toMatchObject({
+      aborted: true,
+      finished: false,
+      cleanup: false,
+    });
+    await request.post(`${control}/__configure`, { data: { [path]: {} } });
+    await page.getByRole("button", { name: "再取得", exact: true }).click();
+    await expect(page.getByRole("button", { name: "検索", exact: true })).toBeEnabled();
+    await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
+    expect(await (await request.get(`${control}/__requests`)).json()).toHaveLength(4);
+  });
+
   for (const hold of ["headers", "body"]) {
     test(`本文を含む10秒期限で中断し成功側を保持する ${path} ${hold}`, async ({
       page,
@@ -994,6 +1119,7 @@ for (const path of ["/press-releases", "/fixed-categories"]) {
 
 test("未定義カテゴリを保持し個別解除できる", async ({ page }) => {
   await page.goto("/?fixed_category=air&fixed_category=unknown&page=2");
+  await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
   await expect(page.getByText("未定義カテゴリ：unknown")).toBeVisible();
   await page.getByRole("button", { name: "unknownを解除" }).click();
   await expect(page).toHaveURL(/\?fixed_category=air$/);
@@ -1054,6 +1180,7 @@ for (const remaining of [[], ["air"]]) {
     query.set("published_from", "2026-01-01");
     query.set("published_to", "2026-01-05");
     await page.goto(`/?${query}`);
+    await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
     await page.getByRole("button", { name: "unknownを解除", exact: true }).click();
     await expect(page.getByLabel("終了日", { exact: true })).toHaveAttribute(
       "aria-invalid",
@@ -1079,6 +1206,110 @@ test.beforeEach(async ({ request }) => {
 
 test.afterEach(async ({ request }) => {
   expect((await request.post(`${control}/__reset`, { data: {} })).ok()).toBe(true);
+});
+
+test.describe("記事リンクと一覧条件の保持", () => {
+  const articleURL = "http://127.0.0.1:3107/test-article";
+  const articleItem = { ...result().items[0]!, title: "確認用の合成記事", source_url: articleURL };
+  const listURL =
+    "/?q=適用済み&fixed_category=air&published_from=2026-01-01&published_to=2026-01-05&page=2";
+
+  test.beforeEach(async ({ context, request, page }) => {
+    await context.route(articleURL, (route) =>
+      route.fulfill({
+        contentType: "text/html; charset=utf-8",
+        body: "<!doctype html><html lang=ja><title>確認用の合成記事</title><body>確認用の合成記事</body></html>",
+      }),
+    );
+    await request.post(`${control}/__configure`, {
+      data: { "/press-releases": { body: result(62, [articleItem], 2) } },
+    });
+    await page.goto(listURL);
+    await expect(page.getByRole("button", { name: "検索", exact: true })).toBeEnabled();
+  });
+
+  test("記事を安全に別画面で開き一覧の条件と下書きを維持する", async ({ page, request }) => {
+    const article = page.getByRole("link", { name: "確認用の合成記事", exact: true });
+    await expect(article).toHaveAttribute("target", "_blank");
+    await expect(article).toHaveAttribute("rel", /\bnoopener\b/);
+    await expect(article).toHaveAttribute("rel", /\bnoreferrer\b/);
+    await expect(article).not.toHaveAttribute("title");
+    await expect(article).toHaveAttribute("aria-describedby", /\S+/);
+    await expect(article).toHaveAccessibleDescription("別の画面で開く");
+    await expect(article.locator(".release-link-icon")).toBeVisible();
+    await expect(article.locator(".release-link-icon")).toHaveAttribute("aria-hidden", "true");
+    const keyword = page.getByLabel("キーワード", { exact: true });
+    await keyword.fill("未検索の下書き");
+    await page.getByLabel("開始日", { exact: true }).fill("2026-01-03");
+    const history = await page.evaluate(() => window.history.length);
+    const popupPromise = page.waitForEvent("popup");
+    await article.click();
+    const popup = await popupPromise;
+    await expect(popup).toHaveTitle("確認用の合成記事");
+    expect(await popup.evaluate(() => window.opener)).toBeNull();
+    expect(await popup.evaluate(() => document.referrer)).toBe("");
+    await popup.close();
+    await expect(page).toHaveURL(listURL);
+    await expect(keyword).toHaveValue("未検索の下書き");
+    await expect(page.getByLabel("開始日", { exact: true })).toHaveValue("2026-01-03");
+    await expect(page.getByLabel("終了日", { exact: true })).toHaveValue("2026-01-05");
+    await expect(page.getByRole("button", { name: "大気", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.getByLabel("2ページ目", { exact: true })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(await page.evaluate(() => window.history.length)).toBe(history);
+    expect(await (await request.get(`${control}/__requests`)).json()).toHaveLength(2);
+  });
+
+  test("別ページから戻っても適用済みの検索・公開日・カテゴリとページを復元する", async ({
+    page,
+    request,
+  }) => {
+    await request.post(`${control}/__configure`, {
+      data: { "/press-releases": { body: result(62, [articleItem], 1) } },
+    });
+    await page.getByLabel("キーワード", { exact: true }).fill("検索後");
+    await page.getByRole("button", { name: "検索", exact: true }).click();
+    await expect(page).toHaveURL(
+      "/?q=検索後&fixed_category=air&published_from=2026-01-01&published_to=2026-01-05",
+    );
+    await page.getByRole("button", { name: "土壌", exact: true }).click();
+    await expect(page.getByRole("button", { name: "土壌", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await request.post(`${control}/__configure`, {
+      data: { "/press-releases": { body: result(62, [articleItem], 2) } },
+    });
+    await page.getByLabel("次のページへ", { exact: true }).click();
+    const appliedURL =
+      "/?q=検索後&fixed_category=air&fixed_category=soil&published_from=2026-01-01&published_to=2026-01-05&page=2";
+    await expect(page).toHaveURL(appliedURL);
+    await page.goto(articleURL);
+    await expect(page).toHaveTitle("確認用の合成記事");
+    await page.goBack();
+    await expect(page).toHaveURL(appliedURL);
+    await expect(page.getByLabel("キーワード", { exact: true })).toHaveValue("検索後");
+    await expect(page.getByLabel("開始日", { exact: true })).toHaveValue("2026-01-01");
+    await expect(page.getByLabel("終了日", { exact: true })).toHaveValue("2026-01-05");
+    await expect(page.getByRole("button", { name: "大気", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.getByRole("button", { name: "土壌", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.getByLabel("2ページ目", { exact: true })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(page.getByRole("link", { name: "確認用の合成記事", exact: true })).toBeVisible();
+  });
 });
 
 test("実API値のタイトル・件数・全所属を表示する", async ({ page, request }) => {

@@ -1,8 +1,13 @@
 "use client";
 
+import { useRef } from "react";
 import { Button } from "@/components/ui/button";
+import { DisplayTooltip } from "@/components/press-releases/display-tooltip";
 import type { CategoryOption } from "@/lib/press-releases-api";
 import { MAX_FIXED_CATEGORY_COUNT } from "@/lib/press-release-values";
+
+const selectHelp = "分類済みの全カテゴリを対象";
+const clearHelp = "未分類も含めて表示";
 
 type Props = {
   options: CategoryOption[] | null;
@@ -23,58 +28,67 @@ export function CategoryFilters({
   onSelectAll,
   onClear,
 }: Props) {
+  const tooltipContainerRef = useRef<HTMLDivElement>(null);
   const atLimit = selected.length >= MAX_FIXED_CATEGORY_COUNT;
   const allExceedsLimit =
     new Set([...selected, ...(options?.map((option) => option.slug) ?? [])]).size >
     MAX_FIXED_CATEGORY_COUNT;
   const operationBlocked = !canChange || isBusy;
   const nativeDisabled = !canChange && !isBusy;
-  // 取得中はaria-disabledと操作ガードで停止し、操作元のDOMとフォーカスを維持する。
+  const allSelected =
+    !!options?.length && options.every((option) => selected.includes(option.slug));
+  const canSelectAll = !allExceedsLimit && !allSelected;
+  const hasSelection = selected.length > 0;
+  // 一括操作はaria-disabledとガードで停止し、フォーカスとEscの標準動作を維持する。
   return (
-    <div className="release-sidebar-categories">
+    <div ref={tooltipContainerRef} className="release-sidebar-categories">
       <fieldset className="release-category-field" aria-labelledby="release-category-label">
         <legend>
           <span id="release-category-label">カテゴリ</span>
           <span className="release-category-actions">
-            <Button
-              type="button"
-              variant="outline"
-              className="release-category-action"
-              aria-label="カテゴリを全選択"
-              disabled={nativeDisabled || allExceedsLimit}
-              aria-disabled={operationBlocked || allExceedsLimit}
-              aria-describedby={
-                allExceedsLimit
-                  ? "release-category-select-help release-category-all-limit"
-                  : "release-category-select-help"
-              }
-              onClick={() => {
-                if (!operationBlocked && !allExceedsLimit) onSelectAll();
-              }}
-            >
-              全選択
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="release-category-action"
-              aria-label="カテゴリを全解除"
-              aria-describedby="release-category-clear-help"
-              disabled={nativeDisabled}
-              aria-disabled={operationBlocked}
-              onClick={() => {
-                if (!operationBlocked) onClear();
-              }}
-            >
-              全解除
-            </Button>
+            <DisplayTooltip label={selectHelp} container={tooltipContainerRef}>
+              <Button
+                type="button"
+                variant="outline"
+                className="release-category-action"
+                aria-label="カテゴリを全選択"
+                disabled={nativeDisabled}
+                aria-disabled={operationBlocked || !canSelectAll}
+                aria-describedby={
+                  allExceedsLimit
+                    ? "release-category-select-help release-category-all-limit"
+                    : "release-category-select-help"
+                }
+                onClick={() => {
+                  if (!operationBlocked && canSelectAll) onSelectAll();
+                }}
+              >
+                全選択
+              </Button>
+            </DisplayTooltip>
+            <DisplayTooltip label={clearHelp} container={tooltipContainerRef}>
+              <Button
+                type="button"
+                variant="outline"
+                className="release-category-action"
+                aria-label="カテゴリを全解除"
+                aria-describedby="release-category-clear-help"
+                disabled={nativeDisabled}
+                aria-disabled={operationBlocked || !hasSelection}
+                onClick={() => {
+                  if (!operationBlocked && hasSelection) onClear();
+                }}
+              >
+                全解除
+              </Button>
+            </DisplayTooltip>
           </span>
         </legend>
-        <p id="release-category-select-help" className="release-category-help">
-          分類済みの全カテゴリを対象
+        <p id="release-category-select-help" hidden>
+          {selectHelp}
         </p>
-        <p id="release-category-clear-help" className="release-category-help">
-          未分類も含めて表示
+        <p id="release-category-clear-help" hidden>
+          {clearHelp}
         </p>
         {atLimit && (
           <p id="release-category-limit" className="release-category-help">
