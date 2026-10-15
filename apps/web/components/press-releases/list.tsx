@@ -23,7 +23,13 @@ export function PressReleaseList({ releases }: { releases: readonly ReleaseSumma
           <time className="release-date" dateTime={release.publishedOn}>
             {release.publishedOn.replaceAll("-", ".")}
           </time>
-          <a className="release-title" href={release.detailUrl}>
+          <a
+            className="release-title"
+            href={release.detailUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="新しいタブまたはウィンドウで開く"
+          >
             <span>{release.title}</span>
             <ArrowUpRightIcon className="release-link-icon" aria-hidden="true" />
           </a>

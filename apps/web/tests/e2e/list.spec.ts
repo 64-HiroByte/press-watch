@@ -1208,6 +1208,106 @@ test.afterEach(async ({ request }) => {
   expect((await request.post(`${control}/__reset`, { data: {} })).ok()).toBe(true);
 });
 
+test.describe("記事リンクと一覧条件の保持", () => {
+  const articleURL = "http://127.0.0.1:3107/test-article";
+  const articleItem = { ...result().items[0]!, title: "確認用の合成記事", source_url: articleURL };
+  const listURL =
+    "/?q=適用済み&fixed_category=air&published_from=2026-01-01&published_to=2026-01-05&page=2";
+
+  test.beforeEach(async ({ context, request, page }) => {
+    await context.route(articleURL, (route) =>
+      route.fulfill({
+        contentType: "text/html; charset=utf-8",
+        body: "<!doctype html><html lang=ja><title>確認用の合成記事</title><body>確認用の合成記事</body></html>",
+      }),
+    );
+    await request.post(`${control}/__configure`, {
+      data: { "/press-releases": { body: result(62, [articleItem], 2) } },
+    });
+    await page.goto(listURL);
+    await expect(page.getByRole("button", { name: "検索", exact: true })).toBeEnabled();
+  });
+
+  test("記事を安全に別画面で開き一覧の条件と下書きを維持する", async ({ page, request }) => {
+    const article = page.getByRole("link", { name: "確認用の合成記事", exact: true });
+    await expect(article).toHaveAttribute("target", "_blank");
+    await expect(article).toHaveAttribute("rel", /\bnoopener\b/);
+    await expect(article).toHaveAttribute("rel", /\bnoreferrer\b/);
+    await expect(article).toHaveAccessibleDescription("新しいタブまたはウィンドウで開く");
+    const keyword = page.getByLabel("キーワード", { exact: true });
+    await keyword.fill("未検索の下書き");
+    await page.getByLabel("開始日", { exact: true }).fill("2026-01-03");
+    const history = await page.evaluate(() => window.history.length);
+    const popupPromise = page.waitForEvent("popup");
+    await article.click();
+    const popup = await popupPromise;
+    await expect(popup).toHaveTitle("確認用の合成記事");
+    expect(await popup.evaluate(() => window.opener)).toBeNull();
+    expect(await popup.evaluate(() => document.referrer)).toBe("");
+    await popup.close();
+    await expect(page).toHaveURL(listURL);
+    await expect(keyword).toHaveValue("未検索の下書き");
+    await expect(page.getByLabel("開始日", { exact: true })).toHaveValue("2026-01-03");
+    await expect(page.getByLabel("終了日", { exact: true })).toHaveValue("2026-01-05");
+    await expect(page.getByRole("button", { name: "大気", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.getByLabel("2ページ目", { exact: true })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(await page.evaluate(() => window.history.length)).toBe(history);
+    expect(await (await request.get(`${control}/__requests`)).json()).toHaveLength(2);
+  });
+
+  test("別ページから戻っても適用済みの検索・公開日・カテゴリとページを復元する", async ({
+    page,
+    request,
+  }) => {
+    await request.post(`${control}/__configure`, {
+      data: { "/press-releases": { body: result(62, [articleItem], 1) } },
+    });
+    await page.getByLabel("キーワード", { exact: true }).fill("検索後");
+    await page.getByRole("button", { name: "検索", exact: true }).click();
+    await expect(page).toHaveURL(
+      "/?q=検索後&fixed_category=air&published_from=2026-01-01&published_to=2026-01-05",
+    );
+    await page.getByRole("button", { name: "土壌", exact: true }).click();
+    await expect(page.getByRole("button", { name: "土壌", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await request.post(`${control}/__configure`, {
+      data: { "/press-releases": { body: result(62, [articleItem], 2) } },
+    });
+    await page.getByLabel("次のページへ", { exact: true }).click();
+    const appliedURL =
+      "/?q=検索後&fixed_category=air&fixed_category=soil&published_from=2026-01-01&published_to=2026-01-05&page=2";
+    await expect(page).toHaveURL(appliedURL);
+    await page.goto(articleURL);
+    await expect(page).toHaveTitle("確認用の合成記事");
+    await page.goBack();
+    await expect(page).toHaveURL(appliedURL);
+    await expect(page.getByLabel("キーワード", { exact: true })).toHaveValue("検索後");
+    await expect(page.getByLabel("開始日", { exact: true })).toHaveValue("2026-01-01");
+    await expect(page.getByLabel("終了日", { exact: true })).toHaveValue("2026-01-05");
+    await expect(page.getByRole("button", { name: "大気", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.getByRole("button", { name: "土壌", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.getByLabel("2ページ目", { exact: true })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(page.getByRole("link", { name: "確認用の合成記事", exact: true })).toBeVisible();
+  });
+});
+
 test("実API値のタイトル・件数・全所属を表示する", async ({ page, request }) => {
   await page.goto("/");
   await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
