@@ -1233,7 +1233,11 @@ test.describe("記事リンクと一覧条件の保持", () => {
     await expect(article).toHaveAttribute("target", "_blank");
     await expect(article).toHaveAttribute("rel", /\bnoopener\b/);
     await expect(article).toHaveAttribute("rel", /\bnoreferrer\b/);
-    await expect(article).toHaveAccessibleDescription("新しいタブまたはウィンドウで開く");
+    await expect(article).not.toHaveAttribute("title");
+    await expect(article).toHaveAttribute("aria-describedby", /\S+/);
+    await expect(article).toHaveAccessibleDescription("別の画面で開く");
+    await expect(article.locator(".release-link-icon")).toBeVisible();
+    await expect(article.locator(".release-link-icon")).toHaveAttribute("aria-hidden", "true");
     const keyword = page.getByLabel("キーワード", { exact: true });
     await keyword.fill("未検索の下書き");
     await page.getByLabel("開始日", { exact: true }).fill("2026-01-03");
