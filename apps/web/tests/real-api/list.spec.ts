@@ -70,8 +70,18 @@ test("カテゴリ操作のOR・検索とのAND・全選択と全解除を既存
   await expect(rows.getByText("土壌", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "リセット", exact: true }).click();
   await filters.getByRole("button", { name: "カテゴリを全選択", exact: true }).click();
-  const selected =
-    "fixed_category=air&fixed_category=common&fixed_category=effluent&fixed_category=environmental_water&fixed_category=noise&fixed_category=odor&fixed_category=other&fixed_category=soil&fixed_category=tap_water&fixed_category=vibration";
+  const selected = [
+    "fixed_category=air",
+    "fixed_category=common",
+    "fixed_category=effluent",
+    "fixed_category=environmental_water",
+    "fixed_category=noise",
+    "fixed_category=odor",
+    "fixed_category=other",
+    "fixed_category=soil",
+    "fixed_category=tap_water",
+    "fixed_category=vibration",
+  ].join("&");
   await compare(selected, 61);
   await page.getByRole("navigation", { name: "ページ送り" }).getByLabel("次のページへ").click();
   await compare(`${selected}&page=2`, 61);
