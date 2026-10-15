@@ -144,7 +144,7 @@ test("専用実APIのページ送りを往復し順序・全文タイトル・�
   expect(external).toEqual([]);
 });
 
-test("通常検索と公開日・リセットを実APIへ接続しカテゴリ付き検索をページ送りする", async ({
+test("検索・カテゴリ・ページ送り・履歴と各解除を実APIで一連の操作として照合する", async ({
   page,
   request,
 }) => {
@@ -215,5 +215,79 @@ test("通常検索と公開日・リセットを実APIへ接続しカテゴリ�
   await compare("fixed_category=air", 52);
   for (const label of ["キーワード", "開始日", "終了日"])
     await expect(page.getByLabel(label, { exact: true })).toHaveValue("");
+
+  const from = page.getByLabel("開始日", { exact: true });
+  const to = page.getByLabel("終了日", { exact: true });
+  const filters = page.locator(".release-sidebar-categories");
+  const air = filters.getByRole("button", { name: "大気", exact: true });
+  const soil = filters.getByRole("button", { name: "土壌", exact: true });
+  const next = page.getByRole("navigation", { name: "ページ送り" }).getByLabel("次のページへ");
+  const airQuery = "q=ページ&fixed_category=air&published_from=2026-01-03&published_to=2026-01-03";
+  const orQuery =
+    "q=ページ&fixed_category=air&fixed_category=soil&published_from=2026-01-03&published_to=2026-01-03";
+  await keyword.fill("ページ");
+  await from.fill("2026-01-03");
+  await to.fill("2026-01-03");
+  await search.click();
+  await compare(airQuery, 51);
+  await next.click();
+  await compare(`${airQuery}&page=2`, 51);
+  await expect(rows).toHaveCount(1);
+  await keyword.fill("未検索の下書き");
+  await from.fill("2026-01-04");
+  await to.fill("2026-01-05");
+  await soil.click();
+  await compare(orQuery, 51);
+  await expect(soil).toHaveAttribute("aria-pressed", "true");
+  await expect(keyword).toHaveValue("未検索の下書き");
+  await expect(from).toHaveValue("2026-01-04");
+  await expect(to).toHaveValue("2026-01-05");
+  await next.click();
+  await compare(`${orQuery}&page=2`, 51);
+  await expect(keyword).toHaveValue("未検索の下書き");
+  await expect(from).toHaveValue("2026-01-04");
+  await expect(to).toHaveValue("2026-01-05");
+  await page.goBack();
+  await compare(orQuery, 51);
+  await expect(keyword).toHaveValue("ページ");
+  await expect(from).toHaveValue("2026-01-03");
+  await expect(to).toHaveValue("2026-01-03");
+  await expect(page.getByLabel("期間", { exact: true })).toHaveValue("custom");
+  await page.goBack();
+  await compare(`${airQuery}&page=2`, 51);
+  await expect(soil).toHaveAttribute("aria-pressed", "false");
+  await page.goForward();
+  await compare(orQuery, 51);
+  await expect(soil).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "リセット", exact: true }).click();
+  await compare("fixed_category=air&fixed_category=soil", 53);
+  for (const label of ["キーワード", "開始日", "終了日"])
+    await expect(page.getByLabel(label, { exact: true })).toHaveValue("");
+  await filters.getByRole("button", { name: "カテゴリを全解除", exact: true }).click();
+  await compare("", 62);
+  await air.click();
+  await compare("fixed_category=air", 52);
+  await keyword.fill("ページ");
+  await from.fill("2026-01-03");
+  await to.fill("2026-01-03");
+  await search.click();
+  await compare(airQuery, 51);
+  await next.click();
+  await compare(`${airQuery}&page=2`, 51);
+  await keyword.fill("全条件解除で消す下書き");
+  await from.fill("2026-01-04");
+  await to.fill("2026-01-05");
+  const clear = page.getByRole("button", { name: "すべての条件を解除", exact: true });
+  await expect(clear).toBeEnabled();
+  await clear.click();
+  await compare("", 62);
+  for (const label of ["キーワード", "開始日", "終了日"])
+    await expect(page.getByLabel(label, { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("期間", { exact: true })).toHaveValue("custom");
+  await expect(air).toHaveAttribute("aria-pressed", "false");
+  await expect(soil).toHaveAttribute("aria-pressed", "false");
+  await expect(
+    page.getByRole("navigation", { name: "ページ送り" }).getByLabel("1ページ目", { exact: true }),
+  ).toHaveAttribute("aria-current", "page");
   expect(external).toEqual([]);
 });

@@ -1,9 +1,18 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ListData } from "@/lib/press-releases-api";
 
 const control = "http://127.0.0.1:3107";
+const clockFile = resolve("../../tmp/playwright/server-clock.json");
+
+async function setDate(page: Page, date: string) {
+  const now = Date.parse(date);
+  await mkdir(dirname(clockFile), { recursive: true });
+  await writeFile(`${clockFile}.tmp`, JSON.stringify({ now, startedAt: Date.now() }));
+  await rename(`${clockFile}.tmp`, clockFile);
+  await page.clock.setFixedTime(new Date(now));
+}
 
 test("正規化待ちのHTMLで選択肢の取得失敗を誤表示しない", async ({ request }) => {
   const response = await request.get("http://127.0.0.1:3106/?q=%20a%20");
@@ -702,26 +711,18 @@ test("履歴変更後の再取得を古い応答が上書きせず下書きを�
 });
 
 test("日付をまたぐ履歴復元の正規化後に一覧と再取得が使える", async ({ page }) => {
-  const clockFile = resolve("../../tmp/playwright/server-clock.json");
-  async function setDate(date: string) {
-    const now = Date.parse(date);
-    await mkdir(dirname(clockFile), { recursive: true });
-    await writeFile(`${clockFile}.tmp`, JSON.stringify({ now, startedAt: Date.now() }));
-    await rename(`${clockFile}.tmp`, clockFile);
-    await page.clock.setFixedTime(new Date(now));
-  }
   const dateError = page
     .getByRole("region", { name: "報道発表一覧のスクロール領域" })
     .getByText("開始日だけを指定する場合は今日以前にしてください");
   try {
-    await setDate("2026-10-10T03:00:00Z");
+    await setDate(page, "2026-10-10T03:00:00Z");
     await page.goto("/?published_from=2026-10-11");
     await expect(dateError).toBeVisible();
     await page.getByRole("button", { name: "すべての条件を解除", exact: true }).click();
     await expect(page).toHaveURL((url) => url.search === "");
     await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
 
-    await setDate("2026-10-11T03:00:00Z");
+    await setDate(page, "2026-10-11T03:00:00Z");
     await page.goBack({ waitUntil: "commit" });
     await expect
       .poll(
@@ -745,11 +746,67 @@ test("日付をまたぐ履歴復元の正規化後に一覧と再取得が使�
 
     await page.goForward({ waitUntil: "commit" });
     await expect(page).toHaveURL((url) => url.search === "");
-    await setDate("2026-10-12T03:00:00Z");
+    await setDate(page, "2026-10-12T03:00:00Z");
     await page.goBack({ waitUntil: "commit" });
     await expect(page).toHaveURL(canonicalURL);
     await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
     await expect(page.getByLabel("終了日", { exact: true })).toHaveValue("2026-10-11");
+  } finally {
+    await rm(clockFile, { force: true });
+    await rm(`${clockFile}.tmp`, { force: true });
+  }
+});
+
+test("開始日だけの検索で確定した終了日を翌日の再読込と履歴でも維持する", async ({
+  page,
+  request,
+}) => {
+  const from = page.getByLabel("開始日", { exact: true });
+  const to = page.getByLabel("終了日", { exact: true });
+  const keyword = page.getByLabel("キーワード", { exact: true });
+  const search = page.getByRole("button", { name: "検索", exact: true });
+  const appliedURL = "/?fixed_category=air&published_from=2026-10-01&published_to=2026-10-10";
+  try {
+    await setDate(page, "2026-10-10T03:00:00Z");
+    await page.goto("/?fixed_category=air");
+    await from.fill("2026-10-01");
+    await search.click();
+    await expect(page).toHaveURL(appliedURL);
+    await expect(search).toBeEnabled();
+    await expect(to).toHaveValue("2026-10-10");
+
+    await setDate(page, "2026-10-11T03:00:00Z");
+    await page.reload();
+    await expect(search).toBeEnabled();
+    await expect(page).toHaveURL(appliedURL);
+    await expect(from).toHaveValue("2026-10-01");
+    await expect(to).toHaveValue("2026-10-10");
+    await expect(page.getByLabel("期間", { exact: true })).toHaveValue("custom");
+    await page.getByRole("button", { name: "リセット", exact: true }).click();
+    await expect(page).toHaveURL("/?fixed_category=air");
+    await expect(search).toBeEnabled();
+    await keyword.fill("履歴で破棄する下書き");
+    await page.goBack();
+    await expect(page).toHaveURL(appliedURL);
+    await expect(search).toBeEnabled();
+    await expect(keyword).toHaveValue("");
+    await expect(from).toHaveValue("2026-10-01");
+    await expect(to).toHaveValue("2026-10-10");
+    await expect(page.getByLabel("期間", { exact: true })).toHaveValue("custom");
+    await page.goForward();
+    await expect(page).toHaveURL("/?fixed_category=air");
+    await expect(search).toBeEnabled();
+    await expect(from).toHaveValue("");
+    await expect(to).toHaveValue("");
+    const calls: { path: string; query: string }[] = await (
+      await request.get(`${control}/__requests`)
+    ).json();
+    const dated = calls
+      .filter((call) => call.path === "/press-releases")
+      .map((call) => new URLSearchParams(call.query))
+      .filter((query) => query.has("published_from"));
+    expect(dated.length).toBeGreaterThanOrEqual(2);
+    expect(dated.every((query) => query.get("published_to") === "2026-10-10")).toBe(true);
   } finally {
     await rm(clockFile, { force: true });
     await rm(`${clockFile}.tmp`, { force: true });
@@ -952,6 +1009,37 @@ test("ドロワー内の修正は不正時に保持し成功時に閉じる", as
 });
 
 for (const path of ["/press-releases", "/fixed-categories"]) {
+  test(`応答前の接続切断を個別表示し明示的な再取得で復旧する ${path}`, async ({
+    page,
+    request,
+  }) => {
+    await request.post(`${control}/__reset`, { data: { [path]: { disconnect: true } } });
+    await page.goto("/");
+    await expect(
+      page.getByText(
+        path === "/press-releases"
+          ? "報道発表を取得できませんでした"
+          : "カテゴリ選択肢を取得できませんでした",
+      ),
+    ).toBeVisible();
+    if (path === "/press-releases")
+      await expect(page.getByRole("button", { name: "大気", exact: true })).toBeVisible();
+    else await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
+    await expect(page.getByText("報道発表はまだありません")).toHaveCount(0);
+    const calls = await (await request.get(`${control}/__requests`)).json();
+    expect(calls).toHaveLength(2);
+    expect(calls.find((call: { path: string }) => call.path === path)).toMatchObject({
+      aborted: true,
+      finished: false,
+      cleanup: false,
+    });
+    await request.post(`${control}/__configure`, { data: { [path]: {} } });
+    await page.getByRole("button", { name: "再取得", exact: true }).click();
+    await expect(page.getByRole("button", { name: "検索", exact: true })).toBeEnabled();
+    await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
+    expect(await (await request.get(`${control}/__requests`)).json()).toHaveLength(4);
+  });
+
   for (const hold of ["headers", "body"]) {
     test(`本文を含む10秒期限で中断し成功側を保持する ${path} ${hold}`, async ({
       page,

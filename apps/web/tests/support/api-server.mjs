@@ -128,7 +128,9 @@ const server = createServer(async (req, res) => {
       pending.delete(entry.id);
       closed();
     });
-    if (scenario.hold === "body") {
+    if (scenario.disconnect) {
+      res.destroy();
+    } else if (scenario.hold === "body") {
       res.writeHead(200, { "content-type": "application/json" });
       res.write('{"items":');
     } else if (scenario.hold === "headers" || scenario.hold === "gate") {
