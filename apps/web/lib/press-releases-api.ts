@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { Conditions } from "@/lib/press-release-query";
 import type { FixedCategoryLabel } from "@/components/press-releases/list";
 import {
   categorySlug,
@@ -151,14 +152,25 @@ async function get<T>(
   }
 }
 
-export async function getList(query = "", invalid = false) {
-  const page = Number(new URLSearchParams(query).get("page") ?? 1);
+function apiQueryString(conditions: Conditions): string {
+  const query = new URLSearchParams();
+  if (conditions.q) query.set("q", conditions.q);
+  for (const slug of conditions.categories) query.append("fixed_category", slug);
+  if (conditions.from) query.set("published_from", conditions.from);
+  if (conditions.to) query.set("published_to", conditions.to);
+  if (conditions.page !== 1) query.set("page", String(conditions.page));
+  return query.toString();
+}
+
+export async function getList(conditions: Conditions | null) {
+  const query = conditions === null ? "" : apiQueryString(conditions);
   const [list, categories] = await Promise.allSettled([
-    invalid
+    conditions === null
       ? Promise.resolve(null)
       : get(
           `/press-releases${query ? `?${query}` : ""}`,
-          (value): value is ListData => listData(value) && value.pagination.page === page,
+          (value): value is ListData =>
+            listData(value) && value.pagination.page === conditions.page,
         ),
     get("/fixed-categories", categoryData),
   ]);

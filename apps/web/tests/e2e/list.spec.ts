@@ -25,7 +25,7 @@ test("正規化待ちのHTMLで選択肢の取得失敗を誤表示しない", a
 for (const width of [1280, 390]) {
   test(`条件の詳細は閉じて開始し利用者の開閉を幅変更でも維持する 幅${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
-    await page.goto("/?q=大気&fixed_category=air");
+    await page.goto("/?q=大気&categories=air");
     const disclosure = page.getByRole("button", { name: "条件の詳細", exact: true });
     const details = page.locator("#release-applied-values");
     await expect(disclosure).toHaveAttribute("aria-expanded", "false");
@@ -163,11 +163,13 @@ for (const width of [1280, 390, 767, 768]) {
       data: { "/press-releases": [1, 2].map((number) => ({ body: pagedResult(123, number) })) },
     });
     const params = new URLSearchParams({ q: "長い条件".repeat(25) });
-    for (let index = 0; index < 20; index++)
-      params.append(
-        "fixed_category",
-        `category_${String(index).padStart(2, "0")}_${"x".repeat(80)}`,
-      );
+    params.set(
+      "categories",
+      Array.from(
+        { length: 20 },
+        (_, index) => `category_${String(index).padStart(2, "0")}_${"x".repeat(80)}`,
+      ).join(","),
+    );
     await page.goto(`/?${params}`);
     const header = page.locator(".release-header-body");
     if (width >= 768) {
@@ -234,8 +236,7 @@ test("ページ送りは適用済み条件と下書きを分けて保持し履�
   await request.post(`${control}/__configure`, {
     data: { "/press-releases": [1, 2, 1, 2].map((number) => ({ body: pagedResult(62, number) })) },
   });
-  const original =
-    "/?q=大気&fixed_category=air&fixed_category=unknown&published_from=2026-01-01&published_to=2026-01-05";
+  const original = "/?q=大気&categories=air,unknown&from=2026-01-01&to=2026-01-05";
   await page.goto(original);
   const keyword = page.getByLabel("キーワード", { exact: true });
   const from = page.getByLabel("開始日", { exact: true });
@@ -601,7 +602,7 @@ for (const [label, scenario] of [
         "/press-releases": { body: pagedResult(62, 1) },
       },
     });
-    await page.goto("/?fixed_category=unknown");
+    await page.goto("/?categories=unknown");
     await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
     await page.getByLabel("キーワード", { exact: true }).fill("保持する下書き");
     await expect(page.getByRole("button", { name: "すべての条件を解除" })).toBeDisabled();
@@ -618,10 +619,10 @@ for (const [label, scenario] of [
     await expect(page.getByRole("button", { name: "unknownを解除" })).toBeEnabled();
     await expect(paging.getByLabel("次のページへ")).toHaveAttribute(
       "href",
-      "/?fixed_category=unknown&page=2",
+      "/?categories=unknown&page=2",
     );
     await expect(page.getByLabel("キーワード", { exact: true })).toHaveValue("保持する下書き");
-    expect(new URL(page.url()).searchParams.get("fixed_category")).toBe("unknown");
+    expect(new URL(page.url()).searchParams.get("categories")).toBe("unknown");
   });
 }
 
@@ -680,10 +681,10 @@ test("履歴変更後の再取得を古い応答が上書きせず下書きを�
   await request.post(`${control}/__reset`, {
     data: { "/press-releases": { body: named("履歴の一覧", 3) } },
   });
-  await page.goto("/?q=履歴&fixed_category=unknown");
+  await page.goto("/?q=履歴&categories=unknown");
   await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
   await page.getByRole("button", { name: "unknownを解除" }).click();
-  await expect(page).toHaveURL((url) => !url.searchParams.has("fixed_category"));
+  await expect(page).toHaveURL((url) => !url.searchParams.has("categories"));
   await expect(page.getByRole("button", { name: "再取得", exact: true })).toBeEnabled();
   await page.getByLabel("キーワード", { exact: true }).fill("履歴で破棄する下書き");
   await request.post(`${control}/__configure`, {
@@ -700,7 +701,7 @@ test("履歴変更後の再取得を古い応答が上書きせず下書きを�
     data: { "/press-releases": { body: named("履歴の一覧", 3) } },
   });
   await page.goBack({ waitUntil: "commit" });
-  await expect(page).toHaveURL((url) => url.searchParams.get("fixed_category") === "unknown");
+  await expect(page).toHaveURL((url) => url.searchParams.get("categories") === "unknown");
   await expect(page.getByRole("link", { name: "履歴の一覧" })).toBeVisible();
   await expect(page.getByLabel("キーワード", { exact: true })).toHaveValue("履歴");
   await page.getByLabel("キーワード", { exact: true }).fill("最新の下書き");
@@ -732,7 +733,7 @@ test("履歴変更後の再取得を古い応答が上書きせず下書きを�
   await expect(page.getByLabel("キーワード", { exact: true })).toHaveValue("最新の下書き");
   await request.post(`${control}/__configure`, { data: { "/press-releases": {} } });
   await page.goForward({ waitUntil: "commit" });
-  await expect(page).toHaveURL((url) => !url.searchParams.has("fixed_category"));
+  await expect(page).toHaveURL((url) => !url.searchParams.has("categories"));
   await expect(page.getByLabel("キーワード", { exact: true })).toHaveValue("履歴");
   await expect(page.getByRole("button", { name: "再取得", exact: true })).toBeEnabled();
 });
@@ -743,7 +744,7 @@ test("日付をまたぐ履歴復元の正規化後に一覧と再取得が使�
     .getByText("開始日だけを指定する場合は今日以前にしてください");
   try {
     await setDate(page, "2026-10-10T03:00:00Z");
-    await page.goto("/?published_from=2026-10-11");
+    await page.goto("/?from=2026-10-11");
     await expect(dateError).toBeVisible();
     await page.getByRole("button", { name: "すべての条件を解除", exact: true }).click();
     await expect(page).toHaveURL((url) => url.search === "");
@@ -752,15 +753,12 @@ test("日付をまたぐ履歴復元の正規化後に一覧と再取得が使�
     await setDate(page, "2026-10-11T03:00:00Z");
     await page.goBack({ waitUntil: "commit" });
     await expect
-      .poll(
-        async () =>
-          new URL(page.url()).searchParams.has("published_to") || (await dateError.isVisible()),
-      )
+      .poll(async () => new URL(page.url()).searchParams.has("to") || (await dateError.isVisible()))
       .toBe(true);
     // 履歴キャッシュに前日の入力エラーが残る場合も、利用者の再取得で復旧する。
-    if (!new URL(page.url()).searchParams.has("published_to"))
+    if (!new URL(page.url()).searchParams.has("to"))
       await page.getByRole("button", { name: "再取得", exact: true }).click();
-    await expect(page).toHaveURL((url) => url.searchParams.get("published_to") === "2026-10-11");
+    await expect(page).toHaveURL((url) => url.searchParams.get("to") === "2026-10-11");
     await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
     await expect(page.getByLabel("終了日", { exact: true })).toHaveValue("2026-10-11");
     const canonicalURL = page.url();
@@ -792,10 +790,10 @@ test("開始日だけの検索で確定した終了日を翌日の再読込と�
   const to = page.getByLabel("終了日", { exact: true });
   const keyword = page.getByLabel("キーワード", { exact: true });
   const search = page.getByRole("button", { name: "検索", exact: true });
-  const appliedURL = "/?fixed_category=air&published_from=2026-10-01&published_to=2026-10-10";
+  const appliedURL = "/?categories=air&from=2026-10-01&to=2026-10-10";
   try {
     await setDate(page, "2026-10-10T03:00:00Z");
-    await page.goto("/?fixed_category=air");
+    await page.goto("/?categories=air");
     await from.fill("2026-10-01");
     await search.click();
     await expect(page).toHaveURL(appliedURL);
@@ -810,7 +808,7 @@ test("開始日だけの検索で確定した終了日を翌日の再読込と�
     await expect(to).toHaveValue("2026-10-10");
     await expect(page.getByLabel("期間", { exact: true })).toHaveValue("custom");
     await page.getByRole("button", { name: "リセット", exact: true }).click();
-    await expect(page).toHaveURL("/?fixed_category=air");
+    await expect(page).toHaveURL("/?categories=air");
     await expect(search).toBeEnabled();
     await keyword.fill("履歴で破棄する下書き");
     await page.goBack();
@@ -821,7 +819,7 @@ test("開始日だけの検索で確定した終了日を翌日の再読込と�
     await expect(to).toHaveValue("2026-10-10");
     await expect(page.getByLabel("期間", { exact: true })).toHaveValue("custom");
     await page.goForward();
-    await expect(page).toHaveURL("/?fixed_category=air");
+    await expect(page).toHaveURL("/?categories=air");
     await expect(search).toBeEnabled();
     await expect(from).toHaveValue("");
     await expect(to).toHaveValue("");
@@ -841,7 +839,7 @@ test("開始日だけの検索で確定した終了日を翌日の再読込と�
 });
 
 test("不正URLでは一覧取得せず修正を案内する", async ({ page, request }) => {
-  await page.goto("/?q=one&q=two&published_from=2026-02-30&page=0");
+  await page.goto("/?q=one&q=two&from=2026-02-30&page=0");
   await expect(page.getByText("URLの検索条件を修正してください")).toBeVisible();
   const calls = await (await request.get(`${control}/__requests`)).json();
   expect(calls.map((call: { path: string }) => call.path)).toEqual(["/fixed-categories"]);
@@ -849,11 +847,9 @@ test("不正URLでは一覧取得せず修正を案内する", async ({ page, re
 
 test("正規化完了後にだけ正規条件を取得する", async ({ page, request }) => {
   await page.goto(
-    "/?q=%20大気%20&fixed_category=%20soil%20&fixed_category=air&fixed_category=air&page=1&page_size=50&irrelevant=value&published_from=2026-01-05&published_to=2026-01-01",
+    "/?q=%20大気%20&categories=%20soil%20,air,air&page=1&page_size=50&irrelevant=value&from=2026-01-05&to=2026-01-01",
   );
-  await expect(page).toHaveURL(
-    /\?q=.*&fixed_category=air&fixed_category=soil&published_from=2026-01-01&published_to=2026-01-05$/,
-  );
+  await expect(page).toHaveURL(/\?q=.*&categories=air,soil&from=2026-01-01&to=2026-01-05$/);
   await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
   const calls = await (await request.get(`${control}/__requests`)).json();
   expect(calls).toHaveLength(2);
@@ -972,7 +968,7 @@ for (const action of ["すべての条件を解除", "unknownを解除", "1ペ�
     await request.post(`${control}/__reset`, {
       data: { "/press-releases": [range ? { body: result(62, [], 3) } : {}, { hold: "gate" }] },
     });
-    await page.goto(range ? "/?q=適用済み&page=3" : "/?q=適用済み&fixed_category=unknown");
+    await page.goto(range ? "/?q=適用済み&page=3" : "/?q=適用済み&categories=unknown");
     if (action === "unknownを解除")
       await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
     await expect(page.getByRole("button", { name: action, exact: true })).toBeEnabled();
@@ -1006,7 +1002,7 @@ for (const action of ["すべての条件を解除", "unknownを解除", "1ペ�
 }
 
 test("不正条件を修正しページ1へ履歴追加する", async ({ page, request }) => {
-  await page.goto("/?q=one&q=two&fixed_category=Invalid&page=0");
+  await page.goto("/?q=one&q=two&categories=Invalid&page=0");
   await expect(page.getByRole("button", { name: "条件を修正して適用" })).toBeVisible();
   await page.getByLabel("キーワード", { exact: true }).fill("修正値");
   await page.getByLabel("カテゴリslug（1行に1個）", { exact: true }).fill("soil");
@@ -1017,7 +1013,7 @@ test("不正条件を修正しページ1へ履歴追加する", async ({ page, r
   );
   expect(new URL(page.url()).searchParams.get("q")).toBe("修正値");
   await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
-  expect(new URL(page.url()).searchParams.getAll("fixed_category")).toEqual(["soil"]);
+  expect(new URL(page.url()).searchParams.get("categories")?.split(",") ?? []).toEqual(["soil"]);
   const calls = await (await request.get(`${control}/__requests`)).json();
   const listCall = calls.find((call: { path: string }) => call.path === "/press-releases");
   expect(new URLSearchParams(listCall.query).getAll("fixed_category")).toEqual(["soil"]);
@@ -1118,11 +1114,11 @@ for (const path of ["/press-releases", "/fixed-categories"]) {
 }
 
 test("未定義カテゴリを保持し個別解除できる", async ({ page }) => {
-  await page.goto("/?fixed_category=air&fixed_category=unknown&page=2");
+  await page.goto("/?categories=air,unknown&page=2");
   await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
   await expect(page.getByText("未定義カテゴリ：unknown")).toBeVisible();
   await page.getByRole("button", { name: "unknownを解除" }).click();
-  await expect(page).toHaveURL(/\?fixed_category=air$/);
+  await expect(page).toHaveURL(/\?categories=air$/);
 });
 
 test("範囲外から他条件を維持してページ1へ戻る", async ({ page, request }) => {
@@ -1152,7 +1148,7 @@ test("日付422を両入力へ関連付け修正する", async ({ page, request 
       ],
     },
   });
-  await page.goto("/?published_from=2026-01-01&published_to=2026-01-05");
+  await page.goto("/?from=2026-01-01&to=2026-01-05");
   await expect(page.getByLabel("開始日", { exact: true })).toHaveAttribute("aria-invalid", "true");
   await expect(page.getByLabel("終了日", { exact: true })).toHaveAttribute("aria-invalid", "true");
   await page.getByLabel("終了日", { exact: true }).fill("2026-01-06");
@@ -1176,9 +1172,9 @@ for (const remaining of [[], ["air"]]) {
       },
     });
     const query = new URLSearchParams();
-    for (const slug of [...remaining, "unknown"]) query.append("fixed_category", slug);
-    query.set("published_from", "2026-01-01");
-    query.set("published_to", "2026-01-05");
+    query.set("categories", [...remaining, "unknown"].join(","));
+    query.set("from", "2026-01-01");
+    query.set("to", "2026-01-05");
     await page.goto(`/?${query}`);
     await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
     await page.getByRole("button", { name: "unknownを解除", exact: true }).click();
@@ -1186,11 +1182,11 @@ for (const remaining of [[], ["air"]]) {
       "aria-invalid",
       "true",
     );
-    expect(new URL(page.url()).searchParams.getAll("fixed_category")).toEqual(remaining);
+    expect(new URL(page.url()).searchParams.get("categories")?.split(",") ?? []).toEqual(remaining);
     await page.getByLabel("終了日", { exact: true }).fill("2026-01-06");
     await page.getByRole("button", { name: "条件を修正して適用", exact: true }).click();
     await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
-    expect(new URL(page.url()).searchParams.getAll("fixed_category")).toEqual(remaining);
+    expect(new URL(page.url()).searchParams.get("categories")?.split(",") ?? []).toEqual(remaining);
     const calls = await (await request.get(`${control}/__requests`)).json();
     const last = calls.filter((call: { path: string }) => call.path === "/press-releases").at(-1);
     const sent = new URLSearchParams(last.query);
@@ -1211,8 +1207,7 @@ test.afterEach(async ({ request }) => {
 test.describe("記事リンクと一覧条件の保持", () => {
   const articleURL = "http://127.0.0.1:3107/test-article";
   const articleItem = { ...result().items[0]!, title: "確認用の合成記事", source_url: articleURL };
-  const listURL =
-    "/?q=適用済み&fixed_category=air&published_from=2026-01-01&published_to=2026-01-05&page=2";
+  const listURL = "/?q=適用済み&categories=air&from=2026-01-01&to=2026-01-05&page=2";
 
   test.beforeEach(async ({ context, request, page }) => {
     await context.route(articleURL, (route) =>
@@ -1274,9 +1269,7 @@ test.describe("記事リンクと一覧条件の保持", () => {
     });
     await page.getByLabel("キーワード", { exact: true }).fill("検索後");
     await page.getByRole("button", { name: "検索", exact: true }).click();
-    await expect(page).toHaveURL(
-      "/?q=検索後&fixed_category=air&published_from=2026-01-01&published_to=2026-01-05",
-    );
+    await expect(page).toHaveURL("/?q=検索後&categories=air&from=2026-01-01&to=2026-01-05");
     await page.getByRole("button", { name: "土壌", exact: true }).click();
     await expect(page.getByRole("button", { name: "土壌", exact: true })).toHaveAttribute(
       "aria-pressed",
@@ -1286,8 +1279,7 @@ test.describe("記事リンクと一覧条件の保持", () => {
       data: { "/press-releases": { body: result(62, [articleItem], 2) } },
     });
     await page.getByLabel("次のページへ", { exact: true }).click();
-    const appliedURL =
-      "/?q=検索後&fixed_category=air&fixed_category=soil&published_from=2026-01-01&published_to=2026-01-05&page=2";
+    const appliedURL = "/?q=検索後&categories=air,soil&from=2026-01-01&to=2026-01-05&page=2";
     await expect(page).toHaveURL(appliedURL);
     await page.goto(articleURL);
     await expect(page).toHaveTitle("確認用の合成記事");
@@ -1352,28 +1344,31 @@ for (const [label, params, invalid] of [
   ["キーワード101", { q: " " + "a".repeat(100) }, true],
   ["キーワードNUL", { q: "a\0b" }, true],
   ["Unicode100", { q: "𠮷".repeat(100) }, false],
-  ["20重複", { fixed_category: Array(20).fill("air") }, false],
-  ["21重複", { fixed_category: Array(21).fill("air") }, true],
-  ["20空要素", { fixed_category: Array(20).fill("") }, false],
-  ["21空要素", { fixed_category: Array(21).fill("") }, true],
-  ["カテゴリ100", { fixed_category: " " + "a".repeat(98) + " " }, false],
-  ["カテゴリ101", { fixed_category: " " + "a".repeat(99) + " " }, true],
-  ["前後空白", { fixed_category: [" air ", "　soil　", "", "air"] }, false],
-  ["全空白", { fixed_category: ["", "　", " "] }, false],
-  ["不正slug混在", { fixed_category: ["air", "Soil"] }, true],
-  ["slug末尾改行", { fixed_category: "air\ninvalid" }, true],
+  ["20重複", { categories: Array(20).fill("air").join(",") }, false],
+  ["21重複", { categories: Array(21).fill("air").join(",") }, true],
+  ["20空要素", { categories: Array(20).fill("").join(",") }, false],
+  ["21空要素", { categories: Array(21).fill("").join(",") }, true],
+  ["カテゴリ100", { categories: " " + "a".repeat(98) + " " }, false],
+  ["カテゴリ101", { categories: " " + "a".repeat(99) + " " }, true],
+  ["前後空白", { categories: [" air ", "　soil　", "", "air"].join(",") }, false],
+  ["全空白", { categories: ["", "　", " "].join(",") }, false],
+  ["不正slug混在", { categories: "air,Soil" }, true],
+  ["slug末尾改行", { categories: "air\ninvalid" }, true],
   ["ページ10000", { page: "10000" }, false],
   ["ページ10001", { page: "10001" }, true],
   ["ページ空値", { page: "" }, true],
   ["ページ重複", { page: ["1", "2"] }, true],
   ["page_size重複", { page_size: ["50", "50"] }, true],
   ["page_size10", { page_size: "10" }, true],
-  ["日付全角", { published_to: "２０２６-01-01" }, true],
-  ["日付空白", { published_to: " 2026-01-01" }, true],
-  ["日付空値", { published_to: "" }, true],
-  ["日付重複", { published_to: ["2026-01-01", "2026-01-02"] }, true],
-  ["未来開始日だけ", { published_from: "9999-12-31" }, true],
-  ["終了日だけ", { published_to: "2026-01-01" }, false],
+  ["日付全角", { to: "２０２６-01-01" }, true],
+  ["日付空白", { to: " 2026-01-01" }, true],
+  ["日付空値", { to: "" }, true],
+  ["日付重複", { to: ["2026-01-01", "2026-01-02"] }, true],
+  ["未来開始日だけ", { from: "9999-12-31" }, true],
+  ["終了日だけ", { to: "2026-01-01" }, false],
+  ["カテゴリ連結100超", { categories: "a".repeat(100) + "," + "b".repeat(100) }, false],
+  ["カテゴリ区切りの二重エンコード", { categories: "air%2Csoil" }, true],
+  ["page_size空値", { page_size: "" }, true],
 ] as const) {
   test(`URL入力の境界を守る ${label}`, async ({ page, request }) => {
     const search = new URLSearchParams();

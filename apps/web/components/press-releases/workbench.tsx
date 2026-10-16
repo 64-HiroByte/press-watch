@@ -19,7 +19,9 @@ import { MAX_FIXED_CATEGORY_COUNT } from "@/lib/press-release-values";
 import { NARROW_SCREEN_QUERY } from "@/lib/press-release-layout";
 import {
   parseQuery,
-  queryString,
+  webQueryString,
+  validateForm,
+  type ConditionState,
   type Conditions,
   type QueryState,
   type QueryField,
@@ -46,7 +48,7 @@ function currentValues(): SearchValues {
   );
 }
 
-function draftValues(query: QueryState) {
+function draftValues(query: ConditionState) {
   return query.errors.length
     ? query.raw
     : {
@@ -156,7 +158,7 @@ export function ListWorkbench({
     }: { moveToResults?: boolean; categoryChange?: boolean } = {},
   ) {
     if (isBusy || lock.current || (conditions && !canChange)) return;
-    const target = conditions ? queryString(conditions) : query.original;
+    const target = conditions ? webQueryString(conditions) : query.original;
     if (moveToResults && target === query.original) return;
     lock.current = true;
     pageFocusURL.current = moveToResults ? target : null;
@@ -190,14 +192,12 @@ export function ListWorkbench({
     }
     if (incomplete.length)
       return reject(["公開日はYYYY-MM-DDの実在日で指定してください"], incomplete);
-    const corrected = parseQuery({
+    const corrected = validateForm({
       q: draft.q,
-      published_from: draft.from || undefined,
-      published_to: draft.to || undefined,
-      fixed_category: query.errors.length
-        ? draft.categories.split("\n")
-        : query.conditions.categories,
-      page: query.errors.length ? draft.page || undefined : "1",
+      from: draft.from,
+      to: draft.to,
+      categories: query.errors.length ? draft.categories : query.conditions.categories.join("\n"),
+      page: query.errors.length ? draft.page : "1",
     });
     if (corrected.errors.length) {
       return reject(corrected.errors, corrected.errorFields);
@@ -246,7 +246,7 @@ export function ListWorkbench({
     setLocalErrors([]);
     setLocalErrorFields([]);
     setPeriod(null);
-    if (queryString(conditions) !== query.original) navigate(conditions);
+    if (webQueryString(conditions) !== query.original) navigate(conditions);
   }
   function changeCategories(values: string[]) {
     if (!canChangeCategories || lock.current) return;
