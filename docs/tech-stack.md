@@ -62,10 +62,26 @@
 - Next.js 16系の最新を採用する
 - セキュリティ修正を含む更新は適宜取り込む
 
+### 2026年10月のセキュリティ更新
+
+現行の指定はNext.js `^16.4.1`、React / React DOMは両方`^19.3.1`とし、lockfileも16.4.1・19.3.1へ揃える。
+[10月14日の公式告知](https://nextjs.org/blog/nextjs-security-update-october-14-2026)と[16.4.1リリース](https://github.com/vercel/next.js/releases/tag/v16.4.1)に従い、Critical 2件・High 1件の修正版を取り込む。
+10月16日の再確認では16.4.2も公開されていたが、告知された変更はTurbopack等の不具合修正で、公開後24時間を経過していなかったため、今回の緊急対応では承認済みの16.4.1を先行する。
+
+現行の製品ソースには`use cache`・`cacheComponents`の有効化・Server Actions・`next/image`は見つかっていない。
+Next.jsが解決するsharpは公式回避条件を満たす0.35.5を維持するが、機能の未使用だけで更新不要とは扱わない。
+Cache Components等の新機能や、一覧の取得・キャッシュ・URL・履歴の仕様は変更しない。
+
+Next.jsに伴う`@next/env`・各OS向けSWCを16.4.1へ更新し、Node.js 24.21.0・pnpm 12.8.1・TypeScript 7.0.2・型定義・UI依存を維持する。
+PostCSSの上書き、限定した`allowBuilds`、`agentRules: false`と待機・依存検証の設定も維持する。
+Next.js内のRSC実装は同梱物であり、内部のpeer表示にはcanary版が残るため、通常のReact 19.3.1の指定だけで修正を判定しない。
+公式の修正版Next.js 16.4.1の配布物と、実際に取り込む同梱実装を対応付ける。
+更新前後の検証と残る範囲は[セキュリティ更新の検証記録](local-development.md#nextjsのセキュリティ更新)を参照する。
+
 ### Phase 6開始時のフロントエンド更新候補
 
 2026年9月30日の候補を基に、10月2日に公開状況・互換性・セキュリティ情報を再確認した。
-以下は更新後のマニフェストとlockfileの記録であり、既存の`node_modules`の状態とは区別する。
+以下は初回の依存更新と後続のTypeScript更新時の記録であり、Next.js・Reactの現行版は上のセキュリティ更新を参照する。
 実際の指定・解決バージョンは各マニフェストと`pnpm-lock.yaml`を正本とする。
 
 | 対象 | プロジェクト指定 | lockfileの解決版・方針 |
@@ -90,16 +106,17 @@ Node.js 24.21.0・pnpm 12.8.1で型生成・型チェック・ビルドが成功
 Node.jsはルートのVolta設定とWebの`volta.extends`、Web Dockerfileで24.21.0に揃える。
 pnpmの指定版はルートの`packageManager`を正本とし、ローカルでは同じ版のグローバルpnpmを、Dockerでは既存のCorepack経路を使用する。
 PostCSSの上書き設定は`pnpm-workspace.yaml`に置く。
-Next.js 16.3.8が指定するPostCSS 8.5.23へ、追加修正を含む8.5.28を上書きする。
+Next.js 16.4.1が指定するPostCSS 8.5.23へ、追加修正を含む8.5.28を上書きする。
 旧解決版8.5.14が対象となる[ソースマップ読み込みのHigh](https://github.com/postcss/postcss/security/advisories/GHSA-r28c-9q8g-f849)と[不完全な修正のMedium](https://github.com/postcss/postcss/security/advisories/GHSA-fxqj-rqcc-2cmp)は、それぞれ8.5.18・8.5.23で修正されている。
 
 [Next.js 16.3.8](https://github.com/vercel/next.js/releases/tag/v16.3.8)は9月30日に公開され、High 1件・Medium 5件・Low 1件の修正を含む。
 10月2日の調査時点では、[公式予告](https://nextjs.org/blog/upcoming-nextjs-security-release-september-2026)にある別のCritical・High各1件は後続修正待ちであり、すべて修正済みとは扱わない。
+この修正待ちは当時の記録であり、今回取り込む修正版は上のセキュリティ更新を参照する。
 現在の案内画面で、告知された全機能の脆弱性が悪用可能だと確認したわけではない。
 sharpは、同梱librsvgの[セキュリティ修正](https://github.com/lovell/sharp/security/advisories/GHSA-wq5f-xc86-pv6w)を含む0.35.5へ解決する。
 [sharp 0.35.0](https://github.com/lovell/sharp/releases/tag/v0.35.0)でinstallスクリプトは廃止されているが、`allowBuilds`は採用版の`"sharp@0.35.5": false`へ揃え、ビルド処理の一括許可は行わない。
 
-更新に伴う間接依存として、Next.jsの`@next/env`・各OS向けSWCを16.3.8、`@swc/helpers`を0.5.23へ更新する。
+初回の更新に伴う間接依存として、Next.jsの`@next/env`・各OS向けSWCを16.3.8、`@swc/helpers`を0.5.23へ更新した。
 React DOMのschedulerは0.28.0、Node.js型定義のundici-typesは7.24.6、PostCSSのnanoidは3.3.19へ更新する。
 sharpの各OS向けパッケージは0.35.5、libvips配布パッケージは1.3.4、semverは7.8.5、Wasm経路の`@emnapi/runtime`は1.11.3へ更新する。
 sharpの配布構成に合わせてFreeBSD・WebContainers向けWasm経路と、Linuxのglibc・musl条件がlockfileへ反映される。
