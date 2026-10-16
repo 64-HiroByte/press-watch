@@ -14,7 +14,7 @@ test("通常検索は下書きだけを適用しカテゴリを保持して先�
   page,
   request,
 }) => {
-  await page.goto("/?q=適用済み&fixed_category=air&fixed_category=unknown&page=2");
+  await page.goto("/?q=適用済み&categories=air,unknown&page=2");
   const search = page.getByRole("button", { name: "検索", exact: true });
   await expect(search).toBeEnabled();
   const keyword = page.getByLabel("キーワード", { exact: true });
@@ -26,10 +26,10 @@ test("通常検索は下書きだけを適用しカテゴリを保持して先�
   await expect(page).toHaveURL((url) => url.searchParams.get("q") === "土壌 %_&+");
   await expect(search).toBeEnabled();
   const params = new URL(page.url()).searchParams;
-  expect(params.getAll("fixed_category")).toEqual(["air", "unknown"]);
+  expect(params.get("categories")).toBe("air,unknown");
   expect(params.has("page")).toBe(false);
-  expect(params.get("published_from")).toBe("2026-01-01");
-  expect(params.get("published_to")).toBe("2026-01-05");
+  expect(params.get("from")).toBe("2026-01-01");
+  expect(params.get("to")).toBe("2026-01-05");
   await expect(keyword).toHaveValue("土壌 %_&+");
   await expect(page.getByLabel("開始日", { exact: true })).toHaveValue("2026-01-01");
   await expect(page.getByLabel("終了日", { exact: true })).toHaveValue("2026-01-05");
@@ -52,16 +52,14 @@ test("リセットはカテゴリを保持し下書きを消してドロワー�
   request,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(
-    "/?q=適用済み&fixed_category=air&published_from=2026-01-01&published_to=2026-01-05&page=2",
-  );
+  await page.goto("/?q=適用済み&categories=air&from=2026-01-01&to=2026-01-05&page=2");
   await page.getByRole("button", { name: "条件を変更", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "検索条件" });
   const reset = dialog.getByRole("button", { name: "リセット", exact: true });
   await expect(reset).toBeEnabled();
   await page.getByLabel("キーワード", { exact: true }).fill("未検索");
   await reset.click();
-  await expect(page).toHaveURL("/?fixed_category=air");
+  await expect(page).toHaveURL("/?categories=air");
   await expect(reset).toBeEnabled();
   await expect(dialog).toBeVisible();
   for (const label of ["キーワード", "開始日", "終了日"])
@@ -82,25 +80,25 @@ for (const [now, period, from, to] of [
 ] as const) {
   test(`期間選択は日本時間と暦で日付欄だけを補う ${period}`, async ({ page, request }) => {
     await page.clock.setFixedTime(new Date(now));
-    await page.goto("/?fixed_category=air");
+    await page.goto("/?categories=air");
     const select = page.getByLabel("期間", { exact: true });
     await expect(select).toBeVisible();
     await select.selectOption(period);
     await expect(page.getByLabel("開始日", { exact: true })).toHaveValue(from);
     await expect(page.getByLabel("終了日", { exact: true })).toHaveValue(to);
     expect(await (await request.get(`${control}/__requests`)).json()).toHaveLength(2);
-    expect(new URL(page.url()).searchParams.has("published_from")).toBe(false);
+    expect(new URL(page.url()).searchParams.has("from")).toBe(false);
     await select.selectOption("custom");
     await expect(page.getByLabel("開始日", { exact: true })).toHaveValue(from);
     await select.selectOption(period);
     await page.getByLabel("開始日", { exact: true }).fill("2026-01-01");
     await expect(select).toHaveValue("custom");
     await page.getByRole("button", { name: "検索", exact: true }).click();
-    await expect(page).toHaveURL((url) => url.searchParams.get("published_from") === "2026-01-01");
+    await expect(page).toHaveURL((url) => url.searchParams.get("from") === "2026-01-01");
     await expect(page.getByRole("button", { name: "検索", exact: true })).toBeEnabled();
-    expect(new URL(page.url()).searchParams.get("published_to")).toBe(to);
+    expect(new URL(page.url()).searchParams.get("to")).toBe(to);
     await page.getByRole("button", { name: "リセット", exact: true }).click();
-    await expect(page).toHaveURL("/?fixed_category=air");
+    await expect(page).toHaveURL("/?categories=air");
     await expect(select).toHaveValue("custom");
   });
 }
@@ -179,7 +177,7 @@ test("空白・Unicode上限・NULとHTML文字列を入力値として扱う", 
 
 test("片側日付は検索日の日本時間で補い未来の開始日を拒否する", async ({ page, request }) => {
   await page.clock.setFixedTime(new Date("2026-10-06T15:05:00Z"));
-  await page.goto("/?fixed_category=air");
+  await page.goto("/?categories=air");
   const from = page.getByLabel("開始日", { exact: true });
   const to = page.getByLabel("終了日", { exact: true });
   const search = page.getByRole("button", { name: "検索", exact: true });
@@ -190,23 +188,23 @@ test("片側日付は検索日の日本時間で補い未来の開始日を拒�
   expect(await (await request.get(`${control}/__requests`)).json()).toHaveLength(2);
   await from.fill("2026-10-01");
   await search.click();
-  await expect(page).toHaveURL((url) => url.searchParams.get("published_to") === "2026-10-07");
+  await expect(page).toHaveURL((url) => url.searchParams.get("to") === "2026-10-07");
   await expect(search).toBeEnabled();
   await expect(to).toHaveValue("2026-10-07");
   await from.fill("");
   await to.fill("2026-01-05");
   await search.click();
-  await expect(page).toHaveURL("/?fixed_category=air&published_to=2026-01-05");
+  await expect(page).toHaveURL("/?categories=air&to=2026-01-05");
   await expect(search).toBeEnabled();
   await to.fill("");
   await search.click();
-  await expect(page).toHaveURL("/?fixed_category=air");
+  await expect(page).toHaveURL("/?categories=air");
   await expect(search).toBeEnabled();
 });
 
 test("期間の日付は選択時に確定し翌日の検索・再読込・履歴でも再計算しない", async ({ page }) => {
   await page.clock.setFixedTime(new Date("2026-10-06T15:05:00Z"));
-  await page.goto("/?fixed_category=air");
+  await page.goto("/?categories=air");
   const select = page.getByLabel("期間", { exact: true });
   const from = page.getByLabel("開始日", { exact: true });
   const to = page.getByLabel("終了日", { exact: true });
@@ -214,9 +212,7 @@ test("期間の日付は選択時に確定し翌日の検索・再読込・履�
   await select.selectOption("week");
   await page.clock.setFixedTime(new Date("2026-10-07T15:05:00Z"));
   await search.click();
-  await expect(page).toHaveURL(
-    "/?fixed_category=air&published_from=2026-10-01&published_to=2026-10-07",
-  );
+  await expect(page).toHaveURL("/?categories=air&from=2026-10-01&to=2026-10-07");
   await expect(search).toBeEnabled();
   await expect(select).toHaveValue("week");
   const appliedURL = page.url();
@@ -225,7 +221,7 @@ test("期間の日付は選択時に確定し翌日の検索・再読込・履�
   await expect(from).toHaveValue("2026-10-01");
   await expect(to).toHaveValue("2026-10-07");
   await page.getByRole("button", { name: "リセット", exact: true }).click();
-  await expect(page).toHaveURL("/?fixed_category=air");
+  await expect(page).toHaveURL("/?categories=air");
   await expect(search).toBeEnabled();
   await page.getByLabel("キーワード", { exact: true }).fill("履歴で破棄");
   await page.goBack();
@@ -235,7 +231,7 @@ test("期間の日付は選択時に確定し翌日の検索・再読込・履�
   await expect(to).toHaveValue("2026-10-07");
   await expect(page.getByLabel("キーワード", { exact: true })).toHaveValue("");
   await page.goForward();
-  await expect(page).toHaveURL("/?fixed_category=air");
+  await expect(page).toHaveURL("/?categories=air");
   await expect(from).toHaveValue("");
 });
 
@@ -260,7 +256,7 @@ for (const [label, scenario, enabled] of [
 ] as const) {
   test(`検索・リセットの操作可否 ${label}`, async ({ page, request }) => {
     expect((await request.post(`${control}/__configure`, { data: scenario })).ok()).toBe(true);
-    await page.goto("/?q=大気&fixed_category=air&published_to=2026-01-05");
+    await page.goto("/?q=大気&categories=air&to=2026-01-05");
     for (const name of ["検索", "リセット"]) {
       const button = page.getByRole("button", { name, exact: true });
       if (enabled) await expect(button).toBeEnabled();
@@ -271,14 +267,14 @@ for (const [label, scenario, enabled] of [
         (await request.post(`${control}/__configure`, { data: { "/press-releases": {} } })).ok(),
       ).toBe(true);
       await page.getByRole("button", { name: "リセット", exact: true }).click();
-      await expect(page).toHaveURL("/?fixed_category=air");
+      await expect(page).toHaveURL("/?categories=air");
       await expect(page.getByRole("link", { name: "API由来の報道発表" })).toBeVisible();
     }
   });
 }
 
 test("不正URLでは通常検索・リセットを停止し修正操作を維持する", async ({ page }) => {
-  await page.goto("/?published_from=2026-02-30");
+  await page.goto("/?from=2026-02-30");
   await expect(page.getByRole("button", { name: "検索", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "リセット", exact: true })).toBeDisabled();
   const from = page.getByLabel("開始日", { exact: true });

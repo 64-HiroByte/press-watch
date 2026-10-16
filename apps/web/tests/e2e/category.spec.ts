@@ -7,16 +7,14 @@ test.beforeEach(async ({ request }) => {
 });
 
 test("全選択は未定義slugを保持し全解除と無変更操作を区別する", async ({ page, request }) => {
-  await page.goto("/?q=適用済み&fixed_category=air&fixed_category=unknown&page=2");
+  await page.goto("/?q=適用済み&categories=air,unknown&page=2");
   await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
   const selectAll = page.getByRole("button", { name: "カテゴリを全選択", exact: true });
   const clear = page.getByRole("button", { name: "カテゴリを全解除", exact: true });
   await expect(selectAll).toBeVisible();
   await page.getByLabel("キーワード", { exact: true }).fill("未検索");
   await selectAll.click();
-  await expect(page).toHaveURL(
-    "/?q=適用済み&fixed_category=air&fixed_category=soil&fixed_category=unknown",
-  );
+  await expect(page).toHaveURL("/?q=適用済み&categories=air,soil,unknown");
   await expect(page.getByText("未定義カテゴリ：unknown")).toBeVisible();
   await expect(page.locator(".release-category-toggle[aria-pressed=true]")).toHaveCount(2);
   await expect(selectAll).toBeDisabled();
@@ -34,12 +32,12 @@ test("全選択は未定義slugを保持し全解除と無変更操作を区別�
   await clear.evaluate((button: HTMLButtonElement) => button.click());
   expect(await (await request.get(`${control}/__requests`)).json()).toHaveLength(6);
   expect(await page.evaluate(() => window.history.length)).toBe(clearedHistory);
-  await page.goto("/?fixed_category=air&fixed_category=soil&page=2");
+  await page.goto("/?categories=air,soil&page=2");
   await expect(selectAll).toBeDisabled();
   const before = await (await request.get(`${control}/__requests`)).json();
   const pageHistory = await page.evaluate(() => window.history.length);
   await selectAll.evaluate((button: HTMLButtonElement) => button.click());
-  await expect(page).toHaveURL("/?fixed_category=air&fixed_category=soil&page=2");
+  await expect(page).toHaveURL("/?categories=air,soil&page=2");
   expect(await (await request.get(`${control}/__requests`)).json()).toHaveLength(before.length);
   expect(await page.evaluate(() => window.history.length)).toBe(pageHistory);
 });
@@ -51,7 +49,7 @@ test("カテゴリ指定なしでは全解除を無効にし選択後は再び�
   await expect(clear).toBeDisabled();
   expect(await (await request.get(`${control}/__requests`)).json()).toHaveLength(2);
   await air.click();
-  await expect(page).toHaveURL("/?fixed_category=air");
+  await expect(page).toHaveURL("/?categories=air");
   await expect(clear).toBeEnabled();
   await clear.click();
   await expect(page).toHaveURL("/");
@@ -64,14 +62,12 @@ for (const action of ["カテゴリを全選択", "カテゴリを全解除"]) {
     page,
     request,
   }) => {
-    await page.goto("/?fixed_category=air");
+    await page.goto("/?categories=air");
     const button = page.getByRole("button", { name: action, exact: true });
     await expect(page.getByRole("button", { name: "検索", exact: true })).toBeEnabled();
     await button.focus();
     await button.press("Enter");
-    await expect(page).toHaveURL(
-      action === "カテゴリを全選択" ? "/?fixed_category=air&fixed_category=soil" : "/",
-    );
+    await expect(page).toHaveURL(action === "カテゴリを全選択" ? "/?categories=air,soil" : "/");
     await expect(page.getByRole("button", { name: "検索", exact: true })).toBeEnabled();
     await expect(button).toBeDisabled();
     await expect(button).toBeFocused();
@@ -86,7 +82,7 @@ for (const action of ["カテゴリを全選択", "カテゴリを全解除"]) {
 
   test(`一括操作の完了後もEscでドロワーを閉じてフォーカスを戻す ${action}`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/?fixed_category=air");
+    await page.goto("/?categories=air");
     const trigger = page.getByRole("button", { name: /^(条件を変更|検索条件を設定)$/ });
     await trigger.click();
     const drawer = page.getByRole("dialog", { name: "検索条件", exact: true });
@@ -94,9 +90,7 @@ for (const action of ["カテゴリを全選択", "カテゴリを全解除"]) {
     await expect(drawer.getByRole("button", { name: "検索", exact: true })).toBeEnabled();
     await button.focus();
     await button.press("Enter");
-    await expect(page).toHaveURL(
-      action === "カテゴリを全選択" ? "/?fixed_category=air&fixed_category=soil" : "/",
-    );
+    await expect(page).toHaveURL(action === "カテゴリを全選択" ? "/?categories=air,soil" : "/");
     await expect(drawer.getByRole("button", { name: "検索", exact: true })).toBeEnabled();
     await expect(button).toBeDisabled();
     await expect(button).toBeFocused();
@@ -107,7 +101,7 @@ for (const action of ["カテゴリを全選択", "カテゴリを全解除"]) {
 }
 
 test("一括カテゴリ操作の補助説明を常時表示せずホバーとフォーカスで示す", async ({ page }) => {
-  await page.goto("/?fixed_category=air");
+  await page.goto("/?categories=air");
   const tooltip = page.locator(".release-display-tooltip");
   const all = page.getByRole("button", { name: "カテゴリを全選択", exact: true });
   const clear = page.getByRole("button", { name: "カテゴリを全解除", exact: true });
@@ -139,7 +133,7 @@ test("一括カテゴリ操作の補助説明を常時表示せずホバーと�
 
 test("狭い画面でも一括操作の補助説明をドロワーの前面へ表示する", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/?fixed_category=air");
+  await page.goto("/?categories=air");
   await page.getByRole("button", { name: "条件を変更", exact: true }).click();
   const tooltip = page.locator(".release-display-tooltip");
   const heading = page.getByRole("heading", { name: "検索条件", exact: true });
@@ -177,7 +171,7 @@ test("20指定の上限では追加・全選択だけを停止し既知と未定
   request,
 }) => {
   const slugs = ["air", ...Array.from({ length: 19 }, (_, index) => `unknown_${index}`)].sort();
-  const url = new URLSearchParams(slugs.map((slug) => ["fixed_category", slug]));
+  const url = new URLSearchParams({ categories: slugs.join(",") });
   await page.goto(`/?${url}`);
   await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
   const air = page.getByRole("button", { name: "大気", exact: true });
@@ -200,7 +194,7 @@ test("20指定の上限では追加・全選択だけを停止し既知と未定
   await expect(all).toBeEnabled();
   await all.click();
   await expect(air).toHaveAttribute("aria-pressed", "true");
-  expect(new URL(page.url()).searchParams.getAll("fixed_category")).toEqual(
+  expect(new URL(page.url()).searchParams.get("categories")?.split(",") ?? []).toEqual(
     ["air", "soil", ...slugs.filter((slug) => slug !== "air" && slug !== "unknown_0")].sort(),
   );
 });
@@ -232,7 +226,7 @@ for (const count of [20, 21]) {
       await expect(all).toBeEnabled();
       await all.click();
       await expect(page.locator(".release-category-toggle[aria-pressed=true]")).toHaveCount(20);
-      expect(new URL(page.url()).searchParams.getAll("fixed_category")).toEqual(
+      expect(new URL(page.url()).searchParams.get("categories")?.split(",") ?? []).toEqual(
         Array.from({ length: 20 }, (_, index) => `category_${index}`).sort(),
       );
     }
@@ -271,7 +265,7 @@ for (const [label, scenario, enabled, invalid] of [
 ] as const) {
   test(`カテゴリ操作の可否と再取得・修正による復旧 ${label}`, async ({ page, request }) => {
     await request.post(`${control}/__configure`, { data: scenario });
-    await page.goto(`/?fixed_category=unknown&published_to=${invalid ? "invalid" : "2026-01-05"}`);
+    await page.goto(`/?categories=unknown&to=${invalid ? "invalid" : "2026-01-05"}`);
     await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
     const all = page.getByRole("button", { name: "カテゴリを全選択", exact: true });
     const clear = page.getByRole("button", { name: "カテゴリを全解除", exact: true });
@@ -285,9 +279,7 @@ for (const [label, scenario, enabled, invalid] of [
     expect(before).toHaveLength(invalid ? 1 : 2);
     if (enabled) {
       await all.click();
-      await expect(page).toHaveURL(
-        "/?fixed_category=air&fixed_category=soil&fixed_category=unknown&published_to=2026-01-05",
-      );
+      await expect(page).toHaveURL("/?categories=air,soil,unknown&to=2026-01-05");
       await expect(keyword).toHaveValue("保持する下書き");
     } else {
       await request.post(`${control}/__configure`, {
@@ -309,19 +301,19 @@ for (const [label, scenario, enabled, invalid] of [
 }
 
 test("カテゴリ変更は送信前の入力エラーと下書きを保持する", async ({ page }) => {
-  await page.goto("/?q=適用済み&fixed_category=unknown");
+  await page.goto("/?q=適用済み&categories=unknown");
   await page.getByRole("button", { name: "条件の詳細", exact: true }).click();
   const keyword = page.getByLabel("キーワード", { exact: true });
   await keyword.fill("あ".repeat(101));
   await page.getByRole("button", { name: "検索", exact: true }).click();
   await expect(keyword).toHaveAttribute("aria-invalid", "true");
   await page.getByRole("button", { name: "大気", exact: true }).click();
-  await expect(page).toHaveURL("/?q=適用済み&fixed_category=air&fixed_category=unknown");
+  await expect(page).toHaveURL("/?q=適用済み&categories=air,unknown");
   await expect(keyword).toHaveValue("あ".repeat(101));
   await expect(keyword).toHaveAttribute("aria-invalid", "true");
   await expect(page.getByText("キーワードは100文字以内で指定してください")).toBeVisible();
   await page.getByRole("button", { name: "unknownを解除", exact: true }).click();
-  await expect(page).toHaveURL("/?q=適用済み&fixed_category=air");
+  await expect(page).toHaveURL("/?q=適用済み&categories=air");
   await expect(keyword).toHaveAttribute("aria-invalid", "true");
 });
 
@@ -332,7 +324,7 @@ test("カテゴリ変更中は重複操作を止め移動したフォーカス�
   await request.post(`${control}/__configure`, {
     data: { "/press-releases": [{}, { hold: "gate" }] },
   });
-  await page.goto("/?fixed_category=air");
+  await page.goto("/?categories=air");
   const soil = page.getByRole("button", { name: "土壌", exact: true });
   await soil.evaluate((button: HTMLButtonElement) => {
     button.focus();
@@ -392,7 +384,7 @@ for (const [action, status] of [
         ],
       },
     });
-    await page.goto("/?fixed_category=air");
+    await page.goto("/?categories=air");
     const oldArticle = page.locator(".release-title").filter({ hasText: "API由来の報道発表" });
     await expect(oldArticle).toBeVisible();
     const before = await oldArticle.boundingBox();
@@ -436,18 +428,18 @@ for (const [action, status] of [
 }
 
 test("カテゴリ変更とページ送り・履歴・再読込で選択と適用条件を復元する", async ({ page }) => {
-  await page.goto("/?q=適用済み&fixed_category=air&fixed_category=soil&published_to=2026-01-05");
+  await page.goto("/?q=適用済み&categories=air,soil&to=2026-01-05");
   const soil = page.getByRole("button", { name: "土壌", exact: true });
   const keyword = page.getByLabel("キーワード", { exact: true });
   await keyword.fill("未検索");
   await soil.click();
-  await expect(page).toHaveURL("/?q=適用済み&fixed_category=air&published_to=2026-01-05");
+  await expect(page).toHaveURL("/?q=適用済み&categories=air&to=2026-01-05");
   await expect(soil).toHaveAttribute("aria-pressed", "false");
   await page.getByRole("navigation", { name: "ページ送り" }).getByLabel("次のページへ").click();
-  await expect(page).toHaveURL("/?q=適用済み&fixed_category=air&published_to=2026-01-05&page=2");
+  await expect(page).toHaveURL("/?q=適用済み&categories=air&to=2026-01-05&page=2");
   await expect(keyword).toHaveValue("未検索");
   await page.goBack();
-  await expect(page).toHaveURL("/?q=適用済み&fixed_category=air&published_to=2026-01-05");
+  await expect(page).toHaveURL("/?q=適用済み&categories=air&to=2026-01-05");
   await expect(keyword).toHaveValue("適用済み");
   await page.goBack();
   await expect(soil).toHaveAttribute("aria-pressed", "true");
@@ -465,9 +457,7 @@ test("個別カテゴリ変更は適用済み条件へ作用し下書き・期�
 }) => {
   await page.clock.setFixedTime(new Date("2026-10-07T03:00:00Z"));
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(
-    "/?q=適用済み&fixed_category=air&fixed_category=unknown&published_from=2026-01-01&published_to=2026-01-05&page=2",
-  );
+  await page.goto("/?q=適用済み&categories=air,unknown&from=2026-01-01&to=2026-01-05&page=2");
   await page.getByRole("button", { name: "条件を変更", exact: true }).click();
   const panel = page.getByRole("dialog", { name: "検索条件" });
   const soil = panel.getByRole("button", { name: "土壌", exact: true });
@@ -477,7 +467,7 @@ test("個別カテゴリ変更は適用済み条件へ作用し下書き・期�
   await soil.focus();
   await soil.press("Space");
   await expect(page).toHaveURL(
-    "/?q=適用済み&fixed_category=air&fixed_category=soil&fixed_category=unknown&published_from=2026-01-01&published_to=2026-01-05",
+    "/?q=適用済み&categories=air,soil,unknown&from=2026-01-01&to=2026-01-05",
   );
   await expect(soil).toHaveAttribute("aria-pressed", "true");
   await expect(soil).toBeFocused();
@@ -500,14 +490,10 @@ test("個別カテゴリ変更は適用済み条件へ作用し下書き・期�
     ["published_to", "2026-01-05"],
   ]);
   await soil.press("Enter");
-  await expect(page).toHaveURL(
-    "/?q=適用済み&fixed_category=air&fixed_category=unknown&published_from=2026-01-01&published_to=2026-01-05",
-  );
+  await expect(page).toHaveURL("/?q=適用済み&categories=air,unknown&from=2026-01-01&to=2026-01-05");
   await expect(soil).toHaveAttribute("aria-pressed", "false");
   await expect(panel).toBeVisible();
   await page.getByRole("button", { name: "検索", exact: true }).click();
-  await expect(page).toHaveURL(
-    "/?q=未検索&fixed_category=air&fixed_category=unknown&published_from=2026-10-01&published_to=2026-10-07",
-  );
+  await expect(page).toHaveURL("/?q=未検索&categories=air,unknown&from=2026-10-01&to=2026-10-07");
   await expect(panel).toBeHidden();
 });

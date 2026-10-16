@@ -235,7 +235,12 @@ Serverの入口は`apps/web/app/(list)/page.tsx`、取得・応答検証は`apps
 Phase 6-8のページ送りはServerで検証した`pagination`をClientへ渡し、`apps/web/components/press-releases/pagination.tsx`から既存のURL遷移へ接続する。
 Phase 6-9の通常検索・リセットも既存のURL遷移へ接続し、下書きと適用条件は`workbench.tsx`で管理する。
 フォームの描画・入力エラーの関連付け・IME対応は`apps/web/components/press-releases/search-form.tsx`、日本時間の今日と暦による期間計算は`apps/web/lib/press-release-dates.ts`に置く。
-URLと送信前の検証は共通の`parseQuery`を使い、検証した欄をフォームのエラー表示・フォーカスへ渡す。
+URLの`parseQuery`とフォームの`validateForm`は、同じファイルの条件検証を使用し、検証した欄をフォームのエラー表示・フォーカスへ渡す。
+Phase 6-12のWeb URL生成は`webQueryString`とし、`categories`のカンマ区切りと`from`・`to`を使用する。
+Webの比較用整形ではカテゴリの区切りだけを表示し、検索語などのエンコードを維持する。
+Serverの入口は検証済みの`Conditions`をAPI取得処理へ渡し、API取得処理内で従来のクエリ名とカテゴリの繰り返しを生成する。
+要求ページは同じ条件オブジェクトから取得し、Web URL文字列の再解析に依存しない。
+不正URLは一覧取得を省略して選択肢だけを取得し、正規化待ちは両APIを取得しない。
 Phase 6-10のカテゴリ変更も`workbench.tsx`の既存URL遷移へ接続し、選択状態はURLから求める。
 `apps/web/components/press-releases/category-filters.tsx`はカテゴリの描画・上限の案内・操作可否を担当し、取得・履歴・検索下書きの更新は行わない。
 未定義slugの個別解除も同じカテゴリ変更処理を使用し、変更のない選択集合や20指定超過では遷移しない。

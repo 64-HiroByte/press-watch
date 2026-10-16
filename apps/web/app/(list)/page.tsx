@@ -11,7 +11,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Sea
   const normalizing = !query.errors.length && query.original !== query.canonical;
   const { list, categories } = normalizing
     ? { list: null, categories: null }
-    : await getList(query.canonical, query.errors.length > 0);
+    : await getList(query.errors.length ? null : query.conditions);
   return (
     <ListWorkbench
       query={query}

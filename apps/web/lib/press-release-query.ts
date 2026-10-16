@@ -26,6 +26,15 @@ export type QueryState = {
   original: string;
 };
 export type QueryField = keyof QueryState["raw"];
+export type ConditionState = Pick<QueryState, "conditions" | "raw" | "errors" | "errorFields">;
+type ConditionValues = {
+  q?: string;
+  from?: string;
+  to?: string;
+  categories: string[];
+  page?: string;
+  pageSize?: string;
+};
 function whitespace(code: number) {
   return (
     (code >= 9 && code <= 13) ||
@@ -44,14 +53,24 @@ function trim(value: string) {
   return value.slice(start, end);
 }
 
-export function queryString(conditions: Conditions): string {
+function webSearchString(query: URLSearchParams): string {
+  return [...query]
+    .map(([key, value]) => {
+      const encoded = new URLSearchParams([[key, value]]).toString();
+      // カテゴリの区切りだけを表示し、検索語などのエンコードは維持する。
+      return key === "categories" ? encoded.replaceAll("%2C", ",") : encoded;
+    })
+    .join("&");
+}
+
+export function webQueryString(conditions: Conditions): string {
   const query = new URLSearchParams();
   if (conditions.q) query.set("q", conditions.q);
-  for (const slug of conditions.categories) query.append("fixed_category", slug);
-  if (conditions.from) query.set("published_from", conditions.from);
-  if (conditions.to) query.set("published_to", conditions.to);
+  if (conditions.categories.length) query.set("categories", conditions.categories.join(","));
+  if (conditions.from) query.set("from", conditions.from);
+  if (conditions.to) query.set("to", conditions.to);
   if (conditions.page !== 1) query.set("page", String(conditions.page));
-  return query.toString();
+  return webSearchString(query);
 }
 
 export function parseQuery(values: SearchValues, now = new Date()): QueryState {
@@ -61,22 +80,57 @@ export function parseQuery(values: SearchValues, now = new Date()): QueryState {
       original.append(key, item);
   const errors: string[] = [];
   const errorFields: QueryField[] = [];
+  function single(key: string, field: QueryField) {
+    const value = values[key];
+    if (Array.isArray(value)) {
+      errors.push(`${key}を複数指定できません`);
+      errorFields.push(field);
+    }
+    return typeof value === "string" ? value : value?.[0];
+  }
+  const q = single("q", "q");
+  const from = single("from", "from");
+  const to = single("to", "to");
+  const page = single("page", "page");
+  const pageSize = single("page_size", "page");
+  const categories = single("categories", "categories")?.split(",") ?? [];
+  const state = validateValues(
+    { q, from, to, categories, page, pageSize },
+    now,
+    errors,
+    errorFields,
+  );
+  return {
+    ...state,
+    canonical: webQueryString(state.conditions),
+    original: webSearchString(original),
+  };
+}
+
+export function validateForm(raw: QueryState["raw"], now = new Date()): ConditionState {
+  return validateValues(
+    {
+      q: raw.q,
+      from: raw.from || undefined,
+      to: raw.to || undefined,
+      categories: raw.categories.split("\n"),
+      page: raw.page || undefined,
+    },
+    now,
+  );
+}
+
+function validateValues(
+  values: ConditionValues,
+  now: Date,
+  errors: string[] = [],
+  errorFields: QueryField[] = [],
+): ConditionState {
+  const { q = "", from = "", to = "", categories, page = "", pageSize: size = "" } = values;
   function error(message: string, ...fields: QueryField[]) {
     errors.push(message);
     errorFields.push(...fields);
   }
-  function single(key: string, field: QueryField) {
-    const value = values[key];
-    if (Array.isArray(value)) error(`${key}を複数指定できません`, field);
-    return typeof value === "string" ? value : (value?.[0] ?? "");
-  }
-  const q = single("q", "q");
-  const from = single("published_from", "from");
-  const to = single("published_to", "to");
-  const page = single("page", "page");
-  const size = single("page_size", "page");
-  const categoryValues = values.fixed_category;
-  const categories = typeof categoryValues === "string" ? [categoryValues] : (categoryValues ?? []);
   if (Array.from(q).length > MAX_SEARCH_KEYWORD_LENGTH || q.includes("\0"))
     error(`キーワードは${MAX_SEARCH_KEYWORD_LENGTH}文字以内で指定してください`, "q");
   if (
@@ -92,20 +146,20 @@ export function parseQuery(values: SearchValues, now = new Date()): QueryState {
       "categories",
     );
   if (
-    (values.published_from !== undefined && !validDate(from)) ||
-    (values.published_to !== undefined && !validDate(to))
+    (values.from !== undefined && !validDate(from)) ||
+    (values.to !== undefined && !validDate(to))
   )
     error(
       "公開日はYYYY-MM-DDの実在日で指定してください",
-      ...(values.published_from !== undefined && !validDate(from) ? ["from" as const] : []),
-      ...(values.published_to !== undefined && !validDate(to) ? ["to" as const] : []),
+      ...(values.from !== undefined && !validDate(from) ? ["from" as const] : []),
+      ...(values.to !== undefined && !validDate(to) ? ["to" as const] : []),
     );
   if (
     values.page !== undefined &&
     (!/^[0-9]+$/.test(page) || Number(page) < 1 || Number(page) > MAX_LIST_PAGE)
   )
     error(`ページは1から${MAX_LIST_PAGE}で指定してください`, "page");
-  if ((size && size !== String(LIST_PAGE_SIZE)) || (values.page_size !== undefined && size === ""))
+  if ((size && size !== String(LIST_PAGE_SIZE)) || (values.pageSize !== undefined && size === ""))
     error(`page_sizeは${LIST_PAGE_SIZE}だけを指定できます`, "page");
   const conditions: Conditions = {
     q: trim(q),
@@ -129,7 +183,5 @@ export function parseQuery(values: SearchValues, now = new Date()): QueryState {
     raw: { q, from, to, categories: categories.join("\n"), page },
     errors,
     errorFields: [...new Set(errorFields)],
-    canonical: queryString(conditions),
-    original: original.toString(),
   };
 }

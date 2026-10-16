@@ -8,7 +8,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import { queryString, type Conditions } from "@/lib/press-release-query";
+import { webQueryString, type Conditions } from "@/lib/press-release-query";
 import type { ListData } from "@/lib/press-releases-api";
 import { MAX_LIST_PAGE } from "@/lib/press-release-values";
 
@@ -44,7 +44,7 @@ export function ListPagination({
   const last = Math.min(total, MAX_LIST_PAGE);
   function destination(number: number) {
     const unavailable = disabled || number < 1 || number > last;
-    const query = queryString({ ...conditions, page: number });
+    const query = webQueryString({ ...conditions, page: number });
     return {
       href: unavailable ? undefined : query ? `/?${query}` : "/",
       "aria-disabled": unavailable ? (true as const) : undefined,
