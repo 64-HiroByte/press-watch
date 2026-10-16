@@ -1,6 +1,6 @@
 # PressWatch
 
-PressWatch は、環境省の報道発表を収集・整理・検索しやすくする個人開発プロジェクトです。
+PressWatch は、環境省の報道発表を収集・整理し、環境計量分野に合わせた独自のカテゴリやキーワードで検索できる個人開発のWebアプリケーションです。
 
 ## 開発の背景
 
@@ -12,174 +12,121 @@ PressWatch は、環境省の報道発表を収集・整理・検索しやすく
 
 PressWatch は、こうした情報収集の負担や見逃しリスクを減らすために、**「当時あったらよかったもの」** を形にするプロジェクトです。
 
+## 現在の機能と開発状況
+
+### 実装済みの機能
+
+- Webの一覧で、報道発表のタイトル・公開日・所属する固定カテゴリを確認し、元記事を別画面で開けます。
+- タイトルのキーワードと公開日範囲で検索し、固定カテゴリの複数選択と組み合わせて絞り込めます。
+- 50件ずつのページ送り、検索条件の解除、URLによる条件の共有・復元、ブラウザーの戻る／進むに対応しています。
+- 取得中・取得失敗・データなし・検索結果なしを表示し、失敗時には再取得できます。
+  文字サイズ・テーマの切り替えと、狭い画面の検索ドロワーも利用できます。
+- 手動コマンドで環境省の一覧・月別アーカイブから報道発表を取得し、PostgreSQLへ保存できます。
+  初回全件取得、通常の差分取得、詳細ページURLによる重複防止に対応しています。
+- 共有の固定カテゴリのseed、新規保存時の自動分類、既存記事の再分類を行うCLIを用意しています。
+- ヘルスチェック、検索・絞り込み・ページ送りに対応した一覧取得、固定カテゴリの選択肢取得の読み取りAPIを提供します。
+  `GET /health`はDB設定に依存せず、`GET /press-releases`はoffset方式のページネーションに対応しています。
+
+### 取得・保存のしくみと制約
+
+タイトル・公開日・詳細ページURL・取得元カテゴリを収集し、取得時刻などとともにDBへ保存します。
+詳細ページURLを重複判定キーとし、通常の差分取得では保存済みレコードのタイトル・公開日・取得元カテゴリを更新しません。
+通常の差分取得は、DB内の最新公開月を含む直近3か月の既知URLを使い、既知URLだけの月へ到達すると停止します。
+固定カテゴリの初期データは保存前にseedで取り込み、既存記事の分類変更は専用の再分類CLIで行います。
+
+scraper単体のCLIは、DB保存前の解析結果をJSONで確認するための入口です。
+`--output`は検証用スナップショット、`--verbose`は進捗表示に使い、成功結果をstdout、進捗・エラーをstderrへ出力します。
+初回全件取得では`--crawl-state-dir`で取得済みHTMLとmanifestを一時保存でき、途中失敗後に手動再開できます。
+この巡回stateはローカルの初回取得用で、定期実行の履歴・再試行管理には使いません。
+最終JSONの確認後に専用のcleanup操作で削除します。
+
+実HTTP取得前には現在のrobots.txtと利用条件を確認します。
+1回のscraper CLI実行内では、起点・月別ページ・同一オリジンのredirect先を含むHTTP要求の開始間隔を3秒以上にします。
+取得・停止・再開の仕様は[スクレイピング仕様](docs/scraping-env-go-jp.md)、保存・seed・再分類の操作と失敗時の扱いは[開発手順](docs/local-development.md#手動で取得してdbへ保存する)を参照してください。
+
+### 公開・運用に向けた残作業
+
+アプリは未公開・未デプロイです。
+定期取得、定期実行の失敗確認、公開APIのリクエスト数制限は未実装で、デプロイ先と合わせて今後整えます。
+開発DB・Supabaseへの固定カテゴリmigration・seed適用と実データの再分類は未確認です。
+テスト専用DB・合成データでの検証と、公開運用の準備は区別しています。
+
+MVPは定期取得と失敗確認までを含みます。
+ユーザー登録・認証、ブックマーク、ユーザー定義カテゴリ、本格的な実行履歴管理はMVP後に扱います。
+進捗と残作業は[タスク一覧](docs/tasks.md)、詳しい製品要件とMVP範囲は[要件定義](docs/requirements.md)を参照してください。
+
+## 全体構成
+
+手動の取得・保存コマンドがスクレイパーで環境省の報道発表を取得し、FastAPI側の保存処理を通してPostgreSQLへ保存します。
+FastAPIは保存済みデータの検索・絞り込みと一覧・カテゴリ選択肢の取得を担当します。
+Next.jsサーバーがFastAPIへ問い合わせ、ブラウザーには一覧と検索・カテゴリ・ページ送りの操作を表示します。
+
+DBにはSQLAlchemyとpsycopgで直接接続し、SupabaseのData APIは使用しません。
+WebのAPI接続先はサーバー専用の`PRESSWATCH_API_BASE_URL`で指定し、DB資格情報をWebへ渡しません。
+取得・描画と画面操作の責務は[Server／Client境界](docs/tech-stack.md#一覧の取得とserverclient境界)にまとめています。
+
 ## 技術スタック
 
-- フロントエンド: Next.js / React / TypeScript
-- バックエンド: FastAPI / Python / SQLAlchemy / Alembic
-- スクレイパー: Python / Beautiful Soup / lxml
-- データベース: PostgreSQL 17 / psycopg
-- 管理 PostgreSQL: Supabase
-- 開発環境: Docker / docker compose
-- CI: GitHub Actions
-- パッケージ管理:
-  - フロントエンド: pnpm
-  - Python: uv
+| 区分 | 採用技術 |
+| --- | --- |
+| Web | Next.js / React / TypeScript / Tailwind CSS / shadcn/ui |
+| API・DB操作 | FastAPI / Python / SQLAlchemy / Alembic / psycopg |
+| スクレイパー | Python / Beautiful Soup / lxml |
+| データベース | PostgreSQL 17（管理PostgreSQLにSupabaseを採用） |
+| 開発・依存管理 | Docker / Docker Compose / pnpm / uv |
+| 検証 | GitHub Actions / unittest / Playwright / Oxlint / Oxfmt |
+
+採用版と選定方針は[技術構成](docs/tech-stack.md)、UI部品の出典・ライセンスは[一覧UI](docs/frontend-ui.md#利用条件と表示)を参照してください。
 
 ## リポジトリ構成
 
 ```text
 press-watch/
 ├── apps/
-│   ├── api/
-│   └── web/
-├── docs/
-├── infra/
+│   ├── api/          # FastAPI・DB操作・取得保存コマンド
+│   └── web/          # Next.jsの一覧画面
+├── docs/             # 要件・設計・開発手順
+├── infra/            # Docker構成・検証用fixture
 └── packages/
-    └── scraper/
+    └── scraper/      # 環境省報道発表の取得・解析
 ```
 
-## MVPの範囲
+## ローカルで動かすには
 
-MVPでは、報道発表の収集・保存、一覧・検索、共有の固定カテゴリによる絞り込み、定期取得と失敗確認を目指します。
-ユーザー登録、ブックマーク、ユーザー定義カテゴリ、本格的な実行履歴管理はMVPに含めません。
+1. [前提ツール](docs/local-development.md#前提ツール)と[Node.js・pnpmの準備](docs/local-development.md#web用のnodejsとpnpm)を確認します。
+2. API・DBを含めて起動する場合は、[設定ファイルの準備](docs/local-development.md#用意するファイル)と[Docker Composeの起動手順](docs/local-development.md#docker-compose-で全体を起動する)に従います。
+   一覧の利用には、接続先DBへのmigrationとカテゴリ初期データの準備が必要です。
+   [DB migration](docs/db-migrations.md#実行方針)と[固定カテゴリのseed手順](docs/local-development.md#固定カテゴリの初期データを取り込む)で、対象DB・適用状況・操作の影響を確認してください。
+3. Webをホスト上で単体起動する場合は、[起動手順](docs/local-development.md#フロントエンドを単体で起動する)と[製品一覧のAPI接続設定](docs/local-development.md#製品一覧の接続先と実api画面テスト)を確認します。
+   保存済みの専用検証DBを使う場合も、同手順の再利用条件を確認してください。
 
-## 利用できる機能
+実HTTP取得、DBへの保存・migration・seed・再分類は、それぞれの手順と対象を確認してから実行してください。
 
-- 環境省の報道発表一覧と月別アーカイブから、タイトル、公開日、詳細ページURL、取得元カテゴリを取得し、CLIでJSONとして確認できます。
-- 手動コマンドで初回全件取得・通常の差分取得を行い、詳細ページURLによる重複を除いてPostgreSQLへ保存できます。
-- 固定カテゴリ定義をseed CLIで取り込み、新規保存時の自動分類と、保存済み報道発表の全件再分類を行えます。
-  実行前提と操作手順は[ローカル開発手順](docs/local-development.md)を参照してください。
-- DB設定に依存しないヘルスチェックと、offset方式のページネーション・タイトル検索・公開日範囲検索・固定カテゴリ絞り込みに対応した報道発表一覧取得APIを利用できます。
-- Webの一覧画面で、タイトル・公開日・全所属カテゴリを確認し、検索・カテゴリ選択・ページ送りを操作できます。
-  検索条件はURLで共有・復元でき、文字サイズ・テーマ・狭い画面の検索ドロワーも利用できます。
-  起動・API接続と安全な画面確認は[Webの開発手順](docs/local-development.md#製品一覧の接続先と実api画面テスト)を参照してください。
+### 実サイト・DBを使わずに取得・解析を確認する
 
-Data APIは利用せず、FastAPIからSQLAlchemy + psycopgでPostgreSQLへ直接接続します。
-
-進捗・検証結果・今後の作業は[docs/tasks.md](docs/tasks.md)、製品要件とMVP範囲は[docs/requirements.md](docs/requirements.md)を参照してください。
-
-## スクレイパー（`packages/scraper`）でできること
-
-- テスト用HTML（fixture）または環境省サイトの実HTTP取得から報道発表一覧を解析する
-- 月別アーカイブリンクを抽出し、指定した月数または全月を新しい順に巡回する
-- 報道発表の詳細ページURLをキーに、巡回中の重複を除外する
-- 巡回の停止理由を JSON に含める
-- 成功時の JSON を stdout と `--output` の両方、または `--output` のみに出力する
-- `--verbose` で要求番号、開始からの経過秒、取得中URL、待機の残り秒数、月別ページ番号を stderr に表示する
-- ローカルの初回全件取得では、ページHTMLとJSON manifestを一時保存し、途中失敗後に取得済みページを再利用して手動再開する
-
-実HTTP取得では、対象サイトへの連続アクセスを避けるため、1回のscraper CLI実行内で起点、月別ページ、同一オリジンのredirect先を含むHTTP要求の開始間隔を **3秒以上** にします。
-
-`--output` は取得件数、カテゴリ、URL重複、停止理由を確認するための検証用スナップショットです。差分保存、履歴管理、本格的な永続化は行いません。
-
-巡回stateはローカルの初回全件取得と手動再開だけに使用します。
-本番の定期差分取得、実行履歴、再試行管理には使用せず、最終JSONの確認後に専用cleanup操作で削除します。
-
-## スクレイピングの設計方針
-
-- 対象ページの構造、利用条件、robots.txt を確認してから実装する
-- 取得対象をタイトル、公開日、詳細ページURL、取得元カテゴリに絞り、DB保存前に検証できる形にする
-- 詳細ページURLを重複判定キーとして扱い、DB 保存で `source_url` の一意制約へつなげる
-- 月別巡回では停止理由を JSON に含め、取得上限に達した場合、月別リンクを最後まで巡回した場合、重複を検知した場合を区別できるようにする
-- 実HTTP取得ではすべての要求開始間に待機を入れ、`--verbose` で対象URL、待機、経過時間、月別ページ進捗をターミナルで確認できるようにする
-
-確認内容と取得時の配慮の詳細は `docs/scraping-env-go-jp.md` に記録しています。
-
-## DB保存でできること
-
-- Docker Compose の `db` サービスとして PostgreSQL 17 を起動する
-- API コンテナから `DATABASE_URL` を使って PostgreSQL に接続する
-- Alembic で `press_releases` テーブルを作成する
-- `press_releases` にタイトル、詳細ページURL、公開日、取得元カテゴリ、取得日時、作成日時、更新日時を保存するための DB モデルと migration を持つ
-- scraper の取得結果を API 側 DTO に変換し、repository / service 経由の保存処理へ渡せる
-- 報道発表を一括INSERTし、`source_url` の競合時は既存データを更新せずに skip する
-
-DB migration と保存済みデータの確認手順は `docs/db-migrations.md` と `docs/local-development.md` に整理しています。
-
-## 手動取得・保存でできること
-
-- scraper CLI から API 側の保存 service までを接続し、取得した報道発表を手動コマンドで PostgreSQL へ保存する
-- 保存済み報道発表がない DB では、`--all-archive-months` を使って初回全件取得を行う
-- DB 内の最新公開月を含む直近3か月の既知 `source_url` を scraper へ渡し、既知URLだけの月に到達したら停止する通常の差分取得を行う
-- stdout の実行結果 JSON で `fetched_count`、`saved_count`、`skipped_count`、`fetched_page_urls`、`stop_reason` を確認する
-- stdout を機械可読な実行結果、stderr を進捗・エラーとして使う
-- DB設定を読み込めない場合は、スクレイピングやDB処理を開始せず、stderr と終了コード `1` で CLI エラーを伝える
-
-詳細な実行コマンド、差分取得の停止条件、異常終了時の挙動は `docs/local-development.md` に整理しています。
-
-通常の差分取得では、保存済みレコードのタイトル、公開日、取得元カテゴリを更新しません。
-保存済みレコードの内容変更を確認するメンテナンス用フルスキャンは、MVP後の改善候補として扱います。
-
-## スクレイピングの最小確認
-
-リポジトリ内のテスト用HTML `packages/scraper/tests/fixtures/env_press_index_sample.html` を使うことで、環境省サイトへアクセスせずに CLI の JSON 出力を確認できます。
+リポジトリルートから次を実行すると、テスト用HTMLを解析してJSONを表示します。
+このコマンドは環境省サイトへのアクセスやDB保存を行いません。
 
 ```bash
 cd packages/scraper
-UV_CACHE_DIR=/private/tmp/press-watch-uv-cache \
-PYTHONPATH=src \
-uv run python -m press_watch_scraper \
-  --from-file tests/fixtures/env_press_index_sample.html \
-  --no-stdout-json \
-  --output /private/tmp/env_press_sample.json
-python -m json.tool /private/tmp/env_press_sample.json
+uv sync
+PYTHONPATH=src uv run python -m press_watch_scraper --from-file tests/fixtures/env_press_index_sample.html
 cd ../..
 ```
 
-出力された JSON では、取得件数、月別リンク候補、停止理由、報道発表の主要項目を確認できます。
+JSONでは取得件数、月別リンク候補、停止理由、各記事のタイトル・公開日・URL・取得元カテゴリを確認できます。
+ファイル出力・実HTTP取得・手動再開・完了stateの削除など、詳しいCLI操作は[開発手順](docs/local-development.md#scraper-を単体で起動する)を参照してください。
 
-```json
-{
-  "source_url": "tests/fixtures/env_press_index_sample.html",
-  "count": 3,
-  "archive_month_link_count": 2,
-  "stop_reason": null,
-  "items": [
-    {
-      "title": "令和８年度テスト事業の公募について",
-      "published_at": "2026-05-01",
-      "url": "https://www.env.go.jp/press/press_00001.html",
-      "source_categories": ["総合政策"]
-    }
-  ]
-}
-```
+## 詳しいドキュメント
 
-実HTTPで直近の月別アーカイブを少数だけ確認する場合は、次のように実行します。
-
-```bash
-cd packages/scraper
-PYTHONPATH=src \
-uv run python -m press_watch_scraper \
-  --archive-month-limit 2 \
-  --verbose \
-  --no-stdout-json \
-  --output /tmp/env_press_sample.json
-cd ../..
-```
-
-主な CLI オプションは次のとおりです。
-
-- `--from-file PATH`: 保存済みHTMLを解析する
-- `--archive-month-limit N`: 月別アーカイブを新しい順に N 件巡回する
-- `--all-archive-months`: 抽出できた月別アーカイブをすべて巡回する
-- `--crawl-state-dir PATH`: ローカル全件取得の一時HTMLとmanifestを保存する
-- `--resume`: 既存の巡回stateから手動再開する
-- `--refetch-invalid-pages`: 欠損やハッシュ不一致などで再利用できないページを明示的に再取得する
-- `--cleanup-crawl-state PATH`: 検証済みの完了stateを削除する
-- `--output PATH`: 成功時の JSON スナップショットをファイルにも保存する
-- `--verbose`: 取得中URLや待機状況を stderr に出力する
-- `--no-stdout-json`: JSON を stdout に出さず、`--output` のみに保存する
-
-詳細なローカル起動手順は `docs/local-development.md`、環境省サイト構造やスクレイピング方針は `docs/scraping-env-go-jp.md` を参照してください。
-
-## ドキュメント
-
-- `docs/project-overview.md`: 背景、目的、想定ユーザー
-- `docs/requirements.md`: MVP 要件
-- `docs/tasks.md`: 進捗・検証結果・今後の作業
-- `docs/tech-stack.md`: 技術選定とバージョン方針
-- `docs/local-development.md`: ローカル開発・確認手順
-- `docs/scraping-env-go-jp.md`: 環境省報道発表ページの構造とスクレイピング方針
-- `docs/db-migrations.md`: DB マイグレーション方針
-- `docs/fixed-categories.md`: 固定カテゴリの初期データと分類設計
+| 文書 | 内容 |
+| --- | --- |
+| [プロジェクト概要](docs/project-overview.md) | 背景・目的・想定ユーザー |
+| [要件定義](docs/requirements.md) | 製品要件とMVP範囲 |
+| [タスク一覧](docs/tasks.md) | 進捗・完了状態・残作業 |
+| [技術構成](docs/tech-stack.md) | 技術選定・採用版・責務分担 |
+| [一覧UI](docs/frontend-ui.md) | 操作・URL・表示状態とUI部品の出典 |
+| [ローカル開発手順](docs/local-development.md) | 起動・コマンド・検証方法と確認実績 |
+| [スクレイピング仕様](docs/scraping-env-go-jp.md) | 取得対象・巡回・待機・停止条件 |
+| [DB migration](docs/db-migrations.md) | スキーマ変更と環境別の適用状況 |
+| [固定カテゴリ](docs/fixed-categories.md) | 初期データ・分類・絞り込みの仕様 |

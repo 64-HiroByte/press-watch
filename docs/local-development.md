@@ -1063,15 +1063,15 @@ PRの必須レビュー数は0で、CODEOWNER承認・最終pushの承認・会�
 指定レビュアーは空で、マージ方式は`merge`・`squash`・`rebase`を許可しています。
 最新baseへの追従義務（`strict_required_status_checks_policy`）とブランチ作成時のチェック免除（`do_not_enforce_on_create`）は、ともに`false`です。
 最新化を必須にしていないため、baseが更新された後の組み合わせまで常に検証する保証はありません。
-Phase 5のmain統合前には、PRのhead SHAに加え、CIがcheckoutしたマージ結果のSHAとその親コミットを確認し、最新のmain・Phaseの組み合わせを検証できていることを確かめます。
+Phase全体をmainへ統合する前には、PRのhead SHAに加え、CIがcheckoutしたマージ結果のSHAとその親コミットを確認し、最新のmain・Phaseの組み合わせを検証できていることを確かめます。
 一致しない場合は統合を止め、現在の組み合わせを検証する方法と必要な追加承認を確認します。
 [既存runの再実行](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)は元のSHAとrefを使用するため、base更新後の組み合わせを確認した証拠にはなりません。
 
 2026年9月29日の設定確認時点では、mainへのDB統合workflowの取り込みは統合PR #91のマージ待ちでした。
 DB統合ジョブを含まないmain向けPRは必須チェックが未報告になるため、設定変更前に既存PRへの影響を確認しています。
-文書反映後の最新先端に対する製品テストと検証対象の照合は、main統合前の最終確認として行います。
-設定結果と統合待ちの状態は[タスク一覧](tasks.md#読み取りapi)に記録しています。
-CI見直しの完了とPhase 5全体の完了・main統合は区別します。
+当時は、CI見直しの完了とPhase 5全体の完了・main統合を区別して確認しました。
+その後、[統合PR #91](https://github.com/64-HiroByte/press-watch/pull/91)はmainへマージ済みです。
+Phase 5の確認結果は[確認実績](#phase-5の確認実績)、現在の進捗と残作業は[タスク一覧](tasks.md)を参照してください。
 
 ### 実行経路と省略経路の確認状況
 
