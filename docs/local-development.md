@@ -195,10 +195,10 @@ pnpm build:web
 `next typegen`は型情報を生成し、`typecheck:web`はTypeScriptの型チェック、`build:web`は本番ビルドを実行します。
 TypeScriptは`^7.0.2`、lockfileの解決版は7.0.2で、`tsc`はインストール先のOS・CPUに対応するネイティブバイナリーを使用します。
 optional dependencyに含まれるプラットフォーム用パッケージも必要なため、インストール時にoptional dependencyを一括で省略しません。
-Next.js 16.3.8のビルドも既定のCLI経路で同じプロジェクト内のTypeScriptを使用し、`experimental.useTypeScriptCli`の追加設定は不要です。
+Next.js 16.4.1のビルドも既定のCLI経路で同じプロジェクト内のTypeScriptを使用し、`experimental.useTypeScriptCli`の追加設定は不要です。
 `pnpm --filter @press-watch/web exec tsc --version`でCLIの版を確認できます。
 [Next.jsの型生成手順](https://nextjs.org/docs/app/api-reference/cli/next#next-typegen-options)に従い、`next-env.d.ts`は手動で編集しません。
-Next.js 16.3では`root-params.d.ts`への参照も生成されます。
+Next.js 16.4.1では`root-params.d.ts`への参照も生成されます。
 型生成・ビルドでは`.next/types/`、開発起動では`.next/dev/types/`を参照するため、`next-env.d.ts`の自動差分と`tsconfig.json`への必要な変更を確認します。
 型エラーやビルドエラーを無視する設定は追加しません。
 
@@ -631,6 +631,40 @@ migration・seed・保存・再分類・依存・lockfile・CI基盤・グロー
 通常画面テスト全162件、型生成・型チェック・lint・format確認・本番build、変更全ファイルのセルフレビューと空白検査も成功しました。
 この追加修正では専用実API・DB・本人による再確認と実スクリーンリーダーの実操作は行っていません。
 CIの結果は[PR #117](https://github.com/64-HiroByte/press-watch/pull/117)の対象HEADに対するチェックで確認します。
+
+### Next.jsのセキュリティ更新
+
+Next.jsを16.3.8から16.4.1、React / React DOMを19.3.0から19.3.1へ更新しました。
+指定はそれぞれ`^16.4.1`・`^19.3.1`とし、lockfileも同じ版へ揃えました。
+公式修正条件と採用範囲は[技術構成](tech-stack.md#2026年10月のセキュリティ更新)を参照します。
+16.4.2の追加公開も確認しましたが、今回のセキュリティ修正版16.4.1を先行し、公開後待機の例外は追加していません。
+
+秘密ファイル・認証設定・既存依存・生成物を含まない一時Webコピーを使い、外部API・DB資格情報を継承しない環境で更新前後を比較しました。
+Node.js 24.21.0・pnpm 12.8.1でfrozen install、型生成・型チェック・lint・format確認・本番buildが成功し、通常画面テストは更新前後とも162件が成功しました。
+初回の隔離実行では子プロセスからNode.jsを見つけられなかったため、既存手順どおり、その検証プロセスのPATHへ採用版のNode.js・pnpm本体を指定して再実行しました。
+プロジェクト・グローバルのツール設定は変更していません。
+この比較検証では、リポジトリ内の既存`node_modules`は再インストールしませんでした。
+更新後のマニフェストとlockfileから既存依存を含まない別コピーでもfrozen installが成功し、lockfileが変わらないことを確認しました。
+Next.jsに必須でないブラウザー互換データの再解決を避け、PostCSSの上書き、sharp 0.35.5、型定義・UI依存と待機・依存検証の設定を維持しました。
+
+合成データを返す既存の応答制御サーバーを使い、PC 1280×720の一覧、モバイル390×844の一覧とドロワーを比較しました。
+文言・配置・タイトル・日本語設定は一致し、画像の差は入力欄・テーマアイコン周辺の微小な画素差に留まりました。
+ブラウザーのconsole警告・エラーとpageerrorは発生していません。
+通常画面テストでも、検索・カテゴリ・ページ送り・履歴・下書き保持・失敗復旧・フォーカス・記事リンクの既存動作を確認しました。
+
+Web単体Dockerでも、秘密ファイル・既存依存・生成物を含まないbuild contextと既存Dockerfileを使いました。
+Linux arm64で依存再現・型生成・型チェック・本番buildが成功し、同じコンテナ内の応答制御サーバーに接続した本番Webを、ループバック限定で公開してPC・モバイルの表示を確認しました。
+macOS arm64・Linux arm64の両方でNext.jsが使うsharp 0.35.5の読み込みとPNG生成が成功しました。
+Next.jsの同梱RSC実装の更新、更新パッケージの版・出典・ライセンス表示を照合し、第三者表示の該当箇所を更新しました。
+
+続いて通常の作業フォルダでもfrozen installを行い、実際のNext.js 16.4.1・React / React DOM 19.3.1とsharp 0.35.5の読み込みを確認しました。
+以前のページ配置を参照する生成型が残って初回の型チェックが失敗したため、`.next`と`tsconfig.tsbuildinfo`を退避して生成し直しました。
+型生成・型チェック・lint・format確認・本番buildと通常画面テスト162件が成功し、画面テスト後の型チェックも成功しました。
+lockfileは変わらず、`next-env.d.ts`・`tsconfig.json`にも最終差分はありません。
+
+検証用Web・応答制御サーバーを終了し、今回作成したDockerコンテナ・イメージを削除して3105〜3108番の解放を確認しました。
+実API・DB・外部記事への接続、本人による手動確認、実CI・本番反映は行っていません。
+commit・push・ドラフトPR作成は承認Bの対象であり、その後のCIは最新HEADのjob・step・skip・ログとrun URLを確認します。
 
 ### UI基盤の確認
 

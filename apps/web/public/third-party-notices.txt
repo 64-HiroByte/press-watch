@@ -207,9 +207,9 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ========================================================================
-@next/env 16.3.8
+@next/env 16.4.1
 Declared license: MIT
-Source package: https://registry.npmjs.org/@next/env/16.3.8
+Source package: https://registry.npmjs.org/@next/env/16.4.1
 License text from the same upstream project (not included in this package tarball).
 
 license.md
@@ -1850,9 +1850,9 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ========================================================================
-next 16.3.8
+next 16.4.1
 Declared license: MIT
-Source package: https://registry.npmjs.org/next/16.3.8
+Source package: https://registry.npmjs.org/next/16.4.1
 
 license.md
 
@@ -1959,9 +1959,9 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ========================================================================
-react 19.3.0
+react 19.3.1
 Declared license: MIT
-Source package: https://registry.npmjs.org/react/19.3.0
+Source package: https://registry.npmjs.org/react/19.3.1
 
 LICENSE
 
@@ -1988,9 +1988,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ========================================================================
-react-dom 19.3.0
+react-dom 19.3.1
 Declared license: MIT
-Source package: https://registry.npmjs.org/react-dom/19.3.0
+Source package: https://registry.npmjs.org/react-dom/19.3.1
 
 LICENSE
 
