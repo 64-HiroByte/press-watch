@@ -698,6 +698,55 @@ Node.js 24.21.0・pnpm 12.8.1でfrozen install、型生成・型チェック・l
 本人による手動確認、実CI・本番反映は未実施です。
 push・ドラフトPR作成の承認後は、最新HEADのCIのjob・実行step・省略理由・ログを確認し、run URLとともに報告します。
 
+### Phase 6のmain統合前点検
+
+点検対象はmainの`5711c0ed925147e5dbec3a1e784a7c886aa670cf`と、Phaseの`fa5b37e0d7cdb4b637cf464d35344ea81c2f9fe8`です。
+mainはPhaseの祖先で、共通祖先からの差分は146コミット・118ファイルです。
+直前のDocstring補完だけでなく、APIの公開項目・検索条件・所属取得・Sessionとエラー処理、WebのURL・取得・操作・描画、テスト、Docs、依存・CI・開発設定を点検しました。
+
+最新Phaseへのpushで実行された[Python tests](https://github.com/64-HiroByte/press-watch/actions/runs/39137563120)のjob・テストstep・ログを照合しました。
+API unittestは286件、Scraper unittestは150件、PostgreSQL integrationは72件で、それぞれ成功しています。
+DB統合の72件には実スナップショット検証のskip 1件を含み、このrunで実データを再検証したとは扱いません。
+同じSHAの[Web checks](https://github.com/64-HiroByte/press-watch/actions/runs/39137563068)は変更判定による省略であり、型生成・型チェック・lint・format確認・build・画面テストの実行成功ではありません。
+
+通常Web検証は[Phase 6-12の記録](#phase-6-12のweb-url整理の確認実績)を再利用します。
+その対象`a97ec19`から上記Phaseまでの全ファイル差分はDocsとAPIテスト3ファイルのDocstring補完だけで、Webソース・テスト・依存・関連設定に変更はありません。
+通常Webの`pnpm typegen:web`・`pnpm typecheck:web`・`pnpm lint:web`・`pnpm format:check:web`・`pnpm test:web`と、Python製品テストのローカル再実行は行っていません。
+実API画面テスト用の一時Webコピーでは、後述のとおり依存を再現して本番buildを実行しました。
+
+静的点検では、Webの`categories`・`from`・`to`と公開APIの`fixed_category`・`published_from`・`published_to`の分離、保存済み全所属の一括取得とDB非更新、片側取得失敗・通信期限・履歴と下書き・古い応答の扱いを、実装と関連する仕様・テストへ照合しました。
+Python変更29ファイルをASTで解析し、新規定義77件すべてにDocstringがあることを確認しました。
+これは説明の有無の補助確認であり、説明と実装・assertionの照合や製品テストの代わりにはしません。
+変更されたJSONの構文、マニフェストとlockfileの直接依存、実行時の直接依存に対応する第三者表示も確認しました。
+mainからPhaseまでのWeb変更判定は`true`で、Python workflowの条件でもテスト実行対象です。
+
+秘密ファイル・認証設定・既存依存・生成物を含めない一時Webコピーを作り、対象66ファイルのSHA-256を検証前後に元ソースと照合しました。
+限定した起動環境のNode.js 24.21.0・pnpm 12.8.1でfrozen installと本番buildが成功し、lockfileも不変でした。
+本番buildではTypeScriptの確認も成功していますが、独立した`pnpm typecheck:web`の再実行とは分けて扱います。
+専用Composeのendpoint・コンテナ・マウント・公開ポート・永続ボリュームを照合し、保存済み合成DBを再利用しました。
+DB名・ユーザー・PostgreSQL 17・public schema、revision `a51eab6808f3`、列・既定値・主キー・一意制約・外部キー削除規則・索引を読み取り確認しました。
+同梱CSVと10カテゴリ・57キーワード、fixture原本と62記事、全62所属・未分類1件・複数所属1件が一致しています。
+原本と所属の期待値は検証補助でfixture・CSVから独立に照合し、製品のURL変換関数やテストのassertionは変更していません。
+
+最新コードの専用APIを起動し、次のコマンドでWeb URL整理後の既存3件が成功しました（14.2秒）。
+
+```bash
+PLAYWRIGHT_BROWSERS_PATH="/Users/hiro/my-projects/press-watch/tmp/playwright/browsers" PLAYWRIGHT_SKIP_BROWSER_GC=1 pnpm --filter @press-watch/web exec playwright test --config playwright.real.config.ts --reporter=list
+```
+
+実行場所は上記一時Webコピーのルートです。
+業務4テーブル全列・全所属は利用前後で一致し、一時Web・専用API・専用DBを終了しました。
+3108・8001・55433番の待受け不在を`lsof`で確認し、専用コンテナは`exited`、資格情報の権限600と永続ボリュームの保持を確認しました。
+起動前のPATH不足と補助fixture解析の依存、終了後のbindによるポート判定は検証補助側で調整し、製品の不具合やTDDのREDには数えていません。
+初回準備・migration・seed・再投入・再分類、永続開発DB・Supabaseの利用、fixtureの記事リンク先へのHTTP要求は行っていません。
+
+全差分のセルフレビューと`git diff --check`を行い、今回の完成条件に関わる追加の必須修正は見つかっていません。
+既知LowのIssue #114・#118は残課題として保持し、Issue #122は`CLOSED / COMPLETED`を再確認しました。
+本人による画面操作確認の反復と、Phase 7以降の作業は行っていません。
+main向け統合PRの作成・CI・マージは未実施であり、[main統合の最後の項目](tasks.md#main統合)は実際のマージまで未完了のまま維持します。
+上記のPhaseへのpushの成功・省略を、最新mainとPhaseの組合せを検証した証拠として流用しません。
+統合PRでは[必須チェックとSHAの照合](#必須チェックの段階適用)に従い、マージ後も対象変更の取り込みとCIを確認します。
+
 ### UI基盤の確認
 
 開発サーバーをループバックに限定して起動し、`http://127.0.0.1:3000/ui-foundation`を開く。
