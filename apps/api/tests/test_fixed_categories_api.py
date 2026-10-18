@@ -102,6 +102,8 @@ class FixedCategoryListApiTest(unittest.TestCase):
         self.assertEqual(self.stdout.getvalue(), "")
 
     def test_returns_only_saved_public_fields_in_repository_order(self) -> None:
+        """保存済み2定義の公開3項目と返却順・Sessionのclose試行1回を確認"""
+
         response = self.client.get(_PATH)
 
         self.assertEqual(response.status_code, 200)
@@ -115,6 +117,8 @@ class FixedCategoryListApiTest(unittest.TestCase):
         self._assert_session_closed()
 
     def test_empty_definitions_return_200_with_empty_items(self) -> None:
+        """取得した定義が空なら200と空itemsを返し、Sessionのcloseを1回試行"""
+
         self.list_categories.return_value = ()
 
         response = self.client.get(_PATH)
@@ -134,7 +138,14 @@ class FixedCategoryListApiTest(unittest.TestCase):
         self.assertTrue({"200", "500", "503"}.issubset(responses))
 
         def resolve_schema(schema: dict[str, Any]) -> dict[str, Any]:
-            """公開schemaを直接定義・components参照のどちらからでも取得"""
+            """公開schemaを直接定義・components参照のどちらからでも取得
+
+            Args:
+                schema: 直接定義、または当該OpenAPI文書のcomponents内を指す$refを持つschema
+
+            Returns:
+                直接定義なら渡された辞書、$refがあれば参照先のschema辞書
+            """
 
             if "$ref" in schema:
                 return document["components"]["schemas"][schema["$ref"].rsplit("/", 1)[1]]
@@ -171,6 +182,12 @@ class FixedCategoryListApiTest(unittest.TestCase):
         self.get_session_factory.assert_not_called()
 
     def test_database_failures_at_all_stages_keep_status_and_safe_diagnostics(self) -> None:
+        """factory取得・Session生成・読取り・closeでのDB例外の応答と終了処理を確認
+
+        タイムアウト・無効化接続は503、その他の対象DB例外は500となり、
+        固定応答・診断とSession生成段階に応じたcloseの試行を確認する。
+        """
+
         cases = (
             ("pool_timeout", lambda: SQLAlchemyTimeoutError(_INTERNAL_MARKER), 503),
             ("invalidated_connection", lambda: DBAPIError(
@@ -216,6 +233,11 @@ class FixedCategoryListApiTest(unittest.TestCase):
                         self._assert_session_closed()
 
     def test_non_sqlalchemy_initialization_errors_are_safe_500_without_query(self) -> None:
+        """factory取得・Session生成の非SQLAlchemy例外で固定500応答と診断を確認
+
+        factory取得のRuntimeErrorとSession生成のValueErrorでは、照会・closeを行わない。
+        """
+
         for stage, target, error in (
             ("factory", self.get_session_factory, RuntimeError(_INTERNAL_MARKER)),
             ("session", self.session_factory, ValueError(_INTERNAL_MARKER)),
@@ -232,6 +254,8 @@ class FixedCategoryListApiTest(unittest.TestCase):
                 self.session.close.assert_not_called()
 
     def test_non_sqlalchemy_close_error_replaces_success_with_safe_500(self) -> None:
+        """取得成功後のcloseでRuntimeErrorが起きた場合の固定500応答と終了失敗診断を確認"""
+
         self.session.close.side_effect = RuntimeError(_INTERNAL_MARKER)
 
         self._assert_database_error(
@@ -241,6 +265,11 @@ class FixedCategoryListApiTest(unittest.TestCase):
         self._assert_session_closed()
 
     def test_processing_database_error_precedes_close_error(self) -> None:
+        """読取りとcloseの両方が失敗した場合の応答と診断順を確認
+
+        読取り例外に応じた500・503を維持し、終了失敗・DBエラーの順に診断を出力する。
+        """
+
         for query_error, close_error, status in (
             (SQLAlchemyError(_INTERNAL_MARKER), SQLAlchemyTimeoutError(_INTERNAL_MARKER), 500),
             (SQLAlchemyTimeoutError(_INTERNAL_MARKER), RuntimeError(_INTERNAL_MARKER), 503),
@@ -304,12 +333,26 @@ class FixedCategoryListApiTest(unittest.TestCase):
                     self._assert_session_closed()
 
     def test_session_closes_before_response_start(self) -> None:
+        """正常応答の開始時点でMock Sessionのcloseが1回試行済みであることを確認"""
+
         close_counts = []
 
         async def observed_app(scope: Scope, receive: Receive, send: Send) -> None:
-            """実ASGIアプリの応答開始時にcloseの試行回数を観測し、送信を委任"""
+            """実ASGIアプリの応答開始時にcloseの試行回数を観測し、送信を委任
+
+            Args:
+                scope: TestClientが渡すASGI接続情報
+                receive: 実アプリへ渡すASGI受信処理
+                send: 観測後の全メッセージを委任するASGI送信処理
+            """
 
             async def observed_send(message: Message) -> None:
+                """応答開始時のclose試行回数を記録し、全メッセージの送信を委任
+
+                Args:
+                    message: 実アプリが送信するASGIメッセージ
+                """
+
                 if message["type"] == "http.response.start":
                     close_counts.append(self.session.close.call_count)
                 await send(message)
