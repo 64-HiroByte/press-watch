@@ -906,7 +906,8 @@ curl 'http://127.0.0.1:8000/fixed-categories'
 詳しい契約は[REQ-014](requirements.md#req-014-固定カテゴリの選択肢を取得できること)と[共通エラー方針](requirements.md#一覧検索apiのエラー応答)を参照してください。
 
 表示順・正常0件・1 SELECT・DB非更新の実DB確認は、合成データを使う[テスト専用PostgreSQL 17](#postgresql-17-db統合テストを実行する)で行っています。
-開発DB・Supabaseへの固定カテゴリmigration・seedの適用と実データの再分類は[未確認](db-migrations.md#実行方針)です。
+開発DBへの固定カテゴリ適用・実データ再分類と画面確認は、[永続開発DBでの確認](#永続開発dbで実データを確認する)で完了しています。
+Supabaseへの適用は未実施であり、[DBへの適用状況](db-migrations.md#実行方針)を環境別に確認してください。
 定義0件でも既存APIの未絞り込み一覧・タイトル検索は利用できます。
 Webは成功した一覧と条件を保持して「カテゴリ選択肢が未登録」と表示し、条件変更を止めて再取得を可能にします。
 
@@ -1891,6 +1892,149 @@ SIGTERM・SIGHUPによる手順用Pythonの終了でも、専用API・DBの停�
 開発DB・Supabaseへの固定カテゴリ適用、実データ再分類、Webからの接続はこの確認に含めません。
 既存の一時統合テストの実績と、今回の永続DBの確認実績は別の保証範囲です。
 
+## 永続開発DBで実データを確認する
+
+合成データ専用DB`presswatch_api_validation`とは分けて、保存済みの実データを通常の永続開発DBで確認します。
+開発DBが空でも、ローカルに保存したスナップショットがないとは限りません。
+実サイトからの再取得は、この準備・分類・表示確認に必要ありません。
+
+### 対象と元データ
+
+| 項目 | 確認した対象 |
+| --- | --- |
+| 対象コード | `8ec3a23c0e97877ed49a3023fbcc37e8732d13a5` |
+| 開発DB | `127.0.0.1:5432`、DB・ユーザー`presswatch`、schema`public` |
+| Docker | context`desktop-linux`、project`press-watch`、service`db`、コンテナ`press-watch-db-1` |
+| PostgreSQL | 17.10 |
+| 永続化先 | `press-watch_postgres17_data`を`/var/lib/postgresql/data`へマウント |
+| 保存済みJSON | `tmp/env-press-full-crawl-20260829/env_press_all.json` |
+| JSON SHA-256 | `742ec50a03c4b69e8fc88fccd8a95856a94a18d895717c9a6834bcae144d3939` |
+| 件数・公開日 | 34,421件、URL重複なし、1996-11-01〜2026-08-28 |
+| 共通の取得日時 | `2026-08-29T13:45:27.408274Z` |
+
+このJSONは原本として変更せず、同じ元データを使うSupabaseの準備にも用います。
+取得元カテゴリが空の2,678件は既存DTOの契約に従ってNULLへ変換し、固定カテゴリとは別に保持します。
+環境間では`source_url`をキーに、タイトル・公開日・取得元カテゴリ・取得日時を照合します。
+ID・作成日時・更新日時は環境間で一致を要求せず、各DBへの投入後は全8列を基準として分類前後の保持を確認します。
+
+### 投入・適用の手順と実施結果
+
+1. 必要な資格情報だけを非表示で読み込み、接続先・Docker contextの接続先・コンテナID・永続ボリュームを照合します。
+   開発DBは旧revision`9f2c7a4e1d63`・原本0件・カテゴリ3テーブルなしであることを確認しました。
+   自動取得・保存処理を起動せず、他のトランザクションと書込みロックがないことを確認して対象を固定します。
+   現況が異なれば、投入や再分類を実行せず計画を見直します。
+2. PostgreSQL 17の`pg_dump --format=custom`で、投入前のDB全体をバックアップします。
+   ファイルを新規作成し、既存バックアップを上書きしません。
+   TOC、原本テーブル・連番の収録、`pg_restore --exit-on-error --file=/dev/null`による全体読取りを確認します。
+3. 既存の`load_validated_snapshot`で件数・ハッシュ・URL・必須項目を検証し、`to_press_release_creates`でDTOへ変換します。
+   旧schemaではカテゴリを必要とする通常の保存serviceを使わず、既存の原本用`create_press_releases` repositoryへ最大1,000件ずつ渡します。
+   全34,421件を一つのトランザクションと対象テーブルのロック内で投入し、保存件数・全原本項目の一致を確認してからcommitします。
+   既存URLの置換、削除、連番のリセットは行いません。
+   実績は保存34,421件・skip0件で、commit後に別の読み取り専用接続でも照合しました。
+4. 投入後の原本全8列と連番状態を基準として保存し、カテゴリ適用前のDB全体をもう一度バックアップします。
+   一時統合テスト用の`run_real_snapshot`は、tmpfs専用DBを使うため、この永続開発DBの投入には実行しません。
+5. 同じ接続先を再確認して、既存のAlembicを`a51eab6808f3`まで適用し、既存の`seed_fixed_categories`、`reclassify_fixed_categories`の順に実行します。
+   起動方法とコマンドの契約は、[固定カテゴリの初期データを取り込む](#固定カテゴリの初期データを取り込む)と[既存報道発表を固定カテゴリで再分類する](#既存報道発表を固定カテゴリで再分類する)を参照してください。
+   migration後と再分類後に、原本全8列が投入直後の基準から変わっていないことを確認しました。
+6. APIをDBセッションの既定が読み取り専用となる設定で`127.0.0.1:8002`へ起動し、秘密ファイルを含めない一時Webを`127.0.0.1:3109`へ起動します。
+   Webへ渡すのはローカルAPIのURLだけとし、DB資格情報は渡しません。
+   通常のWeb起動で既存の秘密設定を意図せず読み込まないよう、今回の確認には必要なソースと固定lockfileだけを複製した環境を使いました。
+7. 今回起動したAPI・Webだけを停止した後、同じコンテナ・同じ永続ボリュームのDBを再起動します。
+   再起動後にrevision・業務4テーブルの全列・全所属・連番状態を比較し、API・Webを再開して確認します。
+   `docker restart`での保持を確認済みであり、DB再作成・ボリューム削除による確認は行っていません。
+
+一時実行手順と照合結果はGit管理外の`tmp/real-data-categories/run-1986809db77f/`に保存しています。
+この実行手順は今回の状態に固定した一回限りのもので、通常運用の汎用importコマンドではありません。
+再投入前には、対象の現況・承認範囲・元データ・バックアップを改めて確認してください。
+途中の一時手順で結果のJSON化に失敗した際は、原本のINSERT全体がrollbackされて0件であることを確認しました。
+連番の消費はrollbackされないためIDには欠番がありますが、連番を戻さず、URLと全列の一致で検証しています。
+
+### 原本・分類・表示の確認結果
+
+カテゴリ3テーブルの列・主キー・一意制約・CHECK制約・外部キーの削除規則と索引、および原本URLの一意制約・公開日索引は既存migrationと一致しました。
+固定カテゴリ10件・キーワード57件は既存CSVと完全一致しました。
+全34,421タイトルについてNFKC正規化・casefold・部分一致で所属を別計算し、DBの全所属と一致することを確認しました。
+
+| 集計 | 件数 |
+| --- | ---: |
+| 原本 | 34,421 |
+| 分類あり | 5,480 |
+| 未分類 | 28,941 |
+| 複数カテゴリ所属 | 529 |
+| 所属の総数 | 6,184 |
+| 大気 | 1,004 |
+| 土壌 | 823 |
+| 水道 | 27 |
+| 環境水 | 575 |
+| 排水 | 207 |
+| 臭気 | 95 |
+| 騒音 | 332 |
+| 振動 | 201 |
+| 共通 | 383 |
+| その他 | 2,537 |
+
+未分類はタイトルと57キーワードが一致しない記事であり、件数が多いことだけを根拠に分類ルールを変更しません。
+例えば「中央環境審議会第25回大気・騒音振動部会及び第20回水環境・土壌農薬部会の合同開催について」は、大気・土壌・騒音・振動の複数所属であることを画面でも確認しました。
+原本全8列の正規化JSONのSHA-256は`7f693291d4f00cbb51febd4147aa66f609fe34383284a9dd56fc61b88198d531`で、カテゴリ適用・画面確認・DB再起動後も一致しました。
+
+APIでは再起動前後にそれぞれ29項目を確認しました。
+一覧の先頭・2ページ目・最終689ページ目の21件・範囲外0件、キーワード、`%`・`_`の文字検索、検索0件、10カテゴリ個別・複数選択のOR、未定義カテゴリ、日付の上下限・同日・組合せ、不正日付と逆順の422を照合しました。
+返却記事の全項目・全カテゴリと並び順をDBの基準データから計算した期待値に照合しています。
+
+実Web画面では、全34,421件・未分類表示、タイトル・公開日・リンク先・複数所属ラベル、大気1,004件、airまたはsoilの1,801件、`土壌`検索823件を確認しました。
+`土壌`検索・airまたはsoil・2020-01-01〜2026-08-28の組合せは215件で、全カテゴリ選択は分類ありの5,480件、カテゴリ全解除は34,421件です。
+検索条件のリセット、ページ切替、最終ページ、検索0件と全条件解除、DB再起動後の再読込みと絞り込みも確認しました。
+自動操作とは別に、利用者による画面操作の確認も完了し、問題なしとの確認を得ました。
+既存の実API画面テスト3件は合成データ専用DBを前提とする後続のmain統合タスクに残し、今回の実データ確認と混同しません。
+一時Webは固定lockfileで依存を再現し、production buildとTypeScript検査が成功しました。
+Docs全差分のセルフレビュー、参照先・コードフェンス・入力失敗時の非表示処理・既存チェック項目の保持と後続タスクの追加、`git diff --check`を確認し、重大な問題は見当たりません。
+製品コード・テスト・CSV・依存定義は変更していないため、製品全テストを形式的に追加実行していません。
+
+### バックアップ・復旧・終了
+
+投入前の`00-before-import.dump`と、投入済み・カテゴリ未適用の`01-originals-before-categories.dump`を上記実行ディレクトリに保持しています。
+それぞれの件数・revision・SHA-256・サイズ・全体読取り結果は隣接する`.dump.json`と基準JSONで確認できます。
+実行ディレクトリは所有者のみがアクセスでき、DBバックアップと基準JSONは所有者のみが読み書きできる権限で保存しています。
+バックアップは全体読取りを確認済みですが、実DBへの復元テストは行っていません。
+同じディスク上のローカルバックアップであり、ディスク自体の故障への備えとは区別します。
+
+失敗時は後続の書込みを止め、読み取り専用で実際のcommit状態・原本全8列・revision・所属を確認します。
+投入中のrollbackで原本が0件なら、連番を戻さず原因を直して再計画します。
+投入がcommit済みなら自動で再投入せず、その状態とカテゴリ適用前バックアップを保持します。
+migration・seed・再分類の各CLIはそれぞれ別のトランザクションであり、途中まで成功していればDB全体が自動で投入前へ戻るとは扱いません。
+復旧が必要な場合は今回起動したAPI・Webを止め、復旧先とバックアップを指定して、別承認後に隔離した復元先で原本・revision・連番を確認し、元DBへの切替方法を決めます。
+`down -v`、ボリューム削除、DB再作成、DROP・TRUNCATE、全体復元、downgrade、所属削除、連番リセットは自動実行しません。
+確認時点より後のデータがあるDBを、古いバックアップで上書きしません。
+
+利用者の画面確認終了後、今回所有するAPI・Webだけを停止し、8002・3109番の待受けがないことを確認しました。
+開発DBはhealthyで起動したまま、実データ・バックアップ・永続ボリュームを保持しています。
+停止後の読み取り専用照合でも、原本34,421件・定義・全所属・連番状態が基準と一致しました。
+ローカルでの投入・分類・原本保持・API・画面・再起動後の保持の確認は完了し、Supabaseへの書込みは未実施です。
+
+### Supabaseへ進む条件
+
+Supabaseへの実データ適用・確認と、そのためのツール・バックアップ準備は、Phase 7の運用準備として別タスクで扱います。
+Phase 6の実データ確認は永続開発DBを対象として完了し、Supabaseへの適用を完了条件に含めません。
+必要なPostgreSQL 17用ツールは既存パッケージを更新しない方法で用意します。
+検討済みの公式ソースから専用ディレクトリへビルドする方法は、Phase 7の実行前に必要性・配布物・依存先を再確認します。
+ツールの取得・ビルド・配置とSupabaseのバックアップ取得は未実施であり、この文書更新を実行承認として扱いません。
+
+今回の読み取り専用診断では、SupabaseはPostgreSQL 17.6・revision`9f2c7a4e1d63`・原本0件・カテゴリ3テーブルなしでした。
+ローカルと同じ保存済み34,421件を使う方針であり、Supabaseを初回の実データ検証先にはしません。
+
+- ツールの取得・ビルド・配置、一時手順の作成、読み取り専用の現況確認とバックアップ取得・検査を準備段階として具体化し、必要な承認を得ます。
+  準備結果と制約を報告してから、DB更新と必要なAPI・Web利用の適用段階へ進みます。
+  診断・バックアップ・適用・API検証は必要な接続情報だけを明示し、接続前に親の`DATABASE_URL`・`PG*`を除去した環境で実行します。
+- ローカルの原本保持・分類・API・画面・再起動後の保持と利用者の確認がすべて成功してから、Supabaseへのデータ投入・migration・seed・再分類・必要な環境利用を具体化し、別承認を得ます。
+- 承認後も、書込み処理を止めた直後かつ適用直前に接続先・revision・原本集合・所属・権限を再確認し、Supabase側のバックアップを先に取得・検査します。
+- 対象原本がローカルで検証した集合と違う場合は、未検証のままSupabaseへ適用せず、ローカルへの準備・再検証の計画と必要な承認へ戻ります。
+  件数だけでなく、URLをキーにタイトル・公開日・取得元カテゴリ・取得日時を比較します。
+  現在の0件は投入前の状態であり、既存行が増えた場合に同じ空DB投入手順を流用しません。
+- SupabaseのData APIは無効で、Direct connectionによるDB接続とは別の設定です。
+  `anon`・`authenticated`の原本SELECT権限はありませんが、他の書込み権限やデフォルト権限が残り、RLSも無効のため、公開可能な状態の確認が済んだとは扱いません。
+  所有者接続と`service_role`もRLSを回避できるため、RLSだけを安全性の根拠にしません。
+  Data API・権限・RLSの変更は今回行わず、将来の有効化やmigration・公開前に再確認し、必要な変更は別承認にします。
+
 ## Supabase PostgreSQL へ接続する
 
 Supabase では、継続稼働する FastAPI と Alembic migration に使用できる Direct connection を採用します。
@@ -1901,83 +2045,123 @@ Direct connection は IPv6 を使用するため、接続元の環境が IPv6 �
 実際の URI、パスワード、プロジェクト識別子は、この文書、コマンド履歴、ログへ記録しません。
 URI とパスワードは非表示入力で現在のシェルだけへ読み込み、既存の `DATABASE_URL` へ変換します。
 
-```bash
+```zsh
 cd apps/api
-read -r -s "SUPABASE_DIRECT_URI?Direct connection URIを貼り付けてEnter: "
-echo
-read -r -s "SUPABASE_DB_PASSWORD?DBパスワードを貼り付けてEnter: "
-echo
+set +x
+unset DATABASE_URL
 
-DATABASE_URL="$(
-    SUPABASE_DIRECT_URI="$SUPABASE_DIRECT_URI" \
-    SUPABASE_DB_PASSWORD="$SUPABASE_DB_PASSWORD" \
-    uv run python - <<'PY'
+prepare_supabase_url() {
+    local SUPABASE_DIRECT_URI SUPABASE_DB_PASSWORD url_build_status
+    read -r -s "SUPABASE_DIRECT_URI?Direct connection URIを貼り付けてEnter: " || return 1
+    echo
+    read -r -s "SUPABASE_DB_PASSWORD?DBパスワードを貼り付けてEnter: " || return 1
+    echo
+
+    DATABASE_URL="$(
+        SUPABASE_DIRECT_URI="$SUPABASE_DIRECT_URI" \
+        SUPABASE_DB_PASSWORD="$SUPABASE_DB_PASSWORD" \
+        .venv/bin/python -I -B - <<'PY'
 import os
-from sqlalchemy.engine import make_url
+import re
+import sys
 
-direct_url = make_url(os.environ["SUPABASE_DIRECT_URI"].strip())
+try:
+    from sqlalchemy.engine import URL, make_url
 
-is_direct_connection = (
-    direct_url.drivername in {"postgres", "postgresql"}
-    and direct_url.username == "postgres"
-    and direct_url.host is not None
-    and direct_url.host.startswith("db.")
-    and direct_url.host.endswith(".supabase.co")
-    and direct_url.port == 5432
-    and direct_url.database == "postgres"
-)
-if not is_direct_connection:
-    raise SystemExit("DIRECT_URI_FORMAT_OK=false")
-
-database_url = direct_url.set(
-    drivername="postgresql+psycopg",
-    password=os.environ["SUPABASE_DB_PASSWORD"],
-).update_query_dict({"sslmode": "require"})
-
-print(database_url.render_as_string(hide_password=False))
+    direct_url = make_url(os.environ["SUPABASE_DIRECT_URI"].strip())
+    password = os.environ["SUPABASE_DB_PASSWORD"]
+    if not (
+        direct_url.drivername in {"postgres", "postgresql"}
+        and direct_url.username == "postgres"
+        and re.fullmatch(r"db\.[a-z0-9-]+\.supabase\.co", direct_url.host or "")
+        and direct_url.port == 5432
+        and direct_url.database == "postgres"
+        and dict(direct_url.query) in ({}, {"sslmode": "require"})
+        and password
+    ):
+        raise ValueError("invalid direct URI")
+    database_url = URL.create(
+        "postgresql+psycopg", username="postgres", password=password,
+        host=direct_url.host, port=5432, database="postgres",
+        query={"sslmode": "require"},
+    )
+    print(database_url.render_as_string(hide_password=False))
+except (Exception, KeyboardInterrupt):
+    sys.exit(1)
 PY
-)"
-url_build_status=$?
-
-unset SUPABASE_DIRECT_URI
-unset SUPABASE_DB_PASSWORD
-
-if [ "$url_build_status" -eq 0 ] && [ -n "$DATABASE_URL" ]; then
+    )"
+    url_build_status=$?
+    if [ "$url_build_status" -ne 0 ] || [ -z "$DATABASE_URL" ]; then
+        unset DATABASE_URL
+        return 1
+    fi
     export DATABASE_URL
+}
+
+if prepare_supabase_url; then
     echo "DATABASE_URL_READY=true"
 else
     unset DATABASE_URL
     echo "DATABASE_URL_READY=false"
 fi
-unset url_build_status
+unfunction prepare_supabase_url
 ```
 
-`DATABASE_URL_READY=true` を確認してから、SQLAlchemy + psycopg で読み取り専用の接続確認を行います。
-`DIRECT_URI_FORMAT_OK=false` または `DATABASE_URL_READY=false` が表示された場合は、接続を試さず、Supabase ダッシュボードで Direct connection の URI をコピーし直します。
+この例はzsh用で、シェルのコマンド追跡表示を無効にしてから入力します。
+事前にAPIの開発環境セットアップを済ませ、既存の`.venv`を直接使います。
+この接続手順では依存の同期や`.env`ファイルの読取りを行いません。
+入力を中断した場合やURI形式が不正な場合は、古い`DATABASE_URL`も残さず、接続を試しません。
+URIの追加パラメータは`sslmode=require`以外を受け付けず、ホスト・資格情報・TLS設定の上書きを持ち込みません。
+`DATABASE_URL_READY=true`を確認し、対象環境への読み取り専用接続が承認された範囲で次の確認を行います。
 
 ```bash
-uv run python - <<'PY'
+.venv/bin/python -I -B - <<'PY'
 import os
 
-from sqlalchemy import create_engine, text
-from sqlalchemy.exc import OperationalError
-
-engine = create_engine(os.environ["DATABASE_URL"])
-
+engine = None
 try:
+    database_url = os.environ["DATABASE_URL"]
+    runtime_environment = {
+        key: os.environ[key] for key in ("HOME", "PATH") if key in os.environ
+    }
+    os.environ.clear()
+    os.environ.update(runtime_environment)
+
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.engine import make_url
+
+    readonly_url = make_url(database_url).update_query_dict({
+        "sslmode": "require",
+        "connect_timeout": "5",
+        "options": "-c search_path=public -c default_transaction_read_only=on -c statement_timeout=15000 -c lock_timeout=2000",
+    })
+    engine = create_engine(readonly_url, hide_parameters=True)
     with engine.connect() as connection:
-        result = connection.execute(text("select 1")).scalar_one()
-    print("DATABASE_CONNECTION_OK=" + str(result == 1).lower())
-except OperationalError:
-    print("DATABASE_CONNECTION_OK=false")
+        result = connection.execute(text("""
+            SELECT current_database() = 'postgres'
+               AND current_user = 'postgres'
+               AND current_schema() = 'public'
+               AND current_setting('transaction_read_only') = 'on'
+               AND (SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid())
+        """)).scalar_one()
+        connection.rollback()
+    print("DATABASE_CONNECTION_OK=" + str(result is True).lower())
+except (Exception, KeyboardInterrupt):
+    print("DATABASE_CONNECTION_OK=false; details_hidden=true")
 finally:
-    engine.dispose()
+    if engine is not None:
+        engine.dispose()
 PY
 ```
 
-`DATABASE_CONNECTION_OK=true` を確認できれば、既存のSQLAlchemy + psycopg構成からSupabase PostgreSQLへ接続できています。
-エラー時は接続を繰り返さず、URIの形式、パスワード、IPv6到達性を秘密情報なしで一つずつ切り分けます。
-Supabase への migration 適用手順は `docs/db-migrations.md` に整理しています。
+`DATABASE_CONNECTION_OK=true`は、読み取り専用・SSL接続とDB・ユーザー・schemaの確認を表します。
+診断では入力済みURLを保持した後、接続前に環境変数を`HOME`・`PATH`だけに絞ります。
+親の`PGHOSTADDR`・`PGSERVICE`などによる接続先の変更や、別の`DATABASE_URL`の引継ぎを防ぎます。
+プロジェクトの識別は、非表示入力したURIの接続先をダッシュボードの対象と別途照合します。
+この確認で、元の`DATABASE_URL`をDB更新へ使う承認が得られるわけではありません。
+エラー時は詳細な例外を出力せず、URI形式、パスワード、IPv6到達性を秘密情報なしで切り分けます。
+Supabaseへのmigration適用は、[永続開発DBで実データを確認する](#永続開発dbで実データを確認する)の条件と別承認に従います。
+利用後は`unset DATABASE_URL`で現在のシェルから接続情報を除きます。
 
 ## 手動で取得してDBへ保存する
 
@@ -2257,7 +2441,9 @@ docker compose --env-file .env -f infra/compose.yml exec db psql -U presswatch -
 
 Alembic migrationが適用済みであることを確認します。
 リポジトリの現在headは、固定カテゴリ3テーブルを追加する`a51eab6808f3`です。
-今回追加したmigrationは開発DBとSupabaseへ未適用であり、両環境で適用確認済みのheadは、`published_at`のインデックスを追加する`9f2c7a4e1d63`までです。
+永続開発DBには`a51eab6808f3`を適用済みであり、原本34,421件と固定カテゴリの検証を完了しています。
+Supabaseは直前の読み取り専用確認では`9f2c7a4e1d63`までで、固定カテゴリmigrationは未適用です。
+Supabaseへの適用は[Phase 7の条件と別承認](#supabaseへ進む条件)に従います。
 `version_num`が`9f2c7a4e1d63`の場合は固定カテゴリ3テーブルが未適用で、初版migrationの`31765401e166`の場合は公開日インデックスも未適用です。
 
 ```sql
