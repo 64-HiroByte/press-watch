@@ -122,7 +122,7 @@ Supabaseの空DBへ初めて適用する場合は、`docs/local-development.md`�
 初回適用対象のテーブルがすでに存在する場合は、状態を確認せずmigrationを実行しません。
 
 既存のSupabaseへ後続migrationを適用する場合は、現在のrevision、追加対象テーブルが未作成であること、影響範囲を再確認します。
-今回追加した固定カテゴリmigrationはSupabaseへ未適用であり、旧head`9f2c7a4e1d63`からの適用は別タスクとして改めて承認を得て実行します。
+今回追加した固定カテゴリmigrationはSupabaseへ未適用であり、旧head`9f2c7a4e1d63`からの適用はローカル実データ検証の成功後、別承認を得て実行します。
 
 影響するテーブル、制約、インデックスを確認してから、`apps/api` で既存 migration を適用します。
 
@@ -133,7 +133,9 @@ uv run alembic current
 
 リポジトリの現在headまで適用した場合は、`alembic current`で`a51eab6808f3 (head)`と表示されることを確認します。
 適用後は`public.press_releases`と固定カテゴリ用3テーブル、各制約、外部キー削除規則、必要なインデックスが存在することを確認します。
-今回追加した固定カテゴリmigrationは開発DBとSupabaseへ未適用であり、両環境で適用確認済みのheadは`9f2c7a4e1d63`までです。
+永続開発DBには`a51eab6808f3`を適用し、保存済み実データ34,421件の原本を保持したseed・再分類とDB再起動後の保持を確認済みです。
+Supabaseは読み取り専用の現況確認で`9f2c7a4e1d63`・原本0件であり、固定カテゴリmigration・seed・データ投入・再分類は未実施です。
+対象、投入・検証・復旧とSupabaseへ進む条件は[永続開発DBで実データを確認する](local-development.md#永続開発dbで実データを確認する)を参照してください。
 実際の `DATABASE_URL`、DB パスワード、プロジェクト識別子はコマンド出力や文書へ記録しません。
 
 Phase 6の分離した接続検証DB`presswatch_api_validation`（`127.0.0.1:55433`）には、既存migrationをhead`a51eab6808f3`まで適用済みです。
