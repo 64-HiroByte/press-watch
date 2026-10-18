@@ -109,6 +109,17 @@ class FixedCategoryListIntegrationTest(unittest.TestCase):
         def count_operation(
             _connection, _cursor, statement, _parameters, _context, _many,
         ) -> None:
+            """実行前SQLの先頭語を種別としてoperationsへ回数を加算
+
+            Args:
+                _connection: イベント発生元のSQLAlchemy接続（集計には不使用）
+                _cursor: SQLを実行するDBAPIカーソル（集計には不使用）
+                statement: 種別を抽出する実行前のSQL文字列
+                _parameters: SQLへ渡す実行パラメーター（集計には不使用）
+                _context: 当該SQLの実行コンテキスト（集計には不使用）
+                _many: executemanyによる実行かを示す値（集計には不使用）
+            """
+
             # SQL本文やパラメーターを保存せず、要求区間の種別と回数だけ保持する。
             operations[statement.lstrip().partition(" ")[0].upper()] += 1
 
@@ -124,9 +135,16 @@ class FixedCategoryListIntegrationTest(unittest.TestCase):
         self.assertEqual(self._snapshot(), before)
 
     def test_definitions_alone_use_display_order_not_insertion_id_or_slug(self) -> None:
+        """定義だけがあるDBで表示順の選択肢を返し、1 SELECTと全データの保持を確認"""
+
         self._assert_options(_EXPECTED_ITEMS)
 
     def test_keywords_and_articles_do_not_limit_options_or_change_data(self) -> None:
+        """キーワード・記事・所属が一部カテゴリにだけあっても全選択肢を表示順に取得
+
+        要求区間は1 SELECTだけで、4テーブルのデータを変更しないことを確認する。
+        """
+
         with Session(self.engine) as session:
             session.add(FixedCategoryKeyword(
                 fixed_category_id=903, keyword="選択肢表示には使わない語句",
@@ -145,6 +163,8 @@ class FixedCategoryListIntegrationTest(unittest.TestCase):
         self._assert_options(_EXPECTED_ITEMS)
 
     def test_empty_definitions_return_empty_items_with_one_select_and_no_seed(self) -> None:
+        """定義を全削除したDBでは空itemsを返し、1 SELECTだけでデータを追加・変更しない"""
+
         with self.engine.begin() as connection:
             connection.execute(delete(FixedCategory))
 

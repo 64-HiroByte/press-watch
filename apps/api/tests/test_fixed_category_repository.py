@@ -93,6 +93,12 @@ class FixedCategoryRepositoryTest(unittest.TestCase):
         self.session.flush.assert_called_once_with()
 
     def test_groups_page_memberships_with_one_ordered_select(self) -> None:
+        """Mockの所属結果を記事ID別にまとめ、所属なしのIDを返却辞書から除外
+
+        1回渡すSELECTのID条件・表示順指定と、追加・flushがないことを確認する。
+        実DBの照会回数・ソート結果はこのテストの保証に含めない。
+        """
+
         soil = FixedCategory(id=92, slug="soil", name="土壌", display_order=10)
         air = FixedCategory(id=51, slug="air", name="大気", display_order=30)
         self.session.execute.return_value = (
@@ -121,12 +127,16 @@ class FixedCategoryRepositoryTest(unittest.TestCase):
         self.session.flush.assert_not_called()
 
     def test_empty_page_ids_do_not_read_memberships(self) -> None:
+        """空の記事ID一覧では空辞書を返し、Sessionのexecuteを呼び出さない"""
+
         self.assertEqual(
             repository.list_press_release_fixed_categories(self.session, []), {}
         )
         self.session.execute.assert_not_called()
 
     def test_membership_read_failure_propagates(self) -> None:
+        """所属取得のexecuteで発生したSQLAlchemyErrorを同じ例外のまま呼び出し元へ伝播"""
+
         error = SQLAlchemyError("membership read failure")
         self.session.execute.side_effect = error
         with self.assertRaises(SQLAlchemyError) as caught:

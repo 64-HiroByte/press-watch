@@ -378,7 +378,7 @@ Supabaseでの確認は、この節の完了条件に含めない。
 
 ### レビュー指摘の修正
 
-- [ ] 固定カテゴリAPIテストのDocstring不足を修正する（[Issue #122](https://github.com/64-HiroByte/press-watch/issues/122)）
+- [x] 固定カテゴリAPIテストのDocstring不足を修正する（[Issue #122](https://github.com/64-HiroByte/press-watch/issues/122)）
 
 ### main統合
 
