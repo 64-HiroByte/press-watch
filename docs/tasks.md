@@ -384,9 +384,9 @@ Supabaseでの確認は、この節の完了条件に含めない。
 
 - [x] Web URL整理後の実API画面テスト3件を専用検証DBで再確認する
 - [x] 最新mainとPhaseの全差分・検証結果・残課題を再確認する
-- [ ] Phase 6の統合PRでCIを確認し、承認後にmainへ統合する
+- [x] Phase 6の統合PRでCIを確認し、承認後にmainへ統合する
 
-確認結果は[main統合前点検](local-development.md#phase-6のmain統合前点検)を参照する。
+確認結果は[main統合前点検](local-development.md#phase-6のmain統合前点検)と[main統合結果](local-development.md#phase-6のmain統合結果)を参照する。
 
 ---
 

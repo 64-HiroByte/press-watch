@@ -743,9 +743,33 @@ PLAYWRIGHT_BROWSERS_PATH="/Users/hiro/my-projects/press-watch/tmp/playwright/bro
 全差分のセルフレビューと`git diff --check`を行い、今回の完成条件に関わる追加の必須修正は見つかっていません。
 既知LowのIssue #114・#118は残課題として保持し、Issue #122は`CLOSED / COMPLETED`を再確認しました。
 本人による画面操作確認の反復と、Phase 7以降の作業は行っていません。
-main向け統合PRの作成・CI・マージは未実施であり、[main統合の最後の項目](tasks.md#main統合)は実際のマージまで未完了のまま維持します。
-上記のPhaseへのpushの成功・省略を、最新mainとPhaseの組合せを検証した証拠として流用しません。
-統合PRでは[必須チェックとSHAの照合](#必須チェックの段階適用)に従い、マージ後も対象変更の取り込みとCIを確認します。
+この点検時点ではmain向け統合PRの作成・CI・マージは未実施であり、[main統合の最後の項目](tasks.md#main統合)は未完了でした。
+上記のPhaseへのpushの成功・省略は、最新mainとPhaseの組合せを検証した証拠として流用していません。
+その後の統合PRとマージ後mainの確認結果は、[main統合結果](#phase-6のmain統合結果)を参照してください。
+
+### Phase 6のmain統合結果
+
+[統合PR #126](https://github.com/64-HiroByte/press-watch/pull/126)で、`phase-6/frontend`の`a78643f46a8576843e7f28eafa3c9321a8e9e211`からmainへ148コミット・118ファイルの変更を統合しました。
+統合前のmainは`5711c0ed925147e5dbec3a1e784a7c886aa670cf`で、実際のマージコミットは`70a20f4d48993384bfd375c0eeff602b5c61b135`です。
+
+| 対象 | 全jobのcheckout SHA | Python tests | Web checks |
+| --- | --- | --- | --- |
+| 統合PR #126 | `492627695850b438e461dc1e5ba6af0915456c54` | [成功](https://github.com/64-HiroByte/press-watch/actions/runs/39229567217) | [成功](https://github.com/64-HiroByte/press-watch/actions/runs/39229567218) |
+| マージ後mainへのpush | `70a20f4d48993384bfd375c0eeff602b5c61b135` | [成功](https://github.com/64-HiroByte/press-watch/actions/runs/39234125674) | [成功](https://github.com/64-HiroByte/press-watch/actions/runs/39234125669) |
+
+両対象の変更判定・空白確認、API unittest・Scraper unittest・PostgreSQL integrationの各テストstepの実行成功を、job・step・ログで確認しました。
+APIは286件、Scraperは150件、PostgreSQL統合は72件中71件成功・1件skipで、PRとmainへのpushで同じ結果でした。
+skipは専用runnerだけで実行する実データスナップショット検証であり、このCIで実データを再検証したとは扱いません。
+Webは両対象でfrozen install、型生成・型チェック、lint、format確認、本番build、Chromium導入、画面テストの各stepが成功しました。
+lintは警告・エラー0件で、画面テストはそれぞれ176件成功しました。
+
+統合PRの全6 jobが上表の検証用マージコミットをcheckoutし、その両親が上記の統合前mainとPhase先端に一致することを確認しました。
+実際のマージコミットも同じ両親を持ち、treeは検証用マージコミットと同じ`c92287ee0341c48d96351cdc28a90d91bb1b38e1`です。
+マージ後mainの全6 jobは実際のマージコミットをcheckoutしており、対象変更の取り込みとマージ後CIの成功まで確認しています。
+
+実API画面テスト3件と全差分点検は[統合前点検](#phase-6のmain統合前点検)の記録を再利用し、この統合時には反復していません。
+既知Lowの[Issue #114](https://github.com/64-HiroByte/press-watch/issues/114)・[Issue #118](https://github.com/64-HiroByte/press-watch/issues/118)はopenのまま保持し、[Issue #122](https://github.com/64-HiroByte/press-watch/issues/122)は`CLOSED / COMPLETED`を確認しました。
+Phase 7の作業は開始していません。
 
 ### UI基盤の確認
 
