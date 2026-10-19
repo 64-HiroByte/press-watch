@@ -2,6 +2,7 @@
 
 from contextlib import redirect_stderr
 import io
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -17,6 +18,14 @@ from press_watch_api.commands.fetch_and_save_env_press import (
 )
 
 from api_test_constants import (
+    DIAGNOSTIC_CREDENTIAL_URL,
+    DIAGNOSTIC_PASSWORD,
+    DIAGNOSTIC_REDACTED_URL,
+    DIAGNOSTIC_SAFE_URL,
+    DIAGNOSTIC_USERNAME,
+    DIAGNOSTIC_URL_PREFIX_CASES,
+    ENV_ORIGIN_URL,
+    EXAMPLE_BASE_URL,
     ENV_PRESS_INDEX_URL as INDEX_URL,
 )
 
@@ -179,19 +188,106 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         )
 
     def test_main_redacts_url_credentials_from_runtime_error(self) -> None:
-        """エラー対象と理由に含まれるURL認証情報を伏せること"""
+        """制御文字で分断された接頭辞も認識し、エラー対象と理由の認証情報を伏せること"""
 
-        credential_url = (
-            "https://user:password@example.com/press/index.html"
-        )
+        for prefix, expected_prefix in DIAGNOSTIC_URL_PREFIX_CASES:
+            for password in (
+                "password",
+                "password@credential-tail",
+                "password tail",
+                "password\ttail",
+                "password\ntail",
+                "password\r\ntail",
+                "password\x1btail",
+                "password@credential-tail tail",
+                "password' title='credential-tail",
+                'password" tail',
+            ):
+                with self.subTest(prefix=prefix, password=password):
+                    credential_url = (
+                        f"{prefix}user:{password}@example.com/press/index.html"
+                    )
+                    stderr = io.StringIO()
+                    stdout = io.StringIO()
+                    session_factory = Mock()
+
+                    exit_code = main(
+                        ["--url", credential_url],
+                        session_factory=session_factory,
+                        collect_releases=Mock(
+                            side_effect=RuntimeError(
+                                f"invalid source URL: href='{credential_url}'"
+                            )
+                        ),
+                        stdout=stdout,
+                        stderr=stderr,
+                    )
+
+                    self.assertEqual(exit_code, 1)
+                    self.assertEqual(stdout.getvalue(), "")
+                    session_factory.assert_not_called()
+                    self.assertNotIn("user:", stderr.getvalue())
+                    self.assertNotIn("password", stderr.getvalue())
+                    self.assertNotIn("credential-tail", stderr.getvalue())
+                    self.assertEqual(
+                        stderr.getvalue().count(
+                            f"{expected_prefix}[redacted]@example.com"
+                        ),
+                        2,
+                    )
+
+    def test_main_redacts_escaped_url_without_changing_fields(self) -> None:
+        """引用や入れ子でエスケープされたURLも認証部分だけを伏せ、項目を保ちSessionを作らないこと"""
+
+        for prefix, _ in DIAGNOSTIC_URL_PREFIX_CASES:
+            fields = {
+                "url": f"{prefix}{DIAGNOSTIC_USERNAME}:{DIAGNOSTIC_PASSWORD}\ntail@host/path=//tag@item",
+                "reference": DIAGNOSTIC_SAFE_URL,
+                "email": "person@example.org",
+            }
+            expected_fields = {
+                "url": f"{prefix}[redacted]@host/path=//tag@item",
+                "reference": DIAGNOSTIC_SAFE_URL,
+                "email": "person@example.org",
+            }
+            for reason, expected in (
+                (repr(fields), repr(expected_fields)),
+                (json.dumps(fields), json.dumps(expected_fields)),
+                (json.dumps(json.dumps(fields)), json.dumps(json.dumps(expected_fields))),
+            ):
+                with self.subTest(prefix=prefix, reason=reason):
+                    session_factory = Mock()
+                    stdout, stderr = io.StringIO(), io.StringIO()
+                    exit_code = main(
+                        ["--url", INDEX_URL],
+                        session_factory=session_factory,
+                        collect_releases=Mock(side_effect=RuntimeError(reason)),
+                        stdout=stdout,
+                        stderr=stderr,
+                    )
+
+                    self.assertEqual(exit_code, 1)
+                    self.assertEqual(stdout.getvalue(), "")
+                    session_factory.assert_not_called()
+                    self.assertIn(f"reason={expected}", stderr.getvalue())
+                    self.assertEqual(len(stderr.getvalue().splitlines()), 1)
+                    self.assertNotIn(DIAGNOSTIC_USERNAME, stderr.getvalue())
+                    self.assertNotIn(DIAGNOSTIC_PASSWORD, stderr.getvalue())
+
+    def test_main_keeps_diagnostic_url_boundaries(self) -> None:
+        """複数URLを個別に伏せ、非認証URLのパス・クエリ・fragmentを保持すること"""
+
+        safe_url = f"{EXAMPLE_BASE_URL}//value=//tag@item?email=a@b.test#tag@item"
         stderr = io.StringIO()
-
+        session_factory = Mock()
         exit_code = main(
-            ["--url", credential_url],
-            session_factory=Mock(),
+            ["--url", safe_url],
+            session_factory=session_factory,
             collect_releases=Mock(
                 side_effect=RuntimeError(
-                    f"invalid source URL: {credential_url}"
+                    "failed https://first:password tail@first.test "
+                    "and //second:password\ttail@second.test/path; "
+                    f"reference={safe_url}"
                 )
             ),
             stdout=io.StringIO(),
@@ -199,13 +295,180 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         )
 
         self.assertEqual(exit_code, 1)
-        self.assertNotIn("user:password", stderr.getvalue())
-        self.assertEqual(
-            stderr.getvalue().count(
-                "https://[redacted]@example.com"
+        session_factory.assert_not_called()
+        self.assertNotIn("password", stderr.getvalue())
+        self.assertIn("https://[redacted]@first.test and ", stderr.getvalue())
+        self.assertIn("//[redacted]@second.test/path;", stderr.getvalue())
+        self.assertEqual(stderr.getvalue().count(safe_url), 2)
+
+    def test_main_redacts_relative_url_after_root_url(self) -> None:
+        """別項目・括弧・JSON・配列・タプルの後続URLを伏せ、Sessionを作らないこと"""
+
+        for reason in (
+            f"url='{DIAGNOSTIC_SAFE_URL}' href='{DIAGNOSTIC_CREDENTIAL_URL}'",
+            f"{DIAGNOSTIC_SAFE_URL} href={DIAGNOSTIC_CREDENTIAL_URL}",
+            f"{DIAGNOSTIC_SAFE_URL} links[0]={DIAGNOSTIC_CREDENTIAL_URL}",
+            f"{DIAGNOSTIC_SAFE_URL} ({DIAGNOSTIC_CREDENTIAL_URL})",
+            f"{DIAGNOSTIC_SAFE_URL} [{DIAGNOSTIC_CREDENTIAL_URL}]",
+            f"{DIAGNOSTIC_SAFE_URL} {{{DIAGNOSTIC_CREDENTIAL_URL}}}",
+            f"{DIAGNOSTIC_SAFE_URL} :{DIAGNOSTIC_CREDENTIAL_URL}",
+            f"{DIAGNOSTIC_SAFE_URL} links[0]=[('{DIAGNOSTIC_CREDENTIAL_URL}')]",
+            f"{DIAGNOSTIC_SAFE_URL} href:'{DIAGNOSTIC_CREDENTIAL_URL}'",
+            f"{DIAGNOSTIC_SAFE_URL} 参照:({DIAGNOSTIC_CREDENTIAL_URL})",
+            f'{DIAGNOSTIC_SAFE_URL} {{"href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f'{DIAGNOSTIC_SAFE_URL} links[0]:="{DIAGNOSTIC_CREDENTIAL_URL}"',
+            f'{{"url":"{DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f"['{DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}']",
+            (
+                f'{{"url":"{DIAGNOSTIC_SAFE_URL}/press/item",'
+                f'"nested":{{"href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}}}'
             ),
-            2,
+            f'["{DIAGNOSTIC_SAFE_URL}?ref=item",["{DIAGNOSTIC_CREDENTIAL_URL}"]]',
+            f'{{"{DIAGNOSTIC_SAFE_URL}":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f'{{"msg":"failed {DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+            f'''['{{"url":"{DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}']''',
+            f'''['{{"msg":"failed {DIAGNOSTIC_SAFE_URL}","href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}']''',
+            fr'{{"payload":"{{\"url\":\"{DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"}}',
+            fr'["{{\"msg\":\"failed {DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"]',
+            fr'"{{\"msg\":\"failed {DIAGNOSTIC_SAFE_URL}\",\"href\":\"{DIAGNOSTIC_CREDENTIAL_URL}\"}}"',
+            f'["failed {DIAGNOSTIC_SAFE_URL}","{DIAGNOSTIC_CREDENTIAL_URL}"]',
+            f"('failed {DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}')",
+            f"('{DIAGNOSTIC_SAFE_URL}','{DIAGNOSTIC_CREDENTIAL_URL}')",
+            (
+                f'{{"msg":"失敗 {DIAGNOSTIC_SAFE_URL}/press/item",'
+                f'"nested":{{"href":"{DIAGNOSTIC_CREDENTIAL_URL}"}}}}'
+            ),
+            f'["failed {DIAGNOSTIC_SAFE_URL}?ref=item",["{DIAGNOSTIC_CREDENTIAL_URL}"]]',
+            f'{{"failed {DIAGNOSTIC_SAFE_URL}#tag":"{DIAGNOSTIC_CREDENTIAL_URL}"}}',
+        ):
+            with self.subTest(reason=reason):
+                session_factory = Mock()
+                stdout, stderr = io.StringIO(), io.StringIO()
+                exit_code = main(
+                    ["--url", INDEX_URL],
+                    session_factory=session_factory,
+                    collect_releases=Mock(side_effect=RuntimeError(reason)),
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(stdout.getvalue(), "")
+                session_factory.assert_not_called()
+                self.assertNotIn(DIAGNOSTIC_USERNAME, stderr.getvalue())
+                self.assertNotIn(DIAGNOSTIC_PASSWORD, stderr.getvalue())
+                self.assertIn(DIAGNOSTIC_SAFE_URL, stderr.getvalue())
+                self.assertIn(DIAGNOSTIC_REDACTED_URL, stderr.getvalue())
+
+    def test_main_keeps_quotes_in_noncredential_url_suffixes(self) -> None:
+        """非認証URLのパス・クエリ・fragment内の引用符や括弧を診断へ保持すること"""
+
+        for url in (
+            f"{EXAMPLE_BASE_URL}/press/a'//tag@item",
+            f"{EXAMPLE_BASE_URL}?ref=a'//tag@item",
+            f"{EXAMPLE_BASE_URL}#a'//tag@item",
+            f"{EXAMPLE_BASE_URL}/press/(//tag@item)",
+            f"{EXAMPLE_BASE_URL}?ref=(//tag@item)",
+            f"{EXAMPLE_BASE_URL}#(//tag@item)",
+            f"{EXAMPLE_BASE_URL}/press/href:'//tag@item",
+            f'{EXAMPLE_BASE_URL}?ref={{"href":"//tag@item"}}',
+            f"{EXAMPLE_BASE_URL}#参照:(//tag@item)",
+            f"{EXAMPLE_BASE_URL}/press/a','//tag@item",
+            f'{EXAMPLE_BASE_URL}?ref="value","href":"//tag@item"',
+            f"{EXAMPLE_BASE_URL}#value','//tag@item",
+        ):
+            with self.subTest(url=url):
+                session_factory = Mock()
+                stderr = io.StringIO()
+                exit_code = main(
+                    ["--url", url],
+                    session_factory=session_factory,
+                    collect_releases=Mock(side_effect=RuntimeError(f"failed {url}")),
+                    stdout=io.StringIO(),
+                    stderr=stderr,
+                )
+
+                self.assertEqual(exit_code, 1)
+                session_factory.assert_not_called()
+                self.assertEqual(stderr.getvalue().count(url), 2)
+                self.assertNotIn("[redacted]", stderr.getvalue())
+
+    def test_main_keeps_noncredential_urls_in_quoted_structures(self) -> None:
+        """引用付き文字列内の正常URL・メールアドレス・エスケープを診断へ保持すること"""
+
+        inner_value = json.dumps(
+            {
+                "msg": f'failed {DIAGNOSTIC_SAFE_URL}?ref={{"href":"//tag@item"}}',
+                "email": "person@example.org",
+            },
+            separators=(",", ":"),
         )
+        for reason in (
+            repr([inner_value]),
+            repr(inner_value),
+            json.dumps(inner_value),
+            json.dumps({"payload": inner_value}),
+            json.dumps([json.dumps({"payload": inner_value})]),
+        ):
+            with self.subTest(reason=reason):
+                session_factory = Mock()
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                exit_code = main(
+                    ["--url", INDEX_URL],
+                    session_factory=session_factory,
+                    collect_releases=Mock(side_effect=RuntimeError(reason)),
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(stdout.getvalue(), "")
+                session_factory.assert_not_called()
+                self.assertIn(reason, stderr.getvalue())
+                self.assertNotIn("[redacted]", stderr.getvalue())
+
+    def test_main_keeps_quoted_diagnostic_fields_after_root_url(self) -> None:
+        """取得元と@を含むタイトルを失敗診断へ保持しSessionを作らないこと"""
+
+        source_url = ENV_ORIGIN_URL
+        title = "review@example.org の '調査' 結果"
+        for href, expected_href in (
+            ("/press/invalid path", "/press/invalid path"),
+            (
+                "https://user:password' title='credential-tail tail@www.env.go.jp/press/1",
+                "https://[redacted]@www.env.go.jp/press/1",
+            ),
+        ):
+            with self.subTest(href=href):
+                reason = (
+                    "invalid press release URL: validation=unsafe_character "
+                    f"page_url={source_url!r} title={title!r} href={href!r}"
+                )
+                session_factory = Mock()
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                exit_code = main(
+                    ["--url", source_url],
+                    session_factory=session_factory,
+                    collect_releases=Mock(side_effect=RuntimeError(reason)),
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(stdout.getvalue(), "")
+                session_factory.assert_not_called()
+                self.assertIn("validation=unsafe_character", stderr.getvalue())
+                self.assertIn(f"page_url={source_url!r}", stderr.getvalue())
+                self.assertIn(f"title={title!r}", stderr.getvalue())
+                quote = repr(href)[0]
+                self.assertIn(
+                    f"href={quote}{expected_href}{quote}", stderr.getvalue()
+                )
+                self.assertNotIn("user:", stderr.getvalue())
+                self.assertNotIn("password", stderr.getvalue())
+                self.assertNotIn("credential-tail", stderr.getvalue())
 
     def test_main_escapes_terminal_control_characters(self) -> None:
         """エラー対象と理由の端末制御文字を無害な表記へ変換すること"""

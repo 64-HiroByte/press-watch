@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 import re
 from typing import Any
 
+from ._diagnostics import redact_url_credentials
 from .env_press import _has_same_origin, _resolve_http_url
 
 
@@ -23,7 +24,6 @@ FAILURE_PAGE_STATUS_TO_STAGE = {
     'parse_failed': 'parse',
     'invalid': 'validate',
 }
-CREDENTIALS_IN_URL_RE = re.compile(r'(?i)(https?://)[^/@\s]+@')
 
 
 class CrawlStateError(RuntimeError):
@@ -449,7 +449,7 @@ def validated_url(url: str) -> str:
 def failure_reason(exc: Exception) -> str:
     """例外理由をmanifestへ保存できる診断文字列へ変換
 
-    URL内の認証情報を伏字にし、連続空白をまとめて一行化したうえで
+    絶対URL・スキーム相対URLの認証部分全体を伏字にし、連続空白をまとめて一行化したうえで
     最大文字数へ切り詰める。
 
     Args:
@@ -459,10 +459,7 @@ def failure_reason(exc: Exception) -> str:
         伏字・一行化・文字数制限を適用した理由
     """
 
-    redacted = CREDENTIALS_IN_URL_RE.sub(
-        r'\1[redacted]@',
-        str(exc),
-    )
+    redacted = redact_url_credentials(str(exc))
     one_line = ' '.join(redacted.split()) or 'no detail'
     if len(one_line) > MAX_FAILURE_REASON_LENGTH:
         return f'{one_line[:MAX_FAILURE_REASON_LENGTH - 3]}...'

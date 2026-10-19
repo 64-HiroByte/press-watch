@@ -1,0 +1,98 @@
+.mock-controls {
+  max-width: 1120px;
+  margin: 0 auto 24px;
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--muted);
+}
+
+.mock-controls-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.mock-controls h1 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.mock-controls-heading > div:first-child {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+
+.mock-controls-heading p,
+.mock-design-description {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted-foreground);
+}
+
+.mock-control-fields {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  margin-top: 12px;
+}
+
+.mock-control-field {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mock-controls .mock-design-description {
+  margin-top: 8px;
+}
+
+.mock-preview .mock-robustness summary:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+}
+
+.mock-preview .mock-robustness {
+  margin-top: 40px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.mock-preview .mock-robustness summary {
+  width: fit-content;
+  max-width: 100%;
+  cursor: pointer;
+}
+
+.mock-preview .mock-robustness p {
+  margin: 14px 0 0;
+  line-height: 1.8;
+}
+
+@media (width >= 768px) {
+  .mock-controls {
+    flex: none;
+    width: 100%;
+  }
+}
+
+@media (max-width: 760px) {
+  .mock-controls {
+    padding: 16px;
+  }
+}
+
+.mock-preview[data-text-size="large"] .mock-robustness {
+  font-size: 14px;
+}

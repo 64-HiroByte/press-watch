@@ -48,16 +48,21 @@ def count_press_releases(
     *,
     title_query: str | None = None,
     fixed_category_slugs: tuple[str, ...] = (),
+    published_from: date | None = None,
+    published_to: date | None = None,
 ) -> int:
-    """タイトルと固定カテゴリの条件に一致する報道発表の件数を取得
+    """タイトル・固定カテゴリ・公開日の条件に一致する報道発表の件数を取得
 
-    カテゴリは保存済み分類へOR条件で照合し、タイトル条件とはANDで組み合わせる。
-    入力の検証・空白処理は呼び出し元に委ね、DB例外はそのまま伝える。
+    カテゴリは保存済み分類へOR条件で照合し、タイトル・公開日条件とはANDで組み合わせる。
+    入力の形式・実在日・日付順序の検証と空白処理は呼び出し元に委ねる。
+    DB例外はそのまま伝える。
 
     Args:
         session: 件数取得に使うSQLAlchemyセッション
         title_query: 前処理済みのタイトル検索語。Noneの場合は検索しない
         fixed_category_slugs: OR条件で照合するslug。空の場合は絞り込まない
+        published_from: 当日を含む公開日の下限。Noneなら下限制限なし
+        published_to: 当日を含む公開日の上限。Noneなら上限制限なし
 
     Returns:
         複数カテゴリに一致した行も1件として数えた総件数。一致なしは0
@@ -68,7 +73,7 @@ def count_press_releases(
         .select_from(PressRelease)
         .where(
             *_press_release_filter_conditions(
-                title_query, fixed_category_slugs
+                title_query, fixed_category_slugs, published_from, published_to
             )
         )
     )
@@ -82,11 +87,14 @@ def list_press_releases(
     offset: int,
     title_query: str | None = None,
     fixed_category_slugs: tuple[str, ...] = (),
+    published_from: date | None = None,
+    published_to: date | None = None,
 ) -> tuple[PressRelease, ...]:
-    """タイトルと固定カテゴリの条件に一致する報道発表を新着順で一覧取得
+    """タイトル・固定カテゴリ・公開日の条件に一致する報道発表を新着順で一覧取得
 
-    カテゴリは保存済み分類へOR条件で照合し、タイトル条件とはANDで組み合わせる。
-    入力の検証・空白処理は呼び出し元に委ね、DB例外はそのまま伝える。
+    カテゴリは保存済み分類へOR条件で照合し、タイトル・公開日条件とはANDで組み合わせる。
+    入力の形式・実在日・日付順序の検証と空白処理は呼び出し元に委ねる。
+    DB例外はそのまま伝える。
 
     Args:
         session: 一覧取得に使うSQLAlchemyセッション
@@ -94,6 +102,8 @@ def list_press_releases(
         offset: 先頭から読み飛ばす件数
         title_query: 前処理済みのタイトル検索語。Noneの場合は検索しない
         fixed_category_slugs: OR条件で照合するslug。空の場合は絞り込まない
+        published_from: 当日を含む公開日の下限。Noneなら下限制限なし
+        published_to: 当日を含む公開日の上限。Noneなら上限制限なし
 
     Returns:
         公開日とIDの降順に並ぶ、重複のない報道発表
@@ -104,7 +114,7 @@ def list_press_releases(
         select(PressRelease)
         .where(
             *_press_release_filter_conditions(
-                title_query, fixed_category_slugs
+                title_query, fixed_category_slugs, published_from, published_to
             )
         )
         .order_by(
@@ -120,19 +130,27 @@ def list_press_releases(
 def _press_release_filter_conditions(
     title_query: str | None,
     fixed_category_slugs: tuple[str, ...],
+    published_from: date | None,
+    published_to: date | None,
 ) -> tuple[ColumnElement[bool], ...]:
     """件数と一覧に共通する、報道発表単位の絞り込み条件を生成
 
     Args:
         title_query: Noneでない場合に文字として部分一致させる検索語
         fixed_category_slugs: 保存済み分類へOR条件で照合するslug列
+        published_from: 当日を含む公開日の下限。Noneなら条件を生成しない
+        published_to: 当日を含む公開日の上限。Noneなら条件を生成しない
 
     Returns:
         呼び出し元のwhereへAND条件として渡すSQL式のタプル
-        両条件が未指定の場合は空のタプル
+        全条件が未指定の場合は空のタプル
     """
 
     conditions: list[ColumnElement[bool]] = []
+    if published_from is not None:
+        conditions.append(PressRelease.published_at >= published_from)
+    if published_to is not None:
+        conditions.append(PressRelease.published_at <= published_to)
     if title_query is not None:
         conditions.append(
             PressRelease.title.icontains(title_query, autoescape=True)

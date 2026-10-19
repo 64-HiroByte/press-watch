@@ -1,13 +1,16 @@
-FROM node:24-bookworm-slim
+FROM node:24.21.0-bookworm-slim
 
 WORKDIR /workspace
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN npm install -g pnpm@10.0.0
-
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/package.json
+
+RUN corepack enable pnpm \
+    && corepack install \
+    && pnpm --version \
+    && COREPACK_ENABLE_NETWORK=0 pnpm --version
 
 RUN pnpm install --filter @press-watch/web... --frozen-lockfile
 

@@ -1,0 +1,21 @@
+name: press-watch-api-validation
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: presswatch_api_validation
+      POSTGRES_USER: presswatch_api_validation
+      POSTGRES_PASSWORD: ${PRESSWATCH_VALIDATION_POSTGRES_PASSWORD:?PRESSWATCH_VALIDATION_POSTGRES_PASSWORD is required}
+    ports:
+      - "127.0.0.1:55433:5432"
+    volumes:
+      - postgres17_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U presswatch_api_validation -d presswatch_api_validation"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres17_data:

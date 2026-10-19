@@ -15,6 +15,8 @@ from api_test_constants import (
     EXPECTED_MAX_FIXED_CATEGORY_LENGTH,
 )
 from press_watch_api.main import app
+from press_watch_api.models.fixed_category import FixedCategory
+from press_watch_api.models.press_release import PressRelease
 
 
 INTERNAL_MARKER = "synthetic_regression_internal_marker"
@@ -24,6 +26,12 @@ class HttpErrorRegressionTest(unittest.TestCase):
     """DBエラー処理の追加後も既存のHTTP契約を維持すること"""
 
     def setUp(self) -> None:
+        """実dependencyのfactoryとrepositoryをMockへ差し替え、診断を捕捉
+
+        Sessionの終了・例外優先順位は実dependencyを通して確認する。
+        patchとstderrの差し替えはenterContextで登録したcleanupが解除する。
+        """
+
         self.stderr = self.enterContext(redirect_stderr(io.StringIO()))
         self.session = Mock(spec=Session)
         self.session_factory = Mock(return_value=self.session)
@@ -45,6 +53,10 @@ class HttpErrorRegressionTest(unittest.TestCase):
                 return_value=(),
             )
         )
+        self.memberships = self.enterContext(patch(
+            "press_watch_api.routers.press_releases.list_press_release_fixed_categories",
+            return_value={},
+        ))
 
     def _request(
         self,
@@ -79,6 +91,16 @@ class HttpErrorRegressionTest(unittest.TestCase):
         return response
 
     def _json(self, response: Response) -> dict[str, object]:
+        """JSONのContent-Typeとオブジェクト形式を確認して本文を取得
+
+        Args:
+            response: JSON契約を検証するHTTP応答
+
+        Returns:
+            応答のJSONオブジェクト。Content-Type不一致・解析失敗・
+            オブジェクト以外の本文は、本文を出力せずテスト失敗
+        """
+
         self.assertTrue(
             response.headers.get("content-type", "").partition(";")[0]
             == "application/json",
@@ -94,6 +116,8 @@ class HttpErrorRegressionTest(unittest.TestCase):
         return payload
 
     def _assert_session_closed(self) -> None:
+        """Mock Sessionへのcloseの1回呼出しとcommit・rollback未呼出しを確認"""
+
         self.assertTrue(
             self.session.close.call_count == 1
             and self.session.close.call_args == call(),
@@ -109,20 +133,34 @@ class HttpErrorRegressionTest(unittest.TestCase):
         """想定外例外と実DTO検証失敗をDB障害へ変換しないこと"""
 
         runtime_error = RuntimeError(INTERNAL_MARKER)
-        invalid_release = {
-            "title": [INTERNAL_MARKER],
-            "source_url": "https://example.test/press/1",
-            "published_at": date(2026, 8, 31),
-            "source_categories": None,
-        }
-        for failure in ("runtime", "dto"):
+        invalid_release = PressRelease(
+            id=1, title=[INTERNAL_MARKER],
+            source_url="https://example.test/press/1",
+            published_at=date(2026, 8, 31), source_categories=None,
+        )
+        valid_release = PressRelease(
+            id=1, title="合成記事", source_url="https://example.test/press/1",
+            published_at=date(2026, 8, 31), source_categories=None,
+        )
+        invalid_category = FixedCategory(
+            id=92, slug="soil", name=[INTERNAL_MARKER], display_order=10,
+        )
+        for failure in ("runtime", "dto", "membership_runtime", "membership_dto"):
             for close_fails in (False, True):
                 with self.subTest(failure=failure, close_fails=close_fails):
                     self.count.side_effect = (
                         runtime_error if failure == "runtime" else None
                     )
                     self.count.return_value = 1
-                    self.list_releases.return_value = (invalid_release,)
+                    self.list_releases.return_value = (
+                        invalid_release if failure == "dto" else valid_release,
+                    )
+                    self.memberships.side_effect = (
+                        runtime_error if failure == "membership_runtime" else None
+                    )
+                    self.memberships.return_value = {
+                        1: (invalid_category,)
+                    } if failure == "membership_dto" else {}
                     self.session.close.side_effect = (
                         SQLAlchemyError(INTERNAL_MARKER) if close_fails else None
                     )
@@ -156,7 +194,7 @@ class HttpErrorRegressionTest(unittest.TestCase):
                     except Exception as exc:
                         raised_error = exc
 
-                    if failure == "runtime":
+                    if failure in ("runtime", "membership_runtime"):
                         self.assertTrue(
                             raised_error is runtime_error,
                             "既定のTestClientでは元の想定外例外を伝えること",
@@ -169,9 +207,11 @@ class HttpErrorRegressionTest(unittest.TestCase):
                         validation_errors = raised_error.errors()
                         self.assertTrue(
                             len(validation_errors) == 1
-                            and validation_errors[0]["loc"] == ("title",)
+                            and validation_errors[0]["loc"] == (
+                                "title" if failure == "dto" else "name",
+                            )
                             and validation_errors[0]["type"] == "string_type",
-                            "一覧DTOのtitle検証による失敗であること",
+                            "対象DTOの指定フィールド検証による失敗であること",
                         )
                     self.assertTrue(
                         raised_error.__context__ is None,
@@ -220,6 +260,40 @@ class HttpErrorRegressionTest(unittest.TestCase):
                     )
                     self._assert_session_closed()
 
+    def test_publication_validation_survives_close_failure(self) -> None:
+        """実dependencyのclose失敗でも日付形式・実在日・逆順の422を保持"""
+
+        cases = (
+            ({"published_from": "2026-1-02"}, "published_from"),
+            ({"published_to": "2026-02-29"}, "published_to"),
+            (
+                {"published_from": "2026-01-04", "published_to": "2026-01-02"},
+                "published_to",
+            ),
+        )
+        for params, field in cases:
+            with self.subTest(params=params):
+                self.session.close.side_effect = None
+                baseline = self._request(params=params)
+                self.assertEqual(baseline.status_code, 422)
+                self.assertEqual(
+                    self._json(baseline)["detail"][0]["loc"], ["query", field]
+                )
+                self._assert_session_closed()
+                self.session.reset_mock()
+                self.stderr.seek(0)
+                self.stderr.truncate(0)
+                self.session.close.side_effect = SQLAlchemyError(INTERNAL_MARKER)
+                response = self._request(params=params)
+                self.assertEqual(response.status_code, 422)
+                self.assertEqual(self._json(response), self._json(baseline))
+                self._assert_session_closed()
+                self.assertEqual(self.stderr.getvalue(), "database_cleanup_failed\n")
+                self.count.assert_not_called()
+                self.list_releases.assert_not_called()
+                self.memberships.assert_not_called()
+                self.session.reset_mock()
+
     def test_fixed_category_validation_survives_close_failure(self) -> None:
         """Session終了失敗でもカテゴリ入力の422・位置・種別を維持"""
 
@@ -262,6 +336,8 @@ class HttpErrorRegressionTest(unittest.TestCase):
                 )
 
     def test_liveness_and_http_errors_do_not_initialize_database(self) -> None:
+        """liveness・404・405の既存応答を保持し、Session初期化・照会を省略"""
+
         self.get_session_factory.side_effect = RuntimeError(INTERNAL_MARKER)
         cases = (
             ("GET", "/", 200, {"service": "press-watch-api", "status": "ready"}),

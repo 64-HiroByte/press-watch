@@ -4,6 +4,8 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from press_watch_api.schemas.fixed_category import FixedCategoryMembershipItem
+
 
 HTTP_URL_SCHEMES = frozenset({"http", "https"})
 UNSAFE_ASCII_URL_CHARACTERS = frozenset('<>"\\^`{|}')
@@ -106,7 +108,16 @@ class PressReleaseCreate(BaseModel):
 
 
 class PressReleaseListItem(BaseModel):
-    """報道発表一覧で公開する1件分の情報"""
+    """報道発表の公開情報と、routeで表示順に組み立てる保存済み全所属
+
+    Attributes:
+        title: 保存済みの原本タイトル
+        source_url: 取得元の報道発表詳細ページURL
+        published_at: 原本の公開日
+        source_categories: 取得元カテゴリ。原本の欠損はNoneのまま保持
+        fixed_categories: 検索カテゴリに限定しない全所属をdisplay_order昇順で格納
+            所属なしも空配列を明示し、取得元カテゴリやタイトルから補完しない
+    """
 
     model_config = ConfigDict(from_attributes=True, frozen=True)
 
@@ -114,6 +125,7 @@ class PressReleaseListItem(BaseModel):
     source_url: str
     published_at: date
     source_categories: list[str] | None
+    fixed_categories: list[FixedCategoryMembershipItem]
 
 
 class PressReleasePagination(BaseModel):

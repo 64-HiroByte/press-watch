@@ -14,6 +14,10 @@
 - Next.js
 - React
 - TypeScript
+- Tailwind CSS 4.3.3
+- shadcn/ui（base-nova・Base UIの基本部品、CLI 4.21.1）
+- Kibo UI（必要性を評価し、Phase 6-2では導入保留）
+- Oxlint 1.87.0 / Oxfmt 0.72.0（Phase 6-5で導入済み）
 
 ### バックエンド
 
@@ -58,6 +62,107 @@
 - Next.js 16系の最新を採用する
 - セキュリティ修正を含む更新は適宜取り込む
 
+### 2026年10月のセキュリティ更新
+
+現行の指定はNext.js `^16.4.1`、React / React DOMは両方`^19.3.1`とし、lockfileも16.4.1・19.3.1へ揃える。
+[10月14日の公式告知](https://nextjs.org/blog/nextjs-security-update-october-14-2026)と[16.4.1リリース](https://github.com/vercel/next.js/releases/tag/v16.4.1)に従い、Critical 2件・High 1件の修正版を取り込む。
+10月16日の再確認では16.4.2も公開されていたが、告知された変更はTurbopack等の不具合修正で、公開後24時間を経過していなかったため、今回の緊急対応では承認済みの16.4.1を先行する。
+
+現行の製品ソースには`use cache`・`cacheComponents`の有効化・Server Actions・`next/image`は見つかっていない。
+Next.jsが解決するsharpは公式回避条件を満たす0.35.5を維持するが、機能の未使用だけで更新不要とは扱わない。
+Cache Components等の新機能や、一覧の取得・キャッシュ・URL・履歴の仕様は変更しない。
+
+Next.jsに伴う`@next/env`・各OS向けSWCを16.4.1へ更新し、Node.js 24.21.0・pnpm 12.8.1・TypeScript 7.0.2・型定義・UI依存を維持する。
+PostCSSの上書き、限定した`allowBuilds`、`agentRules: false`と待機・依存検証の設定も維持する。
+Next.js内のRSC実装は同梱物であり、内部のpeer表示にはcanary版が残るため、通常のReact 19.3.1の指定だけで修正を判定しない。
+公式の修正版Next.js 16.4.1の配布物と、実際に取り込む同梱実装を対応付ける。
+更新前後の検証と残る範囲は[セキュリティ更新の検証記録](local-development.md#nextjsのセキュリティ更新)を参照する。
+
+### Phase 6開始時のフロントエンド更新候補
+
+2026年9月30日の候補を基に、10月2日に公開状況・互換性・セキュリティ情報を再確認した。
+以下は初回の依存更新と後続のTypeScript更新時の記録であり、Next.js・Reactの現行版は上のセキュリティ更新を参照する。
+実際の指定・解決バージョンは各マニフェストと`pnpm-lock.yaml`を正本とする。
+
+| 対象 | プロジェクト指定 | lockfileの解決版・方針 |
+| --- | --- | --- |
+| Node.js | 24.21.0 | 前の小タスクでローカル・Web単体Dockerを確認済み、今回は維持 |
+| Next.js | `^16.3.8` | 16.3.8 |
+| React / React DOM | 両方`^19.3.0` | 両方19.3.0 |
+| `@types/react` / `@types/react-dom` | 両方`^19.3.0` | 両方19.3.0 |
+| `@types/node` | `^24.19.0` | 24.19.0、Node.jsと同じ24系を維持 |
+| TypeScript | `^7.0.2` | 7.0.2、ネイティブコンパイラーを採用 |
+| pnpm | 12.8.1 | 前の小タスクでローカル・Web単体Dockerを確認済み、今回は維持 |
+| PostCSS | workspaceの上書き`^8.5.28`、Webの直接指定8.5.28 | Next.jsとTailwindで8.5.28を共用 |
+| sharp | Next.jsの間接依存 | 0.35.5 |
+
+`@types/node`は公開後24時間を経過した24.19.0を採用し、pnpmの待機ポリシーの例外は追加しない。
+24.19.1の型定義追加は現在のWebソースで使用していないZstd圧縮のオプションであり、この更新の必須条件ではない。
+
+Next.js・React・型定義・PostCSSの更新では、2026年10月2日に、秘密ファイル・既存の`node_modules`・`.next`・`tsbuildinfo`を含めない一時環境で更新前後を検証した。
+Node.js 24.21.0・pnpm 12.8.1で型生成・型チェック・ビルドが成功し、ローカル・Web単体Dockerの1280×720の表示で文言・レイアウト・タイトル・日本語設定が一致した。
+更新後のfrozen再インストールでlockfileが変わらず、macOS arm64・Linux arm64で解決版・peer条件とsharpのネイティブ読み込み・PNG生成も確認した。
+
+Node.jsはルートのVolta設定とWebの`volta.extends`、Web Dockerfileで24.21.0に揃える。
+pnpmの指定版はルートの`packageManager`を正本とし、ローカルでは同じ版のグローバルpnpmを、Dockerでは既存のCorepack経路を使用する。
+PostCSSの上書き設定は`pnpm-workspace.yaml`に置く。
+Next.js 16.4.1が指定するPostCSS 8.5.23へ、追加修正を含む8.5.28を上書きする。
+旧解決版8.5.14が対象となる[ソースマップ読み込みのHigh](https://github.com/postcss/postcss/security/advisories/GHSA-r28c-9q8g-f849)と[不完全な修正のMedium](https://github.com/postcss/postcss/security/advisories/GHSA-fxqj-rqcc-2cmp)は、それぞれ8.5.18・8.5.23で修正されている。
+
+[Next.js 16.3.8](https://github.com/vercel/next.js/releases/tag/v16.3.8)は9月30日に公開され、High 1件・Medium 5件・Low 1件の修正を含む。
+10月2日の調査時点では、[公式予告](https://nextjs.org/blog/upcoming-nextjs-security-release-september-2026)にある別のCritical・High各1件は後続修正待ちであり、すべて修正済みとは扱わない。
+この修正待ちは当時の記録であり、今回取り込む修正版は上のセキュリティ更新を参照する。
+現在の案内画面で、告知された全機能の脆弱性が悪用可能だと確認したわけではない。
+sharpは、同梱librsvgの[セキュリティ修正](https://github.com/lovell/sharp/security/advisories/GHSA-wq5f-xc86-pv6w)を含む0.35.5へ解決する。
+[sharp 0.35.0](https://github.com/lovell/sharp/releases/tag/v0.35.0)でinstallスクリプトは廃止されているが、`allowBuilds`は採用版の`"sharp@0.35.5": false`へ揃え、ビルド処理の一括許可は行わない。
+
+初回の更新に伴う間接依存として、Next.jsの`@next/env`・各OS向けSWCを16.3.8、`@swc/helpers`を0.5.23へ更新した。
+React DOMのschedulerは0.28.0、Node.js型定義のundici-typesは7.24.6、PostCSSのnanoidは3.3.19へ更新する。
+sharpの各OS向けパッケージは0.35.5、libvips配布パッケージは1.3.4、semverは7.8.5、Wasm経路の`@emnapi/runtime`は1.11.3へ更新する。
+sharpの配布構成に合わせてFreeBSD・WebContainers向けWasm経路と、Linuxのglibc・musl条件がlockfileへ反映される。
+この小タスクではpnpm本体の管理情報とTypeScript 5.9.3の解決版を維持した。
+
+Next.jsの設定では[公式の停止手順](https://nextjs.org/docs/app/guides/ai-agents#opting-out)に従い、`agentRules: false`で指示ファイルの自動生成・更新を止める。
+型生成・型チェック・ビルド・更新前後の表示比較は[開発手順](local-development.md#webの型チェックとビルド)に従う。
+
+更新は「Node.js・pnpmと実行環境」「Next.js・React・型定義・PostCSS」「TypeScript」に分け、各段階で再インストール・型チェック・ビルド・既存画面の表示を確認する。
+[pnpm 11](https://pnpm.io/blog/releases/11.0)・[pnpm 12](https://github.com/pnpm/pnpm/releases/tag/v12.0.0)の変更点に従い、設定の配置、Docker・開発手順とのバージョン統一、PostCSSの上書き設定を確認する。
+TypeScriptは独立した小タスクで5.9.3から7.0.2へ更新した。
+[Microsoftのリリース情報](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/)と[Next.jsの公式手順](https://nextjs.org/docs/app/api-reference/config/typescript#using-typescript-7)に従い、公開後の待機ポリシーを満たす安定版の`typescript`を採用する。
+7系の`tsc`はネイティブコンパイラーへ処理を渡し、lockfileにはOS・CPU別の`@typescript/typescript-*`がoptional dependencyとして追加される。
+別のプレビュー用npmパッケージやTypeScript 6の併用は不要であり、Node.js・pnpm・他のWeb依存関係とpnpm本体の管理情報は維持した。
+調査時点の[TypeScript公式セキュリティ情報](https://github.com/microsoft/TypeScript/security/advisories)に公開されたアドバイザリーはなく、今回の更新をセキュリティ修正としては扱わない。
+
+Next.js 16.3.8は既定でCLIによる型チェックを使用するため、`next.config.ts`・`tsconfig.json`・scripts・Dockerfileの変更は不要だった。
+既存の`next-env.d.ts`によるNode.js・React・React DOMの型参照で型チェックが成功し、`compilerOptions.types`の追加も不要だった。
+ローカルのmacOS arm64とWeb単体DockerのLinux arm64で、更新前後の型生成・型チェック・ビルド・表示と、更新後のfrozen再インストールを確認した。
+更新後のCLIとNext.jsビルドがそれぞれのプラットフォーム用7.0.2のバイナリーを起動し、意図的な型エラーはローカルの型チェック・ビルドの両方で拒否された。
+Cursorでは公式TypeScript 7拡張とワークスペース内の7.0.2を使用し、TypeScript・TSXの補完・エラー診断・定義への移動を確認した。
+設定と確認手順は[開発手順](local-development.md#cursorでのtypescript-7の型支援)に記録する。
+7系では従来のJavaScriptコンパイラーAPI・言語サービスプラグインを使用できず、Next.js固有のエディタープラグインの診断・補完と、ビルド時の独自の診断表示は利用できない。
+基本の型支援とCLIの型チェックを採用し、この制限を許容する。
+型チェックやビルド全体の速度比較は未測定であり、高速化の倍率は完了判断に含めない。
+
+互換性に問題があれば、エラーを無視する設定で通さず、原因と代替案を整理する。
+
+### ローカルのNode.js・pnpm実行環境
+
+Node.jsは既存のVoltaがルートの`package.json`の`volta.node`に従って選択する。
+Webの`volta.extends`はルートの指定を継承する。
+pnpmはグローバルに導入した12.8.1を使用し、版指定の正本は引き続きルートの`packageManager`とする。
+pnpmの版を自動切り替えする構成ではないため、指定版の変更時はグローバル版も同期し、不一致は`pmOnFail: error`で検出する。
+`verifyDepsBeforeRun: error`と既存のビルド許可設定も維持する。
+
+2026年10月3日に、PCの既定Node.jsを24.21.0、Homebrew版と`PNPM_HOME`側のpnpmを12.8.1へ更新した。
+npmの既定版11.6.3は維持した。
+当初試行したプロジェクト専用のmise設定・Corepackのshimとキャッシュ・セットアップ補助は、グローバル更新で目的を満たせたため撤去した。
+既存のCursor設定とシェル起動ファイルの変更は不要だった。
+既存miseは脆弱性修正済みの2026.10.0を維持し、uv等の既存用途で利用する。
+準備・通常操作・版の確認は[開発手順](local-development.md#web用のnodejsとpnpm)を参照する。
+
+Dockerの版指定と実行経路は変更していない。
+Linux arm64での型チェック・ビルド・表示は前タスクの検証を参照し、この整理ではDockerを再実行していない。
+
 ### Python
 
 - Python 3.14 を採用する
@@ -96,6 +201,117 @@
 - TypeScript を使用する
 - パッケージマネージャーは pnpm を使用する
 - 一覧表示、検索、共有の固定カテゴリによる絞り込みを MVP の中心機能とする
+
+### UI部品と選定理由
+
+| 技術 | 役割と選定理由 |
+| --- | --- |
+| Tailwind CSS | 慣れた方法でスタイルを調整し、画面の作り込みに時間をかけすぎないために採用する |
+| shadcn/ui | 基本部品と見た目を揃え、取り込んだコードを理解・調整して保守するために採用する |
+| Kibo UI | 標準部品で不足する複合UIが必要になった時に再評価する。Phase 6-2では導入を保留する |
+| Oxlint / Oxfmt | lintとformatの実行方法を揃え、機能実装時の確認を再現できるようにするために採用する |
+
+Phase 6-2ではNeutralを初期テーマとし、ライト・ダーク・システム追従と7種類の基本部品を用意する。
+採用版、Server／Client境界、出典・ライセンス、独自変更と更新手順は[UI基盤](frontend-ui.md)を参照する。
+既存のNode.js・pnpm・Next.js・React・TypeScriptとDockerのCorepack経路は維持する。
+
+- UI部品は使用するものだけ取り込み、基本部品との整合、追加依存、選定理由と保守範囲を確認する。
+- UI部品は無料で利用できる公開OSS部品を選び、採用時にライセンスと利用条件を確認する。
+  有料AI生成サービスの契約を導入の前提にしない。
+- 採用部品の出典URL、取り込み日または参照バージョン、独自変更の要点を、docsの設計文書とGit履歴で追えるようにする。
+- 画面固有の処理、UI部品、Mock用データを分け、Mockの表示部品を本実装へ引き継げる構成にする。
+- 画面には保存済みの固定カテゴリを使用し、取得元カテゴリの`source_categories`は表示・絞り込みに使わない。
+- カテゴリの選択肢と記事の所属はAPIから取得し、フロントエンドで定義の二重管理やタイトルの再分類を行わない。
+- API側はページ内の記事の所属カテゴリをまとめて取得し、記事ごとのSQL照会によるN+1を防ぐ。
+  記事件数を増やしても照会回数が増えないことを実DB統合テストで確認する。
+- フロントエンドは一覧レスポンスに含まれる固定カテゴリを使用し、記事ごとの追加API呼び出しを行わない。
+  1回の一覧表示について、カテゴリ選択肢の取得も含め、Next.jsサーバーからAPIへの要求数がページ内の記事数に比例して増えないことを確認する。
+
+### 一覧の取得とServer／Client境界
+
+Phase 6-4で合意した取得設計をPhase 6-7の一覧へ実装した。
+Serverの入口は`apps/web/app/(list)/page.tsx`、取得・応答検証は`apps/web/lib/press-releases-api.ts`、URL検証は`apps/web/lib/press-release-query.ts`に置く。
+再試行・復旧操作・ページ遷移と下書きは`apps/web/components/press-releases/workbench.tsx`で扱い、Serverの一覧・件数表示を子として渡す。
+Phase 6-8のページ送りはServerで検証した`pagination`をClientへ渡し、`apps/web/components/press-releases/pagination.tsx`から既存のURL遷移へ接続する。
+Phase 6-9の通常検索・リセットも既存のURL遷移へ接続し、下書きと適用条件は`workbench.tsx`で管理する。
+フォームの描画・入力エラーの関連付け・IME対応は`apps/web/components/press-releases/search-form.tsx`、日本時間の今日と暦による期間計算は`apps/web/lib/press-release-dates.ts`に置く。
+URLの`parseQuery`とフォームの`validateForm`は、同じファイルの条件検証を使用し、検証した欄をフォームのエラー表示・フォーカスへ渡す。
+Phase 6-12のWeb URL生成は`webQueryString`とし、`categories`のカンマ区切りと`from`・`to`を使用する。
+Webの比較用整形ではカテゴリの区切りだけを表示し、検索語などのエンコードを維持する。
+Serverの入口は検証済みの`Conditions`をAPI取得処理へ渡し、API取得処理内で従来のクエリ名とカテゴリの繰り返しを生成する。
+要求ページは同じ条件オブジェクトから取得し、Web URL文字列の再解析に依存しない。
+不正URLは一覧取得を省略して選択肢だけを取得し、正規化待ちは両APIを取得しない。
+Phase 6-10のカテゴリ変更も`workbench.tsx`の既存URL遷移へ接続し、選択状態はURLから求める。
+`apps/web/components/press-releases/category-filters.tsx`はカテゴリの描画・上限の案内・操作可否を担当し、取得・履歴・検索下書きの更新は行わない。
+未定義slugの個別解除も同じカテゴリ変更処理を使用し、変更のない選択集合や20指定超過では遷移しない。
+カテゴリ指定数の上限は`apps/web/lib/press-release-values.ts`の`MAX_FIXED_CATEGORY_COUNT`に置き、URL検証・操作ガード・UI判定と説明文で共有する。
+同じファイルにカテゴリslug長の`MAX_FIXED_CATEGORY_SLUG_LENGTH`とキーワード長の`MAX_SEARCH_KEYWORD_LENGTH`を別々に定義し、判定とエラー文言で共有する。
+カテゴリslug長はAPI応答の検証にも使用し、数値が同じでも意味の異なる契約は結び付けない。
+同じ契約値の表示件数`LIST_PAGE_SIZE`と最大ページ番号`MAX_LIST_PAGE`も共有し、URL検証・API応答検証・ページ送りの判定と説明文を揃える。
+表示範囲は検証済みの`pagination.page_size`から計算し、API由来のページ情報を使用する。
+狭い画面のJavaScript判定は`apps/web/lib/press-release-layout.ts`の`NARROW_SCREEN_QUERY`で共有し、ドロワー・ページ送り完了時のフォーカスで同じ境界を使う。
+CSSのメディア条件は同じ768pxの境界を宣言し、APIの値の定義と画面配置の定義は分ける。
+FastAPIが入力検証・検索・DB取得を担当し、Next.jsサーバーが`GET /press-releases`と`GET /fixed-categories`を共通の取得方針で呼び出す。
+ブラウザはキーワード・日付の下書き、カテゴリ操作、URLへの反映、テーマ・文字サイズ・ドロワーを担当する。
+一覧の取得・描画はServer側を基本とし、入力状態と操作に必要な部分だけをClient側へ置く。
+検索をFastAPIへ集約し、入力中の値と取得結果の描画を分けるためにこの境界を採用する。
+
+- 両APIを並行取得し、各応答の成功・失敗を個別に確定させる。
+  両方の確定後に表示し、片側の失敗で成功したもう一方を破棄しない。
+- 両APIへ`cache: "no-store"`を指定する。
+  戻る／進むでは取得済みの画面の再利用を許容し、明示的な検索・再読み込み・再試行では再取得する。
+- 各APIの通信開始からレスポンス本文の読み取り完了までの期限は10秒とする。
+  値は取得処理内の`API_REQUEST_TIMEOUT_MS`に置き、同じ数値の最大ページ番号とは別の契約として扱う。
+  超過した通信を中断して、そのAPIの取得失敗として扱い、成功したもう一方の結果を保持する。
+  10秒は合意した初期値であり、実環境の応答時間を測定した結果ではない。
+- 通信の期限超過はNext.js側の取得失敗であり、FastAPIの既存500・503応答へ置き換える契約を追加しない。
+  自動再試行は行わず、利用者の再試行で両APIを取得し直す。
+- 1回の取得単位でNext.jsからFastAPIへの要求は最大2回とする。
+  記事ごとの取得、未分類・最古日・保存データ全体の有無を調べる追加要求を行わない。
+- 連続操作では現在のURLと取得処理に対応する結果だけを表示する。
+  同じURLでの再検索・再試行も区別し、古い取得結果で新しい結果や下書きを上書きしない。
+
+接続先はサーバー専用の`PRESSWATCH_API_BASE_URL`で固定し、URLクエリやブラウザから選ばせない。
+DB資格情報をNext.jsへ渡さず、未設定・不正な接続先は取得失敗として表示する。
+HTTP／HTTPS、userinfoなし、クエリ・fragmentなしの接続先だけを使用し、APIのリダイレクトを追わない。
+応答の型・日付・件数・カテゴリ・HTTP／HTTPSの詳細リンクを検証し、内部例外やAPIのエラー本文を画面・ログへ出さない。
+一覧ルートは動的取得とし、ビルド時にAPIへ接続しない。
+`loading.tsx`は一覧のroute group内に限定し、development専用ページのproductionでのHTTP 404を維持する。
+
+Serverでの取得とキャッシュは[Next.jsのデータ取得](https://nextjs.org/docs/app/getting-started/fetching-data)と[fetch](https://nextjs.org/docs/app/api-reference/functions/fetch)、履歴と再取得は[useRouter](https://nextjs.org/docs/app/api-reference/functions/use-router)を参照する。
+10秒の期限は本文読み取りを含む標準の中断機構で実装し、取得ライブラリの追加を前提にしない。
+URL・下書きの復元、ローディング、片側失敗、再試行、空状態は[一覧の操作・状態仕様](frontend-ui.md#一覧の操作状態仕様)に従う。
+
+### 開発・検証の順序
+
+- 依存関係の更新とUI基盤の導入後に、固定データのMockでPC上の見た目を確認する。
+  スマートフォン専用の作り込みはPhase 6の完成条件に含めない。
+- Mock確認後に操作・API設計を記録・合意し、Oxlint・Oxfmtと検証基盤を整えてから機能を実装する。
+- Phase 6のlint・formatはフロントエンドを対象とし、既存Markdownの書式を変更しない。
+  Oxfmt導入時は共有設定の`ignorePatterns`に`**/*.md`を指定し、CLI・CIの対象パスもフロントエンドに限定する。
+  Markdownの行末空白を許容する`.gitattributes`はGitの検査用であり、Oxfmtの除外設定や保存時設定とは別に維持する。
+- Cursorでは公式Oxc拡張からプロジェクト内のOxlint・Oxfmtを利用し、lintとformatのルールをエディター・CLI・CIで共通に参照する。
+  診断表示、保存時の整形、任意のlint自動修正を区別して設定・確認し、他言語の既存設定を維持する。
+  Oxcを既定のフォーマッターに指定する場合はJavaScript・JSX・TypeScript・TSXの言語別設定とし、全言語へ一括適用しない。
+  Markdownの保存時整形と末尾空白の削除を無効にし、Oxfmt導入後も末尾2スペースによる強制改行が残ることを確認する。
+  [Oxlint](https://oxc.rs/docs/guide/usage/linter/editors)・[Oxfmt](https://oxc.rs/docs/guide/usage/formatter/editors)の公式手順を基に連携を確認し、導入後の設定・実行手順を[ローカル開発手順](local-development.md)へ記録する。
+- Oxlint 1.87.0・Oxfmt 0.72.0をルートの開発依存とし、共有設定を一つずつ置く。
+  保存時のlint自動修正は無効とし、formatはimport・package.jsonキー・Tailwindクラスの並べ替えを行わない。
+- 画面テストはPlaywright 1.63.0のChromiumをWebの開発依存へ置く。
+  developmentのMock確認とproductionの公開ガード確認をprojectごとに分け、対象ファイルと接続先を指定する。
+  ブラウザーはプロジェクト専用領域へ取得し、既存サーバーを再利用せずループバック限定で起動・終了する。
+  [Next.jsの公式手順](https://nextjs.org/docs/app/guides/testing/playwright)を基に、API応答を制御した画面テストと実API・DBとの結合確認を分ける。
+  Server側取得の応答制御には検証用HTTPサーバー等を用い、ブラウザー側のリクエスト差し替えだけで検証済みとしない。
+- 型チェック・lint・format確認・ビルド・画面テストをCIへ追加し、既存Python CIとの実行範囲と省略経路を確認する。
+  Web専用workflowで共通scriptsを使い、変更判定の失敗・不正出力を失敗として扱う。
+  実行・省略の証拠は対象SHA・step・理由で確認し、ローカル検証と実CIを区別する。
+  必須チェック設定の変更は、workflowの実装・動作確認と分けて扱う。
+
+作業項目と進捗は[Phase 6のタスク](tasks.md#phase-6-フロントエンド実装)を参照する。
+検索・カテゴリ操作・URL状態・取得方針はPhase 6-4で設計し、上記の設計と[公開APIの契約](requirements.md#26-api)に沿ってPhase 6-7〜6-10で実装した。
+Phase 6-11では実APIの連続操作と応答制御の自動確認を実施した。
+本人確認で受けたUI調整と記事リンクの別画面化を反映し、条件保持を含む最終再確認を問題なしで終えた。
+検証結果と残る範囲は[結合確認の記録](local-development.md#phase-6-11の結合確認と文書点検)を参照する。
 
 ---
 
@@ -149,7 +365,9 @@
 - Supabase へ既存 Alembic migration を head `9f2c7a4e1d63` まで適用し、`press_releases`、`uq_press_releases_source_url`、`ix_press_releases_published_at` が存在することを確認済みである
 - ローカルの Docker Compose は PostgreSQL 17 へ変更済みであり、新しい空 DB への既存 Alembic migration 適用と、コンテナ再作成後も migration 適用状態が保持されることを確認済みである
 - 固定カテゴリ3テーブルを追加するmigration `a51eab6808f3`はリポジトリへ追加済みであり、テスト専用PostgreSQL 17で適用、旧headへのdowngrade、再upgradeを確認済みである
-  開発DBとSupabaseへの適用状況は、この検証では確認していない
+  この合成データ検証とは別に、永続開発DBで実データ34,421件への適用・原本保持・DB再起動後の保持を確認済みである
+  利用者の画面確認を含むローカル検証は完了し、Supabaseへの適用は未実施である
+  [開発手順](local-development.md#永続開発dbで実データを確認する)に環境別の状態を記載する
 - Data API は利用せず、Supabase の `anon`・`authenticated` ロールが `public.press_releases` の `SELECT` 権限を持たないことを2026年8月20日に確認済みである
 - `postgres` のデフォルト権限に両ロール向けの `SELECT` が設定され、既存の `public.press_releases` に対する権限の付与元も `postgres` であることを確認したうえで、両方の `SELECT` 権限を取り消して再確認した
 - この結果は現時点の確認であり、Data API や Supabase Auth の採用時、権限や migration の変更時、Supabase プロジェクトや DB の再作成時、本番公開前には再確認する
@@ -210,11 +428,14 @@ apps/api/src/press_watch_api/
 │   ├── fixed_category.py
 │   └── press_release.py
 ├── routers/
+│   ├── fixed_categories.py
 │   └── press_releases.py
 ├── schemas/
 │   ├── error.py
+│   ├── fixed_category.py
 │   └── press_release.py
 ├── repositories/
+│   ├── fixed_category.py
 │   └── press_release.py
 └── services/
     └── press_release_save.py
@@ -222,7 +443,7 @@ apps/api/src/press_watch_api/
 
 - `models/`: SQLAlchemy model を置く
 - `dependencies.py`: HTTPリクエストごとのDB Sessionの生成と終了を扱う
-- `http_errors.py`: DB関連例外のHTTP応答への変換と固定診断の出力を扱う
+- `http_errors.py`: DB関連例外のHTTP応答への変換、固定診断の出力、読み取りAPIで共有するOpenAPIエラー応答定義を扱う
 - `routers/`: FastAPIのpath operationとAPIレスポンスの組み立てを置く
 - `schemas/`: Pydantic schema / DTO を置く
 - `repositories/`: DB操作を置く

@@ -18,6 +18,12 @@ yarn-error.log*
 .env.*
 !.env.example
 
+# Credentials / private keys
+*.pem
+*.key
+credentials.json
+service-account*.json
+
 # Node / Next.js
 node_modules/
 .next/

@@ -9,6 +9,7 @@ services:
     environment:
       NEXT_TELEMETRY_DISABLED: "1"
       NODE_ENV: development
+      PRESSWATCH_API_BASE_URL: http://api:8000
     ports:
       - "127.0.0.1:3000:3000"
     volumes:

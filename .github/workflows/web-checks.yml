@@ -1,0 +1,138 @@
+name: Web checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "phase-*"
+      - "phase-*/**"
+
+permissions:
+  contents: read
+
+jobs:
+  detect-changes:
+    name: Detect Web changes
+    runs-on: ubuntu-24.04
+    outputs:
+      web_checks_required: ${{ steps.changed-files.outputs.web_checks_required }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check whitespace and detect Web changes
+        id: changed-files
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            comparison_base="$PR_BASE"
+          elif [[ "$PUSH_BEFORE" != "0000000000000000000000000000000000000000" ]]; then
+            comparison_base="$PUSH_BEFORE"
+          else
+            comparison_base="$(git hash-object -t tree /dev/null)"
+          fi
+
+          git diff --check "$comparison_base" "$CURRENT_SHA"
+          web_checks_required="$(bash .github/scripts/web-checks-required.sh "$comparison_base" "$CURRENT_SHA")"
+          if [[ "$web_checks_required" != "true" && "$web_checks_required" != "false" ]]; then
+            echo "Invalid Web change detection output."
+            exit 1
+          fi
+          echo "web_checks_required=$web_checks_required" >> "$GITHUB_OUTPUT"
+          if [[ "$web_checks_required" == "true" ]]; then
+            echo "Web validation is required by the changed files." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No changed files requiring Web validation. Web checks will be skipped." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  web-checks:
+    name: Web validation
+    needs: detect-changes
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/tmp/playwright/browsers
+      PLAYWRIGHT_SKIP_BROWSER_GC: "1"
+    steps:
+      - name: Fail when change detection is invalid
+        if: >-
+          needs.detect-changes.result != 'success' ||
+          (needs.detect-changes.outputs.web_checks_required != 'true' &&
+          needs.detect-changes.outputs.web_checks_required != 'false')
+        run: |
+          echo "Web change detection or whitespace check failed, or its output is invalid."
+          exit 1
+
+      - name: Skip Web validation
+        if: needs.detect-changes.result == 'success' && needs.detect-changes.outputs.web_checks_required == 'false'
+        run: echo "No changes requiring Web validation. Skipping typecheck, lint, format check, build and screen tests." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Checkout repository
+        if: needs.detect-changes.outputs.web_checks_required == 'true'
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        if: needs.detect-changes.outputs.web_checks_required == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24.21.0"
+
+      - name: Set up pnpm
+        if: needs.detect-changes.outputs.web_checks_required == 'true'
+        uses: pnpm/action-setup@v6
+        with:
+          version: "12.8.1"
+          run_install: false
+
+      - name: Install locked dependencies
+        if: needs.detect-changes.outputs.web_checks_required == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Next.js types
+        if: needs.detect-changes.outputs.web_checks_required == 'true'
+        run: pnpm typegen:web
+
+      - name: Typecheck Web
+        if: needs.detect-changes.outputs.web_checks_required == 'true'
+        run: pnpm typecheck:web
+
+      - name: Lint Web
+        if: needs.detect-changes.outputs.web_checks_required == 'true'
+        run: pnpm lint:web
+
+      - name: Check Web formatting
+        if: needs.detect-changes.outputs.web_checks_required == 'true'
+        run: pnpm format:check:web
+
+      - name: Build Web
+        if: needs.detect-changes.outputs.web_checks_required == 'true'
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: pnpm build:web
+
+      - name: Install Chromium and Linux dependencies
+        if: needs.detect-changes.outputs.web_checks_required == 'true'
+        run: pnpm --filter @press-watch/web exec playwright install --with-deps chromium
+
+      - name: Run Web screen tests
+        if: needs.detect-changes.outputs.web_checks_required == 'true'
+        run: pnpm test:web
+
+      - name: Retain screen test diagnostics on failure
+        if: failure() && needs.detect-changes.outputs.web_checks_required == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-diagnostics
+          path: tmp/playwright/test-results
+          retention-days: 7
+          if-no-files-found: ignore
