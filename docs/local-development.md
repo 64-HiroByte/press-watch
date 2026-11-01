@@ -118,6 +118,46 @@ pnpmはユーザーの`.npmrc`だけでなく、macOSでは`~/Library/Preference
 そのため、npm設定の無効化に加えて`PNPM_CONFIG_NPMRC_AUTH_FILE`と`XDG_CONFIG_HOME`を指定し、認証情報を含みうるファイルへのフォールバックを防ぎます。
 [公式設定手順](https://pnpm.io/configuring#global-configuration)と[pnpm 12.8.1の認証設定の実装](https://github.com/pnpm/pnpm/blob/v12.8.1/pnpm/crates/config/src/auth_sources.rs)を参照します。
 
+Docker CLIも検証専用の設定ディレクトリを使い、既存の`~/.docker/config.json`やcontext設定を読み取り・コピーしません。
+通常のDocker CLIは、認証情報を含みうるホストのproxy設定をbuild argsやコンテナ環境変数へ自動反映するため、build contextやマウントから秘密ファイルを除くだけでは不十分です。
+また、空のディレクトリを`DOCKER_CONFIG`に指定しても、macOSではPATH上の`docker-credential-osxkeychain`を自動検出します。
+[Docker CLI設定](https://docs.docker.com/reference/cli/docker/#configuration-files)、[proxyの自動反映](https://docs.docker.com/engine/cli/proxy/)、[認証helperの検出](https://docs.docker.com/reference/cli/docker/login/#default-behavior)を参照します。
+
+再検証では、承認済みの`validation_root`内に専用設定を新規作成し、次の関数を同じシェルで使います。
+この例は、このPCのmacOSとDocker Desktopの配置を前提とし、既知のローカルsocketへ接続します。
+PATHは`/usr/bin:/bin`に限定し、認証helperが見つかった場合やsocketが存在しない場合は停止します。
+BuildxはDocker Desktop同梱の実行ファイルだけを専用設定から参照し、DockerのbinディレクトリをPATHへ追加しません。
+別の配置・OSではCLI・socket・認証helperの探索条件を先に確認し、既存contextや通常のPATHへ自動的に戻しません。
+
+```bash
+test -x /Applications/Docker.app/Contents/Resources/bin/docker || exit 1
+test -x /Applications/Docker.app/Contents/Resources/cli-plugins/docker-buildx || exit 1
+docker_validation_config="$(mktemp -d "${validation_root:?}/docker-cli.XXXXXX")" || exit 1
+mkdir "$docker_validation_config/cli-plugins" || exit 1
+ln -s /Applications/Docker.app/Contents/Resources/cli-plugins/docker-buildx \
+  "$docker_validation_config/cli-plugins/docker-buildx" || exit 1
+
+docker_validation_cli() {
+  test -d "${docker_validation_config:?}" || return 1
+  test -S "$HOME/.docker/run/docker.sock" || return 1
+  if env -i PATH=/usr/bin:/bin /bin/sh -c \
+    'command -v docker-credential-osxkeychain >/dev/null 2>&1'; then
+    printf '%s\n' '認証helperが見つかったため、Docker検証を中止します。' >&2
+    return 1
+  fi
+  env -i HOME="$HOME" PATH=/usr/bin:/bin TMPDIR="${validation_root:?}" \
+    DOCKER_CONFIG="$docker_validation_config" \
+    DOCKER_HOST="unix://$HOME/.docker/run/docker.sock" \
+    BUILDX_CONFIG="$docker_validation_config/buildx" \
+    /Applications/Docker.app/Contents/Resources/bin/docker "$@"
+}
+```
+
+以後のDocker操作は`docker_validation_cli build ...`・`docker_validation_cli run ...`のように呼び出し、終了・専用資源の削除まで同じ経路を使います。
+`env -i`で既存のDocker接続先・TLS・proxy等の環境変数も引き継がず、ホストの設定・認証ストア・シェル起動ファイルを変更しません。
+専用設定へlogin情報やproxy設定を追加せず、匿名取得や接続に失敗した場合は停止して原因と必要な承認を確認します。
+この隔離はホストのCLI側を対象とし、Docker Desktop・daemon側の既存ネットワーク設定は変更しません。
+
 Docker検証は既存のWeb Dockerfileを使い、`.oxlintrc.json`・`.oxfmtrc.json`・`.editorconfig`・`.gitattributes`を検証コピーから`/workspace`の対応位置へ読み取り専用でマウントします。
 コンテナ内のルートで`pnpm install --frozen-lockfile`を実行し、ルートの開発依存であるOxlint・Oxfmtも確認します。
 ホストの認証設定や既存ボリュームは渡さず、pnpmの認証・グローバル設定は同様に隔離します。
@@ -129,7 +169,7 @@ pnpm storeもビルド時の`/root/.local/share/pnpm/store`を使い、コンテ
 コンテナ内の合成応答サーバーは`127.0.0.1:3107`、本番Webは`0.0.0.0:3000`で起動し、Webの接続先をその合成応答サーバーに限定します。
 ホストへの公開は`127.0.0.1:3108:3000`だけとし、`http://localhost:3108/`で確認します。
 ローカルの通常画面テストは3105・3106・3107番を使い、ポート占有時は既存サーバーを再利用・終了せず検証を止めます。
-検証終了時は今回起動したサーバー・コンテナを終了し、専用イメージ・検証用ディレクトリを削除します。
+検証終了時は今回起動したサーバー・コンテナを終了し、専用イメージとDocker CLI専用設定を含む検証用ディレクトリを削除します。
 Voltaの取得キャッシュはプロジェクトで継続利用し、Dockerの共有キャッシュは一括削除しません。
 
 #### 2026年11月1日の検証結果と残る確認
