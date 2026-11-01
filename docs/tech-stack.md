@@ -56,6 +56,12 @@
 ### Node.js
 
 - Node.js 24系 LTS を採用する
+- 現行の固定版は24.22.2とし、ルートVolta・Webの継承設定・Web Dockerfile・Web CIで揃える
+
+2026年11月1日のPhase 7更新で、24.22.1のセキュリティ修正と24.22.2の後続修正を取り込む。
+PC全体の既定Node.jsは24.21.0を維持し、Voltaの取得キャッシュとプロジェクト指定を使う。
+pnpm 12.8.1とlockfile、Next.js・React・TypeScript・型定義・UI依存は維持する。
+根拠と実行結果、実CIの未確認範囲は[Node.js更新の検証記録](local-development.md#phase-7のnodejsセキュリティ更新)を参照する。
 
 ### Next.js
 
@@ -72,7 +78,7 @@
 Next.jsが解決するsharpは公式回避条件を満たす0.35.5を維持するが、機能の未使用だけで更新不要とは扱わない。
 Cache Components等の新機能や、一覧の取得・キャッシュ・URL・履歴の仕様は変更しない。
 
-Next.jsに伴う`@next/env`・各OS向けSWCを16.4.1へ更新し、Node.js 24.21.0・pnpm 12.8.1・TypeScript 7.0.2・型定義・UI依存を維持する。
+このNext.js更新では`@next/env`・各OS向けSWCを16.4.1へ更新し、Node.js 24.21.0・pnpm 12.8.1・TypeScript 7.0.2・型定義・UI依存を維持した。
 PostCSSの上書き、限定した`allowBuilds`、`agentRules: false`と待機・依存検証の設定も維持する。
 Next.js内のRSC実装は同梱物であり、内部のpeer表示にはcanary版が残るため、通常のReact 19.3.1の指定だけで修正を判定しない。
 公式の修正版Next.js 16.4.1の配布物と、実際に取り込む同梱実装を対応付ける。
@@ -103,7 +109,8 @@ Next.js・React・型定義・PostCSSの更新では、2026年10月2日に、秘
 Node.js 24.21.0・pnpm 12.8.1で型生成・型チェック・ビルドが成功し、ローカル・Web単体Dockerの1280×720の表示で文言・レイアウト・タイトル・日本語設定が一致した。
 更新後のfrozen再インストールでlockfileが変わらず、macOS arm64・Linux arm64で解決版・peer条件とsharpのネイティブ読み込み・PNG生成も確認した。
 
-Node.jsはルートのVolta設定とWebの`volta.extends`、Web Dockerfileで24.21.0に揃える。
+Phase 6更新時は、Node.jsをルートのVolta設定とWebの`volta.extends`、Web Dockerfileで24.21.0に揃えた。
+現行のNode.js版は[Node.jsの方針](#nodejs)を参照する。
 pnpmの指定版はルートの`packageManager`を正本とし、ローカルでは同じ版のグローバルpnpmを、Dockerでは既存のCorepack経路を使用する。
 PostCSSの上書き設定は`pnpm-workspace.yaml`に置く。
 Next.js 16.4.1が指定するPostCSS 8.5.23へ、追加修正を含む8.5.28を上書きする。

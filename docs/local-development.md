@@ -16,7 +16,7 @@ docker compose version
 
 ## Web用のNode.jsとpnpm
 
-WebはNode.js 24.21.0とpnpm 12.8.1を使用します。
+WebはNode.js 24.22.2とpnpm 12.8.1を使用します。
 ルートの`package.json`が両者の版数を指定し、`apps/web/package.json`の`volta.extends`がNode.jsの指定を継承します。
 ローカルのNode.jsは既存のVoltaで選択し、pnpmはグローバルに導入した指定版を使用します。
 プロジェクト専用のmise設定、Corepackのshim・キャッシュ、セットアップ補助は使用しません。
@@ -25,7 +25,12 @@ WebはNode.js 24.21.0とpnpm 12.8.1を使用します。
 
 [Voltaの導入手順](https://docs.volta.sh/guide/getting-started)に従い、`node`がVolta経由で実行される状態にします。
 プロジェクト内では`volta.node`の指定が優先され、必要なNode.jsが取得されます。
-このPCの既定Node.jsも、[volta install](https://docs.volta.sh/reference/install)で24.21.0へ更新済みです。
+このPCの既定Node.jsは24.21.0のままとし、PressWatch内では24.22.2を選択します。
+24.22.2を事前に取得する場合は、既定版を変更しない[volta fetch](https://docs.volta.sh/reference/fetch)を使います。
+
+```bash
+volta fetch node@24.22.2
+```
 
 pnpmは[公式の導入手順](https://pnpm.io/installation)に従い、12.8.1を用意します。
 既存のpnpmを更新する場合は、PressWatchなどpnpmを固定したプロジェクトの外で、[self-update](https://pnpm.io/cli/self-update)を実行します。
@@ -48,7 +53,7 @@ command -v pnpm
 pnpm -v
 ```
 
-Node.jsは24.21.0、pnpmは12.8.1と表示される必要があります。
+Node.jsは24.22.2、pnpmは12.8.1と表示される必要があります。
 この構成ではpnpmの版をプロジェクトごとに自動切り替えしないため、`packageManager`の指定を更新した際は、実際に選ばれるグローバルpnpmも合わせて更新します。
 グローバル版の更新は他プロジェクトにも適用されるため、利用中のプロジェクトの起動・ビルドを確認します。
 `pmOnFail: error`・`verifyDepsBeforeRun: error`は維持し、版や依存関係の検証を緩和しません。
@@ -67,6 +72,131 @@ PATH="/opt/homebrew/bin:$PATH" pnpm typecheck:web
 その後、プロジェクト専用の自動選択設定・スクリプト・生成物とmiseの信頼登録を撤去しました。
 更新・撤去後の新規Cursorターミナルと通常の開発コマンドを確認しています。
 別PC・Linuxホストでの初回導入は未確認です。
+
+### Phase 7のNode.jsセキュリティ更新
+
+2026年11月1日にNode.jsを24.21.0から24.22.2へ更新し、ルートVolta・Webの継承設定・Web Dockerfile・Web CIの版指定を揃えました。
+[24.22.1](https://nodejs.org/en/blog/release/v24.22.1)のDNS・TLS・Brotli・HTTP等のセキュリティ修正と、[24.22.2](https://nodejs.org/en/blog/release/v24.22.2)のV8・stream修正を取り込みます。
+pnpm 12.8.1、Next.js 16.4.1、React / React DOM 19.3.1、TypeScript 7.0.2・型定義・UI依存とlockfileは維持します。
+PC全体の既定Node.jsは24.21.0のままで、プロジェクト内だけ24.22.2を選択します。
+
+#### 隔離検証の準備と実行経路
+
+[画面テストの許可ファイル](#webの画面テスト)だけを更新前後の別コピーへ用意し、既存依存・生成物・秘密ファイル・認証設定を含めません。
+Dockerのbuild contextも同じ許可ファイルから別に作り、ローカル検証後の`node_modules`・`.next`を渡しません。
+依存はnpm公開レジストリ、Node.jsは公式配布元、ChromiumはPlaywright公式配布先から取得します。
+
+必要ファイルをコピーした検証環境へ移動してから、コマンドを次の環境で起動します。
+`validation_root`は今回作成した検証領域の絶対パスとし、設定・cache・state・storeの空ディレクトリをその中へ作成します。
+`node_bin`は比較対象のNode.js実体があるディレクトリとし、このPCでは`$HOME/.volta/tools/image/node/24.22.2/bin`です。
+更新前の比較には24.21.0のディレクトリを指定します。
+
+```bash
+env -i \
+  HOME="$HOME" PATH="$node_bin:/opt/homebrew/bin:/usr/bin:/bin" \
+  LANG=en_US.UTF-8 TMPDIR="$validation_root" \
+  XDG_CONFIG_HOME="$validation_root/config" \
+  XDG_CACHE_HOME="$validation_root/cache" \
+  XDG_STATE_HOME="$validation_root/state" \
+  PNPM_CONFIG_NPMRC_AUTH_FILE=/dev/null PNPM_CONFIG_USERCONFIG=/dev/null \
+  NPM_CONFIG_USERCONFIG=/dev/null NPM_CONFIG_GLOBALCONFIG=/dev/null \
+  PNPM_CONFIG_REGISTRY=https://registry.npmjs.org/ \
+  PNPM_CONFIG_STORE_DIR="$validation_root/store" \
+  PNPM_CONFIG_CACHE_DIR="$validation_root/cache/pnpm" \
+  NEXT_TELEMETRY_DISABLED=1 \
+  PLAYWRIGHT_BROWSERS_PATH="$PWD/tmp/playwright/browsers" \
+  PLAYWRIGHT_SKIP_BROWSER_GC=1 \
+  /opt/homebrew/bin/pnpm install --frozen-lockfile
+```
+
+同じ環境指定で、型生成・型チェック・lint・format確認・build・ブラウザー取得・通常画面テスト・再型チェック・frozen再インストールを実行します。
+pnpm自身はネイティブ実行ファイルのため、版表示だけでWebが使うNode.js版を判定しません。
+frozen install後、検証コピーのルートと`apps/web`で`node -p 'process.version + " " + process.execPath'`と`pnpm exec node -p 'process.version + " " + process.execPath'`を確認します。
+インストール前の`pnpm exec`は`verifyDepsBeforeRun: error`で拒否されるため、依存確認を緩めず実行順序を守ります。
+
+pnpmはユーザーの`.npmrc`だけでなく、macOSでは`~/Library/Preferences/pnpm/config.yaml`も読みます。
+そのため、npm設定の無効化に加えて`PNPM_CONFIG_NPMRC_AUTH_FILE`と`XDG_CONFIG_HOME`を指定し、認証情報を含みうるファイルへのフォールバックを防ぎます。
+[公式設定手順](https://pnpm.io/configuring#global-configuration)と[pnpm 12.8.1の認証設定の実装](https://github.com/pnpm/pnpm/blob/v12.8.1/pnpm/crates/config/src/auth_sources.rs)を参照します。
+
+Docker CLIも検証専用の設定ディレクトリを使い、既存の`~/.docker/config.json`やcontext設定を読み取り・コピーしません。
+通常のDocker CLIは、認証情報を含みうるホストのproxy設定をbuild argsやコンテナ環境変数へ自動反映するため、build contextやマウントから秘密ファイルを除くだけでは不十分です。
+また、空のディレクトリを`DOCKER_CONFIG`に指定しても、macOSではPATH上の`docker-credential-osxkeychain`を自動検出します。
+[Docker CLI設定](https://docs.docker.com/reference/cli/docker/#configuration-files)、[proxyの自動反映](https://docs.docker.com/engine/cli/proxy/)、[認証helperの検出](https://docs.docker.com/reference/cli/docker/login/#default-behavior)を参照します。
+
+再検証では、承認済みの`validation_root`内に専用設定を新規作成し、次の関数を同じシェルで使います。
+この例は、このPCのmacOSとDocker Desktopの配置を前提とし、既知のローカルsocketへ接続します。
+PATHは`/usr/bin:/bin`に限定し、認証helperが見つかった場合やsocketが存在しない場合は停止します。
+BuildxはDocker Desktop同梱の実行ファイルだけを専用設定から参照し、DockerのbinディレクトリをPATHへ追加しません。
+別の配置・OSではCLI・socket・認証helperの探索条件を先に確認し、既存contextや通常のPATHへ自動的に戻しません。
+
+```bash
+test -x /Applications/Docker.app/Contents/Resources/bin/docker || exit 1
+test -x /Applications/Docker.app/Contents/Resources/cli-plugins/docker-buildx || exit 1
+docker_validation_config="$(mktemp -d "${validation_root:?}/docker-cli.XXXXXX")" || exit 1
+mkdir "$docker_validation_config/cli-plugins" || exit 1
+ln -s /Applications/Docker.app/Contents/Resources/cli-plugins/docker-buildx \
+  "$docker_validation_config/cli-plugins/docker-buildx" || exit 1
+
+docker_validation_cli() {
+  test -d "${docker_validation_config:?}" || return 1
+  test -S "$HOME/.docker/run/docker.sock" || return 1
+  if env -i PATH=/usr/bin:/bin /bin/sh -c \
+    'command -v docker-credential-osxkeychain >/dev/null 2>&1'; then
+    printf '%s\n' '認証helperが見つかったため、Docker検証を中止します。' >&2
+    return 1
+  fi
+  env -i HOME="$HOME" PATH=/usr/bin:/bin TMPDIR="${validation_root:?}" \
+    DOCKER_CONFIG="$docker_validation_config" \
+    DOCKER_HOST="unix://$HOME/.docker/run/docker.sock" \
+    BUILDX_CONFIG="$docker_validation_config/buildx" \
+    /Applications/Docker.app/Contents/Resources/bin/docker "$@"
+}
+```
+
+以後のDocker操作は`docker_validation_cli build ...`・`docker_validation_cli run ...`のように呼び出し、終了・専用資源の削除まで同じ経路を使います。
+`env -i`で既存のDocker接続先・TLS・proxy等の環境変数も引き継がず、ホストの設定・認証ストア・シェル起動ファイルを変更しません。
+専用設定へlogin情報やproxy設定を追加せず、匿名取得や接続に失敗した場合は停止して原因と必要な承認を確認します。
+この隔離はホストのCLI側を対象とし、Docker Desktop・daemon側の既存ネットワーク設定は変更しません。
+
+Docker検証は既存のWeb Dockerfileを使い、`.oxlintrc.json`・`.oxfmtrc.json`・`.editorconfig`・`.gitattributes`を検証コピーから`/workspace`の対応位置へ読み取り専用でマウントします。
+コンテナ内のルートで`pnpm install --frozen-lockfile`を実行し、ルートの開発依存であるOxlint・Oxfmtも確認します。
+ホストの認証設定や既存ボリュームは渡さず、pnpmの認証・グローバル設定は同様に隔離します。
+`XDG_CACHE_HOME`を切り替える場合、Corepackにはビルド時の取得先`COREPACK_HOME=/root/.cache/node/corepack`を明示します。
+pnpm storeもビルド時の`/root/.local/share/pnpm/store`を使い、コンテナ内の既存依存と整合させます。
+このキャッシュ・storeは専用コンテナ内にあり、ホストの既存設定を変更しません。
+`COREPACK_ENABLE_NETWORK=0 pnpm --version`で取得済みの12.8.1を使えることも確認します。
+
+コンテナ内の合成応答サーバーは`127.0.0.1:3107`、本番Webは`0.0.0.0:3000`で起動し、Webの接続先をその合成応答サーバーに限定します。
+ホストへの公開は`127.0.0.1:3108:3000`だけとし、`http://localhost:3108/`で確認します。
+ローカルの通常画面テストは3105・3106・3107番を使い、ポート占有時は既存サーバーを再利用・終了せず検証を止めます。
+検証終了時は今回起動したサーバー・コンテナを終了し、専用イメージとDocker CLI専用設定を含む検証用ディレクトリを削除します。
+Voltaの取得キャッシュはプロジェクトで継続利用し、Dockerの共有キャッシュは一括削除しません。
+
+#### 2026年11月1日の検証結果と残る確認
+
+| 確認項目 | macOS arm64 | Web単体Docker / Linux arm64 |
+| --- | --- | --- |
+| 更新前後のNode.js実体 | 24.21.0 / 24.22.2、Volta実体とpnpm子プロセスを確認 | 24.21.0 / 24.22.2、`/usr/local/bin/node`とpnpm子プロセスを確認 |
+| pnpm・依存再現性 | 12.8.1、frozen install・再インストール成功、lockfile不変 | 12.8.1、Corepack経路とネットワーク禁止時の版確認、frozen install・再インストール成功、lockfile不変 |
+| 型生成・型チェック・lint・format確認・本番build | 更新前後とも成功 | 更新前後とも成功 |
+| 通常画面テスト | 更新前176件・更新後176件が成功し、テスト後の型チェックも成功 | 通常画面テスト一式は未実施。下記の本番画面比較を実施 |
+| sharp | 更新前後とも0.35.5の読み込み・PNG生成成功 | 更新前後とも0.35.5の読み込み・PNG生成成功 |
+
+ローカルとDockerの両方で、合成応答に接続した本番画面をPC 1280×720・モバイル390×844で比較しました。
+更新前後で文言・タイトル・日本語設定は一致し、ブラウザーのconsole警告・エラーとpageerrorはありませんでした。
+モバイル画像は完全一致し、PC画像は11画素の微小差がありましたが、差分領域を目視して文言・配置の差がないことを確認しました。
+productionの`/mock`・`/ui-foundation`はHTTP 404でした。
+
+実作業フォルダのルート・`apps/web`でもVolta経由のNode.jsが24.22.2を選び、プロジェクト外では既定24.21.0を維持することを確認しました。
+実作業フォルダの既存依存・ビルド成果物は再インストール・再生成せず、ビルドと画面の検証は一時コピーで行いました。
+検証用サーバー・専用コンテナを終了し、専用イメージを削除して3105〜3108番の待受がないことを確認しました。
+検証用コピー・ブラウザー・store・一時スクリプトも削除しました。
+
+実CIは未実施であり、過去のCI成功やローカル検証を更新後の実CI成功として扱いません。
+Web workflow変更は既存Python CIと一時PostgreSQL 17も起動するため、検証・全差分の報告後、commit・push・PR作成と併せて別承認を確認します。
+Node.js更新のタスクは実CI確認まで未完了とし、Next.js・本番実行環境の項目も未完了のままとします。
+実API・DB・実サイトへの接続、デプロイ・公開、本人による手動確認は行っていません。
+[Next.jsの11月3日修正予告](https://nextjs.org/blog/upcoming-nextjs-security-release-november-2026)は別途確認・更新承認が必要な事項として残します。
 
 ## 用意するファイル
 
@@ -175,7 +305,7 @@ http://127.0.0.1:3000/
 ```
 
 Docker Compose で全体を起動する場合、この単体起動は必須ではありません。
-WebのDockerfileもルートの`packageManager`を読み、Node.js 24.21.0とpnpm 12.8.1を使用します。
+WebのDockerfileもルートの`packageManager`を読み、Node.js 24.22.2とpnpm 12.8.1を使用します。
 ComposeのWebは`node_modules`を名前付きボリュームに保持するため、既存ボリュームを使うと以前の依存関係が残る場合があります。
 新しい依存関係を確認するときは、秘密ファイルと既存の`node_modules`・`.next`を含めない一時build contextでWeb単体をビルドし、既存ボリュームを使わずに起動します。
 ホストの公開ポートは`127.0.0.1`に限定し、確認後は今回作成したコンテナ・イメージだけを削除します。
@@ -324,8 +454,10 @@ API接続先のクエリ・fragment・userinfoとリダイレクトは許可し�
 ビルドはAPIへ接続せず、正常な条件の1回の取得で一覧と選択肢を最大2要求、`cache: "no-store"`、本文読み取りまで各10秒で取得します。
 
 通常の検証は上記の秘密ファイルを含まない一時Webコピーで実行します。
-起動環境も`env -i`等で必要なPATH・HOME・TMPDIR・localeとプロセス固有の設定だけに限定し、npmのユーザー／global設定を`/dev/null`にします。
-この環境でVoltaのpnpm shimが起動できない場合は、承認版のpnpm 12.8.1本体とNode.js 24.21.0をそのプロセスのPATHへ指定します。
+起動環境も`env -i`等で必要なPATH・既存HOME・TMPDIR・localeとプロセス固有の設定だけに限定します。
+npmのユーザー／global設定とpnpmのユーザー認証設定を`/dev/null`へ、pnpmのグローバル設定・cache・stateを一時ディレクトリへ指定します。
+具体的な設定は[Phase 7の隔離検証手順](#phase-7のnodejsセキュリティ更新)を参照し、既存のホーム配下の認証設定を自動読込みさせません。
+この環境でVoltaのpnpm shimが起動できない場合は、承認版のpnpm 12.8.1本体とNode.js 24.22.2をそのプロセスのPATHへ指定します。
 プロジェクト・グローバルのツール設定は変更しません。
 
 実APIの画面確認は[専用PostgreSQL 17の手順](#phase-6の接続検証用postgresql-17)で保存済みDBを再利用します。
@@ -1099,7 +1231,7 @@ workflow全体にパス条件を付けず、変更判定と空白検査を実行
 | workflow・CI判定スクリプト・Web Dockerfile | 実行 |
 | Python専用変更、その他上記の実行対象を含まない変更、差分なし | 理由を表示して省略 |
 
-実行対象を一つでも含むと、Ubuntu 24.04、Node.js 24.21.0、pnpm 12.8.1でfrozen install、型生成、型チェック、lint、format確認、ビルド、Chromium画面テストを順に実行します。
+実行対象を一つでも含むと、Ubuntu 24.04、Node.js 24.22.2、pnpm 12.8.1でfrozen install、型生成、型チェック、lint、format確認、ビルド、Chromium画面テストを順に実行します。
 ChromiumのLinux依存はActions内で取得し、ブラウザーとテスト生成物はルートの`tmp/playwright/`へ保存します。
 画面テスト失敗時のtrace・スクリーンショットは`playwright-diagnostics` artifactで7日間保持する設定です。
 [PR #112の初回Web CI](https://github.com/64-HiroByte/press-watch/actions/runs/38200939844)で、失敗時の保存stepの成功と`playwright-diagnostics` artifactの生成を確認済みです。

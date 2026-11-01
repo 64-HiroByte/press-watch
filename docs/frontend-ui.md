@@ -20,7 +20,7 @@ CheckboxとNative Selectの取り込みは、カテゴリの単一／複数選�
 
 ## 依存関係と互換性
 
-Node.js 24.21.0、pnpm 12.8.1、Next.js 16.4.1、React / React DOM 19.3.1、TypeScript 7.0.2を使用する。
+Node.js 24.22.2、pnpm 12.8.1、Next.js 16.4.1、React / React DOM 19.3.1、TypeScript 7.0.2を使用する。
 Next.js・Reactの更新範囲と根拠は[技術構成のセキュリティ更新](tech-stack.md#2026年10月のセキュリティ更新)を参照する。
 追加する直接依存は完全なバージョン番号で固定し、間接依存はlockfileで再現する。
 
