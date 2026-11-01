@@ -200,12 +200,18 @@ Hobbyのログ保持は7日である。
 
 | 対象 | 現行の固定・解決版 | 更新候補と位置付け |
 | --- | --- | --- |
-| Node.js | 24.21.0 | 24.22.1でセキュリティ修正。24系を維持し、後続の24.22.2を候補にする |
+| Node.js | 24.22.2 | Phase 7で24.22.1のセキュリティ修正と24.22.2の後続修正を取り込む。実CIは別承認後に確認する |
 | Next.js | 16.4.1 | 10月14日のセキュリティ修正は反映済み。通常の不具合修正として16.4.3を候補にする |
 | React / React DOM | 19.3.1 | 確認時点の最新安定版。維持する案 |
 
 [Node.jsのセキュリティ告知](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases)、[Node.js 24.22.2](https://nodejs.org/en/blog/release/v24.22.2)、[Next.jsのセキュリティ告知](https://nextjs.org/blog/nextjs-security-update-october-14-2026)、[Next.js 16.4.3](https://github.com/vercel/next.js/releases/tag/v16.4.3)、[React 19.3.1](https://github.com/react/react/releases/tag/v19.3.1)を参照する。
-候補版の採用と更新実行は未承認であり、現在のマニフェスト・CI・Docker・lockfileは変更していない。
+Node.jsは承認済みのPhase 7更新で、Volta・Web Dockerfile・Web CIの指定を24.22.2へ揃えた。
+検証結果と未確認範囲は[Node.js更新の検証記録](local-development.md#phase-7のnodejsセキュリティ更新)を参照する。
+Next.js・Reactの更新は今回に含めず、lockfileも維持する。
+
+[10月27日のNext.js公式予告](https://nextjs.org/blog/upcoming-nextjs-security-release-november-2026)では、11月3日にMedium 7件の修正を公開予定としている。
+影響範囲・修正版は未公表であり、16.4.3で対応済みとは扱わない。
+公開後に別タスクで影響・採用版・検証範囲を確認し、追加承認を得る。
 
 後続タスクは、次の責務・依存関係で分けて提案する。
 個々の実装・環境利用・外部操作は、対象と影響を示して別途承認を得る。
