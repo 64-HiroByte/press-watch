@@ -9,7 +9,6 @@ COPY apps/api/pyproject.toml apps/api/uv.lock ./
 RUN uv sync --locked --no-dev
 
 FROM dependencies AS development
-RUN uv sync --frozen
 COPY apps/api/src src
 EXPOSE 8000
 CMD ["uv", "run", "fastapi", "dev", "src/press_watch_api/main.py", "--host", "0.0.0.0"]

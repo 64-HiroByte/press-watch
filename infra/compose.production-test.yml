@@ -3,7 +3,6 @@ name: presswatch-production-validation
 x-python: &python
   environment:
     DATABASE_URL: postgresql+psycopg://presswatch_production_test:${PRESSWATCH_PRODUCTION_TEST_PASSWORD:?required}@db:5432/presswatch_production_test
-  networks: [validation]
   security_opt: [no-new-privileges:true]
   cap_drop: [ALL]
 
@@ -16,7 +15,6 @@ services:
     image: presswatch-production-validation-web
     environment:
       PRESSWATCH_API_BASE_URL: http://api:8000
-    networks: [validation]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
   api:
@@ -44,7 +42,6 @@ services:
       POSTGRES_USER: presswatch_production_test
       POSTGRES_PASSWORD: ${PRESSWATCH_PRODUCTION_TEST_PASSWORD:?required}
     tmpfs: [/var/lib/postgresql/data]
-    networks: [validation]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U presswatch_production_test -d presswatch_production_test"]
       interval: 2s
@@ -52,5 +49,5 @@ services:
       retries: 15
 
 networks:
-  validation:
+  default:
     internal: true
