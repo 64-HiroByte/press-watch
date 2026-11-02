@@ -12,7 +12,7 @@ RUN corepack enable pnpm \
 FROM dependencies AS development
 COPY apps/web apps/web
 EXPOSE 3000
-CMD ["pnpm", "--filter", "@press-watch/web", "dev", "--hostname", "0.0.0.0"]
+CMD ["node", "apps/web/node_modules/next/dist/bin/next", "dev", "apps/web", "--hostname", "0.0.0.0"]
 
 FROM dependencies AS build
 ENV NODE_ENV=production PRESSWATCH_STANDALONE=1
