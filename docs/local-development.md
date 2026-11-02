@@ -287,7 +287,8 @@ pnpm 12では、先頭の文書にpnpm本体の管理情報、最後の文書に
 
 `uv.lock` は Python 依存関係の lockfile です。API と scraper はそれぞれ `apps/api/uv.lock`、`packages/scraper/uv.lock` を持ちます。各 `pyproject.toml` をもとに `uv sync` すると、解決されたパッケージの具体的なバージョンが記録され、その内容に沿って仮想環境が作られます。
 
-Dockerfile では `uv sync --frozen` を使うため、lockfile を更新せず、記録済みの依存関係で再現性のある環境を作ります。
+Dockerfileでは`uv sync --locked --no-dev`を使い、lockfileを更新せずに開発専用依存を除いて導入します。
+`pyproject.toml`とlockfileが整合していない場合は、ビルドを失敗させます。
 
 ## フロントエンドを単体で起動する
 
@@ -925,7 +926,7 @@ pnpm --filter @press-watch/web start --hostname 127.0.0.1
 productionで7部品を確認する時は、秘密ファイル・既存依存・生成物を含まない一時コピーを作る。
 そのコピーだけで確認ページのdevelopment判定と`notFound()`呼び出しを外し、frozen install・型生成・型チェック・build/startを行う。
 納品ソースにはこの変更を取り込まず、通常ソースのproductionで404になることも別に確認する。
-Dockerでは既存のWeb DockerfileとCorepack経路を使い、新規コンテナ内で検証した後、同じコンテナ内の本番ビルドを`start --hostname 0.0.0.0`で起動する。
+DockerではWeb Dockerfileの`development`ターゲット（`build --target development`）とCorepack経路を使い、新規コンテナ内で検証した後、同じコンテナ内の本番ビルドを`start --hostname 0.0.0.0`で起動する。
 ホスト側は`127.0.0.1`へ限定して公開し、確認後に今回作成したリソースだけを片付ける。
 Dockerの開発画面は`http://localhost:<公開ポート>/ui-foundation`で開く。
 コンテナ内を`0.0.0.0`で起動した場合、閲覧先の`127.0.0.1`はNext.jsの開発リソースのorigin制限に拒否されるため、ループバック公開を維持して`localhost`を使う。
@@ -2840,4 +2841,4 @@ DBボリュームの削除は保存済みデータを失う操作であるため
 
 ## Phase 7の本番用Docker
 
-開発環境とは別の本番用イメージ、隔離した合成DB検証、測定結果は[本番用Docker](production-docker.md)を参照してください。
+本番用イメージの構成と隔離した合成DB検証の手順は[本番用Docker](production-docker.md)を参照してください。

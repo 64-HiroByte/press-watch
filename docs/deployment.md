@@ -230,4 +230,4 @@ Next.js・Reactの更新は今回に含めず、lockfileも維持する。
 進捗は[Phase 7のタスク](tasks.md#phase-7-定期実行と運用準備)で管理する。
 構成・方式の最終決定と、実装・設定・実運用の完了を区別する。
 
-本番用イメージと合成データ検証の手順・結果は[本番用Docker](production-docker.md)を参照する。
+本番用イメージの構成と合成データ検証の手順は[本番用Docker](production-docker.md)を参照する。
