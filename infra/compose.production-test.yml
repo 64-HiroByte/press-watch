@@ -1,0 +1,54 @@
+name: presswatch-production-validation
+
+x-python: &python
+  environment:
+    DATABASE_URL: postgresql+psycopg://presswatch_production_test:${PRESSWATCH_PRODUCTION_TEST_PASSWORD:?required}@db:5432/presswatch_production_test
+  networks: [validation]
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: infra/docker/web.production.Dockerfile
+    image: presswatch-production-validation-web
+    environment:
+      HOSTNAME: 0.0.0.0
+      PRESSWATCH_API_BASE_URL: http://api:8000
+    networks: [validation]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+  api:
+    <<: *python
+    build:
+      context: ..
+      dockerfile: infra/docker/api.production.Dockerfile
+    image: presswatch-production-validation-api
+  job:
+    <<: *python
+    build:
+      context: ..
+      dockerfile: infra/docker/job.production.Dockerfile
+    image: presswatch-production-validation-job
+    profiles: [job]
+    volumes:
+      - ./fixtures/api-validation-press.html:/fixtures/press.html:ro
+    command: ["--from-file", "/fixtures/press.html"]
+  db:
+    image: postgres:17@sha256:3b0cda93be7c8dba2ed484d19393d93845dc3dafb88973e248ba8e6d99d784e1
+    environment:
+      POSTGRES_DB: presswatch_production_test
+      POSTGRES_USER: presswatch_production_test
+      POSTGRES_PASSWORD: ${PRESSWATCH_PRODUCTION_TEST_PASSWORD:?required}
+    tmpfs: [/var/lib/postgresql/data]
+    networks: [validation]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U presswatch_production_test -d presswatch_production_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+networks:
+  validation:
+    internal: true
