@@ -18,7 +18,7 @@ while IFS= read -r -d '' changed_file; do
   case "$changed_file" in
     *.md)
       ;;
-    apps/web/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|.oxlintrc.json|.oxfmtrc.json|.editorconfig|.gitattributes|.github/workflows/*|.github/scripts/*|infra/docker/web.Dockerfile|infra/docker/web.production.Dockerfile|.dockerignore|infra/compose.production-test.yml)
+    apps/web/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|.oxlintrc.json|.oxfmtrc.json|.editorconfig|.gitattributes|.github/workflows/*|.github/scripts/*|infra/docker/web.Dockerfile|.dockerignore|infra/compose.production-test.yml)
       web_checks_required=true
       ;;
   esac

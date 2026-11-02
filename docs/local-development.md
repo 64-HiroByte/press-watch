@@ -158,7 +158,7 @@ docker_validation_cli() {
 専用設定へlogin情報やproxy設定を追加せず、匿名取得や接続に失敗した場合は停止して原因と必要な承認を確認します。
 この隔離はホストのCLI側を対象とし、Docker Desktop・daemon側の既存ネットワーク設定は変更しません。
 
-Docker検証は既存のWeb Dockerfileを使い、`.oxlintrc.json`・`.oxfmtrc.json`・`.editorconfig`・`.gitattributes`を検証コピーから`/workspace`の対応位置へ読み取り専用でマウントします。
+Docker検証はWeb Dockerfileの`development`ターゲット（`build --target development`）を使い、`.oxlintrc.json`・`.oxfmtrc.json`・`.editorconfig`・`.gitattributes`を検証コピーから`/workspace`の対応位置へ読み取り専用でマウントします。
 コンテナ内のルートで`pnpm install --frozen-lockfile`を実行し、ルートの開発依存であるOxlint・Oxfmtも確認します。
 ホストの認証設定や既存ボリュームは渡さず、pnpmの認証・グローバル設定は同様に隔離します。
 `XDG_CACHE_HOME`を切り替える場合、Corepackにはビルド時の取得先`COREPACK_HOME=/root/.cache/node/corepack`を明示します。
@@ -225,7 +225,7 @@ Web単体の起動には、このファイルは必要ありません。
 - `infra/compose.yml`: `web` / `api` / `db` の Docker Compose 構成を定義します。
 - `infra/compose.test.yml`: PostgreSQL 17を使うDB統合テスト専用の一時DBを定義します。
 - `infra/docker/web.Dockerfile`: Web コンテナのビルド手順を定義します。
-- `infra/docker/api.Dockerfile`: API コンテナのビルド手順を定義します。
+- `infra/docker/python.Dockerfile`: APIの開発・本番用と取得ジョブ用のビルド手順を定義します。
 - `Makefile`: Docker Compose の起動・停止コマンドを短く呼べるようにします。
 
 ## Markdownの書式とエディター設定

@@ -11,7 +11,8 @@ services:
   web:
     build:
       context: ..
-      dockerfile: infra/docker/web.production.Dockerfile
+      dockerfile: infra/docker/web.Dockerfile
+      target: production
     image: presswatch-production-validation-web
     environment:
       HOSTNAME: 0.0.0.0
@@ -23,13 +24,15 @@ services:
     <<: *python
     build:
       context: ..
-      dockerfile: infra/docker/api.production.Dockerfile
+      dockerfile: infra/docker/python.Dockerfile
+      target: production
     image: presswatch-production-validation-api
   job:
     <<: *python
     build:
       context: ..
-      dockerfile: infra/docker/job.production.Dockerfile
+      dockerfile: infra/docker/python.Dockerfile
+      target: job
     image: presswatch-production-validation-job
     profiles: [job]
     volumes:

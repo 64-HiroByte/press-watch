@@ -2,8 +2,12 @@
 
 ## 構成と起動
 
-本番用Dockerfileは`infra/docker/`の`web.production.Dockerfile`・`api.production.Dockerfile`・`job.production.Dockerfile`で、build contextはリポジトリルートとする。
-開発環境は従来のDockerfileと`infra/compose.yml`を使う。
+Webは`infra/docker/web.Dockerfile`、Pythonは`infra/docker/python.Dockerfile`を使い、build contextはリポジトリルートとする。
+両Dockerfileは依存導入を共有し、`development`・`production`ターゲットで開発・本番の起動方法を分ける。
+Pythonの`job`ターゲットはAPIの本番共通部分にscraperを追加する。
+開発用の`infra/compose.yml`と隔離検証用Composeは、それぞれの`build.target`を明示する。
+Dockerfileを直接buildする場合も、開発は`--target development`、本番は`--target production`、ジョブは`--target job`を指定する。
+PythonのAPI用venvは開発・本番とも`/app/.venv`に置き、本番ソースはジョブの相対参照に合わせて`/workspace/apps/api`に置く。
 
 | 対象 | 起動・設定 |
 | --- | --- |
@@ -78,8 +82,8 @@ set -e
 production_validation_cli compose -f infra/compose.production-test.yml --profile job config --quiet
 production_validation_cli compose -f infra/compose.production-test.yml --profile job build
 production_validation_cli compose -f infra/compose.production-test.yml up -d --wait db
-production_validation_cli compose -f infra/compose.production-test.yml run --rm -T api .venv/bin/alembic upgrade head
-production_validation_cli compose -f infra/compose.production-test.yml run --rm -T api .venv/bin/python -m press_watch_api.commands.seed_fixed_categories
+production_validation_cli compose -f infra/compose.production-test.yml run --rm -T api /app/.venv/bin/alembic upgrade head
+production_validation_cli compose -f infra/compose.production-test.yml run --rm -T api /app/.venv/bin/python -m press_watch_api.commands.seed_fixed_categories
 production_validation_cli compose -f infra/compose.production-test.yml run --rm -T job
 production_validation_cli compose -f infra/compose.production-test.yml run --rm -T job
 production_validation_cli compose -f infra/compose.production-test.yml up -d web api
@@ -109,6 +113,14 @@ HTTP応答の確認はブラウザー操作の検証とは区別し、画面の�
 途中で失敗した場合も、終了時は`production_validation_cli compose -f infra/compose.production-test.yml down`を実行する。
 今回作成したイメージ・一時領域だけを削除してから`unset PRESSWATCH_PRODUCTION_TEST_PASSWORD`で一時パスワードを破棄する。
 共有キャッシュの一括pruneや既存ボリュームの削除は行わない。
+
+## 開発ターゲットの回帰確認
+
+`infra/compose.yml`を一時ソース・専用project・専用ボリュームで使い、検証用overrideで公開ポートを除去し、DBをtmpfs・ネットワークを内部限定にする。
+通常の開発環境のボリュームやDBは使わない。
+Web・APIの起動と一時ソース変更の反映を確認した後、依存ボリュームを残したままWeb・APIコンテナを再作成する。
+コンテナIDが変わり、`api_venv`・`web_root_node_modules`・`web_app_node_modules`内の確認用ファイルが保持され、両サービスが再起動することを確認する。
+終了時は専用projectのボリュームだけを削除する。
 
 ## 確認結果と未確認事項
 
@@ -143,5 +155,23 @@ Web・APIは60秒のアイドル後、一覧・検索・カテゴリ等の合成
 実DB検索・保存は合成62件だけであり、この測定を実データ規模・Railway性能・請求額へ外挿しない。
 今回作成したDocker資源・一時領域は削除済みである。
 
-実CIと既存PostgreSQL統合テスト一式、実サイト、既存DB・Supabase、クラウド配置は未実施である。
+統合前のPR #130ではWeb・Python・一時PostgreSQL 17の実CIが成功した。
+Dockerfile統合後の確認結果は次節に示す。
+実サイト、既存DB・Supabase、クラウド配置は未実施である。
 Next.js修正版の採用後に再ビルド・回帰確認・再測定を行い、公開・定期実行へ進む。
+
+### Dockerfile統合後の確認
+
+2026年11月2日にLinux arm64で5ターゲットをキャッシュ利用でビルドし、以下を確認した。
+
+- 開発Web・APIの起動、一時ソース変更の反映、3つの依存ボリュームを残したコンテナ再作成と確認用ファイルの保持・再起動。
+- 本番APIのmigration・seed、ジョブの62件保存と再実行62件skip、一覧・ページ送り・カテゴリ・該当なし検索のAPI結果とWebのHTML、静的ファイル200、開発専用ルート404。
+- 5イメージへのダミーenv非混入、本番3サービスの非root実行、APIイメージへのuv非収録、実コンテナの内部ネットワーク・ポート非公開、外部通信遮断、空のキャッシュでのジョブ実行、不正fixture・DB停止時の非ゼロ終了。
+- 本番Webは終了143、APIは終了0で停止し、OOMはなかった。
+
+開発Webの停止は終了137となった。
+旧Dockerfileも同じ固定ベースで終了137となり、今回の統合による差ではないことを確認したが、開発Webの正常終了を保証する結果ではない。
+検証用のDocker資源・一時領域は削除し、既存の開発環境は使用していない。
+統合後のWeb・Python・一時PostgreSQL 17の実CI結果は[PR #130](https://github.com/64-HiroByte/press-watch/pull/130)で確認する。
+本番Dockerを対象とするブラウザー操作テストは統合後に再実行しておらず、既存CIの画面テストと区別する。
+従来の性能値とamd64の結果は統合前の記録であり、今回の再測定・再検証結果としては扱わない。
