@@ -158,7 +158,7 @@ docker_validation_cli() {
 専用設定へlogin情報やproxy設定を追加せず、匿名取得や接続に失敗した場合は停止して原因と必要な承認を確認します。
 この隔離はホストのCLI側を対象とし、Docker Desktop・daemon側の既存ネットワーク設定は変更しません。
 
-Docker検証は既存のWeb Dockerfileを使い、`.oxlintrc.json`・`.oxfmtrc.json`・`.editorconfig`・`.gitattributes`を検証コピーから`/workspace`の対応位置へ読み取り専用でマウントします。
+Docker検証はWeb Dockerfileの`development`ターゲット（`build --target development`）を使い、`.oxlintrc.json`・`.oxfmtrc.json`・`.editorconfig`・`.gitattributes`を検証コピーから`/workspace`の対応位置へ読み取り専用でマウントします。
 コンテナ内のルートで`pnpm install --frozen-lockfile`を実行し、ルートの開発依存であるOxlint・Oxfmtも確認します。
 ホストの認証設定や既存ボリュームは渡さず、pnpmの認証・グローバル設定は同様に隔離します。
 `XDG_CACHE_HOME`を切り替える場合、Corepackにはビルド時の取得先`COREPACK_HOME=/root/.cache/node/corepack`を明示します。
@@ -192,9 +192,9 @@ productionの`/mock`・`/ui-foundation`はHTTP 404でした。
 検証用サーバー・専用コンテナを終了し、専用イメージを削除して3105〜3108番の待受がないことを確認しました。
 検証用コピー・ブラウザー・store・一時スクリプトも削除しました。
 
-実CIは未実施であり、過去のCI成功やローカル検証を更新後の実CI成功として扱いません。
-Web workflow変更は既存Python CIと一時PostgreSQL 17も起動するため、検証・全差分の報告後、commit・push・PR作成と併せて別承認を確認します。
-Node.js更新のタスクは実CI確認まで未完了とし、Next.js・本番実行環境の項目も未完了のままとします。
+Node.js更新はPR #129で実CI確認まで完了しました。
+上記のローカル・Docker結果と、GitHub Actionsの実CI確認は別の検証です。
+Next.js・本番実行環境の項目は引き続き未完了です。
 実API・DB・実サイトへの接続、デプロイ・公開、本人による手動確認は行っていません。
 [Next.jsの11月3日修正予告](https://nextjs.org/blog/upcoming-nextjs-security-release-november-2026)は別途確認・更新承認が必要な事項として残します。
 
@@ -225,7 +225,7 @@ Web単体の起動には、このファイルは必要ありません。
 - `infra/compose.yml`: `web` / `api` / `db` の Docker Compose 構成を定義します。
 - `infra/compose.test.yml`: PostgreSQL 17を使うDB統合テスト専用の一時DBを定義します。
 - `infra/docker/web.Dockerfile`: Web コンテナのビルド手順を定義します。
-- `infra/docker/api.Dockerfile`: API コンテナのビルド手順を定義します。
+- `infra/docker/python.Dockerfile`: APIの開発・本番用と取得ジョブ用のビルド手順を定義します。
 - `Makefile`: Docker Compose の起動・停止コマンドを短く呼べるようにします。
 
 ## Markdownの書式とエディター設定
@@ -287,7 +287,8 @@ pnpm 12では、先頭の文書にpnpm本体の管理情報、最後の文書に
 
 `uv.lock` は Python 依存関係の lockfile です。API と scraper はそれぞれ `apps/api/uv.lock`、`packages/scraper/uv.lock` を持ちます。各 `pyproject.toml` をもとに `uv sync` すると、解決されたパッケージの具体的なバージョンが記録され、その内容に沿って仮想環境が作られます。
 
-Dockerfile では `uv sync --frozen` を使うため、lockfile を更新せず、記録済みの依存関係で再現性のある環境を作ります。
+Dockerfileでは`uv sync --locked --no-dev`を使い、lockfileを更新せずに開発専用依存を除いて導入します。
+`pyproject.toml`とlockfileが整合していない場合は、ビルドを失敗させます。
 
 ## フロントエンドを単体で起動する
 
@@ -925,7 +926,7 @@ pnpm --filter @press-watch/web start --hostname 127.0.0.1
 productionで7部品を確認する時は、秘密ファイル・既存依存・生成物を含まない一時コピーを作る。
 そのコピーだけで確認ページのdevelopment判定と`notFound()`呼び出しを外し、frozen install・型生成・型チェック・build/startを行う。
 納品ソースにはこの変更を取り込まず、通常ソースのproductionで404になることも別に確認する。
-Dockerでは既存のWeb DockerfileとCorepack経路を使い、新規コンテナ内で検証した後、同じコンテナ内の本番ビルドを`start --hostname 0.0.0.0`で起動する。
+DockerではWeb Dockerfileの`development`ターゲット（`build --target development`）とCorepack経路を使い、新規コンテナ内で検証した後、同じコンテナ内の本番ビルドを`start --hostname 0.0.0.0`で起動する。
 ホスト側は`127.0.0.1`へ限定して公開し、確認後に今回作成したリソースだけを片付ける。
 Dockerの開発画面は`http://localhost:<公開ポート>/ui-foundation`で開く。
 コンテナ内を`0.0.0.0`で起動した場合、閲覧先の`127.0.0.1`はNext.jsの開発リソースのorigin制限に拒否されるため、ループバック公開を維持して`localhost`を使う。
@@ -1229,6 +1230,7 @@ workflow全体にパス条件を付けず、変更判定と空白検査を実行
 | `apps/web/**`のMarkdown以外 | 実行 |
 | ルートのマニフェスト・lockfile・workspace、Oxc設定、`.editorconfig`・`.gitattributes` | 実行 |
 | workflow・CI判定スクリプト・Web Dockerfile | 実行 |
+| `.dockerignore`・`infra/compose.production-test.yml` | 実行 |
 | Python専用変更、その他上記の実行対象を含まない変更、差分なし | 理由を表示して省略 |
 
 実行対象を一つでも含むと、Ubuntu 24.04、Node.js 24.22.2、pnpm 12.8.1でfrozen install、型生成、型チェック、lint、format確認、ビルド、Chromium画面テストを順に実行します。
@@ -2836,3 +2838,7 @@ docker compose --env-file .env -f infra/compose.yml down
 
 通常の停止手順で使う `docker compose down` は、`postgres17_data` と PostgreSQL 18 で使用していた `postgres_data` を削除しません。
 DBボリュームの削除は保存済みデータを失う操作であるため、PostgreSQL 17 への切り替えや通常の開発手順には含めません。
+
+## Phase 7の本番用Docker
+
+本番用イメージの構成と隔離した合成DB検証の手順は[本番用Docker](production-docker.md)を参照してください。
