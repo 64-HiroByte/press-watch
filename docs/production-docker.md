@@ -69,12 +69,14 @@ HTTPの確認にはWebイメージに含まれるNode.jsを使い、検証用の
 このComposeは本番配置には使わない。
 
 同名のproject・イメージ・コンテナ・ネットワークがあれば作業を止めて確認する。
+通常の再確認ではビルドキャッシュを使う。
+初回の再現性確認やキャッシュの影響を切り分けるためにクリーンビルドが必要な場合だけ、下記の`build`コマンドに`--no-cache`を追加する。
 
 ```bash
 (
 set -e
 production_validation_cli compose -f infra/compose.production-test.yml --profile job config --quiet
-production_validation_cli compose -f infra/compose.production-test.yml --profile job build --no-cache
+production_validation_cli compose -f infra/compose.production-test.yml --profile job build
 production_validation_cli compose -f infra/compose.production-test.yml up -d --wait db
 production_validation_cli compose -f infra/compose.production-test.yml run --rm -T api .venv/bin/alembic upgrade head
 production_validation_cli compose -f infra/compose.production-test.yml run --rm -T api .venv/bin/python -m press_watch_api.commands.seed_fixed_categories
