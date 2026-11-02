@@ -6,9 +6,7 @@ services:
       context: ..
       dockerfile: infra/docker/web.Dockerfile
       target: development
-    command: pnpm --filter @press-watch/web dev --hostname 0.0.0.0
     environment:
-      NEXT_TELEMETRY_DISABLED: "1"
       NODE_ENV: development
       PRESSWATCH_API_BASE_URL: http://api:8000
     ports:
@@ -23,7 +21,6 @@ services:
       context: ..
       dockerfile: infra/docker/python.Dockerfile
       target: development
-    command: uv run fastapi dev src/press_watch_api/main.py --host 0.0.0.0
     environment:
       DATABASE_URL: postgresql+psycopg://presswatch:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/presswatch
     ports:

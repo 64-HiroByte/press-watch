@@ -7,8 +7,6 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/package.json
 RUN corepack enable pnpm \
     && corepack install \
-    && pnpm --version \
-    && COREPACK_ENABLE_NETWORK=0 pnpm --version \
     && pnpm install --filter @press-watch/web... --frozen-lockfile
 
 FROM dependencies AS development
@@ -17,13 +15,8 @@ EXPOSE 3000
 CMD ["pnpm", "--filter", "@press-watch/web", "dev", "--hostname", "0.0.0.0"]
 
 FROM dependencies AS build
-ENV PRESSWATCH_STANDALONE=1
-COPY apps/web/app apps/web/app
-COPY apps/web/components apps/web/components
-COPY apps/web/lib apps/web/lib
-COPY apps/web/mock apps/web/mock
-COPY apps/web/public apps/web/public
-COPY apps/web/next.config.ts apps/web/tsconfig.json apps/web/postcss.config.mjs apps/web/components.json apps/web/
+ENV NODE_ENV=production PRESSWATCH_STANDALONE=1
+COPY apps/web apps/web
 RUN pnpm build:web
 
 FROM base AS production

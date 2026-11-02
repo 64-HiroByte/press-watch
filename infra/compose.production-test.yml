@@ -15,7 +15,6 @@ services:
       target: production
     image: presswatch-production-validation-web
     environment:
-      HOSTNAME: 0.0.0.0
       PRESSWATCH_API_BASE_URL: http://api:8000
     networks: [validation]
     security_opt: [no-new-privileges:true]
