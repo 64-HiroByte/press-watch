@@ -38,6 +38,7 @@ COPY packages/scraper/src /workspace/packages/scraper/src
 # 子プロセスはUV環境変数を引き継がないため、設定ファイルで取得を禁止する。
 RUN mkdir -p /etc/uv && printf 'offline = true\npython-downloads = "never"\n' > /etc/uv/uv.toml
 USER app
+STOPSIGNAL SIGINT
 ENTRYPOINT ["/app/.venv/bin/python", "-m", "press_watch_api.commands.fetch_and_save_env_press"]
 
 FROM runtime AS production

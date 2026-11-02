@@ -17,6 +17,8 @@ PythonのAPI用venvは開発・本番とも`/app/.venv`に置き、本番ソー�
 
 Webのstandalone出力は本番Dockerのビルド時だけ`PRESSWATCH_STANDALONE=1`で有効にする。
 ジョブはAPI・scraperのソースと両venvを既存CLIが参照する配置に収録し、`/etc/uv/uv.toml`で実行時の依存・Python取得を禁止する。
+ジョブの停止シグナルは`SIGINT`とし、Dockerの停止要求を既存CLIの中断・子プロセス停止処理へ渡す。
+中断時の終了130は正常完了の0と区別し、配置先が`SIGTERM`を明示する場合は別途停止処理への対応が必要になる。
 
 ベースイメージはdigest、依存はlockfileで固定し、各サービスを非rootで実行する。
 秘密ファイル・認証設定・ホストの依存を渡さず、WebへDB接続設定を渡さない。
@@ -108,6 +110,7 @@ HTTP応答の確認はブラウザー操作の検証とは区別し、画面の�
 
 不正fixtureと接続不能な専用DB設定で非ゼロ終了、productionの`/mock`・`/ui-foundation`の404、静的ファイルの200を確認する。
 空のuvキャッシュでジョブを実行し、非rootと通信遮断を確認する。
+待機する合成scraper子プロセスでジョブを起動し、シグナルを上書きしない`docker stop`で猶予内の中断終了・子プロセスの停止を確認する。
 秘密情報を含まないダミー`.env`を一時contextのルート・Web配下へ置き、build contextと実行イメージへの非混入を確認する。
 
 途中で失敗した場合も、終了時は`production_validation_cli compose -f infra/compose.production-test.yml down`を実行する。
@@ -175,3 +178,16 @@ Next.js修正版の採用後に再ビルド・回帰確認・再測定を行い�
 統合後のWeb・Python・一時PostgreSQL 17の実CI結果は[PR #130](https://github.com/64-HiroByte/press-watch/pull/130)で確認する。
 本番Dockerを対象とするブラウザー操作テストは統合後に再実行しておらず、既存CIの画面テストと区別する。
 従来の性能値とamd64の結果は統合前の記録であり、今回の再測定・再検証結果としては扱わない。
+
+### Dockerfile・Compose整理後の確認
+
+Webのビルド用ソースをディレクトリ単位でコピーし、本番ビルド時の`NODE_ENV=production`を明示した。
+Linux arm64で開発・ビルド・本番ターゲットのビルドと設定分離、新規ソースディレクトリの取り込み、ダミーenv・ホスト生成物の除外、本番へのテストファイル非混入を確認した。
+同じ本番イメージを異なるポート・合成API接続先で起動し、HTTP・HTML・静的ファイル・開発専用ルート404、非rootでのNext.jsキャッシュ領域への書き込み、停止を確認した。
+専用資源・一時領域は削除し、この追加確認では実CIとブラウザー操作テストを再実施していない。
+
+続いてpnpmのバージョン確認2行とComposeの同値設定を削除し、ジョブだけに`STOPSIGNAL SIGINT`を設定した。
+Linux arm64で5ターゲットのビルド、合成PostgreSQL 17への62件保存・再実行62件skip、本番API・WebのHTTP応答と非root実行を確認した。
+実際のuv経由で待機する合成scraper子プロセスを起動し、既定の`docker stop`で子の停止処理を通り、約0.19秒で終了130となった。
+APIの停止シグナルに変更がないこと、通信遮断下の開発Web・API起動、3つの依存ボリュームを再利用した再起動も確認した。
+専用資源は削除済みで、実際のHTTP巡回中・DB保存中の中断、amd64、実CI、ブラウザー操作は今回の再確認に含めていない。
