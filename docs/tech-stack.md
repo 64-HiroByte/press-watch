@@ -61,7 +61,7 @@
 2026年11月1日のPhase 7更新で、24.22.1のセキュリティ修正と24.22.2の後続修正を取り込む。
 PC全体の既定Node.jsは24.21.0を維持し、Voltaの取得キャッシュとプロジェクト指定を使う。
 pnpm 12.8.1とlockfile、Next.js・React・TypeScript・型定義・UI依存は維持する。
-根拠と実行結果、実CIの未確認範囲は[Node.js更新の検証記録](local-development.md#phase-7のnodejsセキュリティ更新)を参照する。
+根拠とローカル・Docker・実CIの実行結果は[Node.js更新の検証記録](local-development.md#phase-7のnodejsセキュリティ更新)を参照する。
 
 ### Next.js
 
@@ -531,3 +531,5 @@ Node.js等のセキュリティ更新を本番用Docker整備・Linux費用測�
 - 要件定義、設計判断、レビュー、修正指示は開発者本人が担う
 - 一度に大きく実装せず、小さな単位で差分確認しながら進める
 - まずは PressWatch の MVP 完成を優先する
+
+本番用Dockerは[構成・検証手順](production-docker.md)を参照する。

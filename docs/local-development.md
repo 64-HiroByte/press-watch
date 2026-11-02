@@ -192,9 +192,9 @@ productionの`/mock`・`/ui-foundation`はHTTP 404でした。
 検証用サーバー・専用コンテナを終了し、専用イメージを削除して3105〜3108番の待受がないことを確認しました。
 検証用コピー・ブラウザー・store・一時スクリプトも削除しました。
 
-実CIは未実施であり、過去のCI成功やローカル検証を更新後の実CI成功として扱いません。
-Web workflow変更は既存Python CIと一時PostgreSQL 17も起動するため、検証・全差分の報告後、commit・push・PR作成と併せて別承認を確認します。
-Node.js更新のタスクは実CI確認まで未完了とし、Next.js・本番実行環境の項目も未完了のままとします。
+Node.js更新はPR #129で実CI確認まで完了しました。
+上記のローカル・Docker結果と、GitHub Actionsの実CI確認は別の検証です。
+Next.js・本番実行環境の項目は引き続き未完了です。
 実API・DB・実サイトへの接続、デプロイ・公開、本人による手動確認は行っていません。
 [Next.jsの11月3日修正予告](https://nextjs.org/blog/upcoming-nextjs-security-release-november-2026)は別途確認・更新承認が必要な事項として残します。
 
@@ -1229,6 +1229,7 @@ workflow全体にパス条件を付けず、変更判定と空白検査を実行
 | `apps/web/**`のMarkdown以外 | 実行 |
 | ルートのマニフェスト・lockfile・workspace、Oxc設定、`.editorconfig`・`.gitattributes` | 実行 |
 | workflow・CI判定スクリプト・Web Dockerfile | 実行 |
+| `.dockerignore`・`infra/compose.production-test.yml` | 実行 |
 | Python専用変更、その他上記の実行対象を含まない変更、差分なし | 理由を表示して省略 |
 
 実行対象を一つでも含むと、Ubuntu 24.04、Node.js 24.22.2、pnpm 12.8.1でfrozen install、型生成、型チェック、lint、format確認、ビルド、Chromium画面テストを順に実行します。
@@ -2836,3 +2837,7 @@ docker compose --env-file .env -f infra/compose.yml down
 
 通常の停止手順で使う `docker compose down` は、`postgres17_data` と PostgreSQL 18 で使用していた `postgres_data` を削除しません。
 DBボリュームの削除は保存済みデータを失う操作であるため、PostgreSQL 17 への切り替えや通常の開発手順には含めません。
+
+## Phase 7の本番用Docker
+
+開発環境とは別の本番用イメージ、隔離した合成DB検証、測定結果は[本番用Docker](production-docker.md)を参照してください。
