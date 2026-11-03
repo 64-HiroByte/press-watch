@@ -6,7 +6,8 @@ import re
 from time import monotonic, sleep
 from typing import Any, Literal, NoReturn, Protocol
 from urllib.error import HTTPError
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.robotparser import RobotFileParser
 from urllib.request import (
     HTTPHandler,
     HTTPRedirectHandler,
@@ -19,6 +20,7 @@ from bs4 import BeautifulSoup
 from bs4.element import AttributeValueList, Tag
 
 from ._diagnostics import redact_url_credentials
+from ._robots import RobotsCheckError, parse_robots
 
 
 BASE_URL = 'https://www.env.go.jp'
@@ -37,6 +39,7 @@ UNSAFE_ASCII_URL_CHARACTERS = frozenset('<>"\\^`{|}')
 UNSAFE_REDIRECT_REASON = 'redirect target rejected'
 INVALID_PERCENT_ESCAPE_RE = re.compile(r'%(?![0-9A-Fa-f]{2})')
 MAX_DIAGNOSTIC_VALUE_LENGTH = 200
+MAX_ROBOTS_BODY_BYTES = 512 * 1024
 
 CLASS_ARCHIVE_MONTH_LINK = 'c-table-month__col__link'
 CLASS_PRESS_DATE_HEADING = 'p-press-release-list__heading'
@@ -75,7 +78,7 @@ UrlValidationReason = Literal[
 
 
 class _RequestRateLimiter:
-    """HTTP要求の開始間隔を制御する内部rate limiter"""
+    """HTTP要求の開始間隔と実行内のrobots解析結果を共有する内部制御"""
 
     def __init__(
         self,
@@ -108,6 +111,7 @@ class _RequestRateLimiter:
         self._first_request_started_at: float | None = None
         self._last_request_started_at: float | None = None
         self._request_count = 0
+        self._robots_cache: dict[tuple[str, str, int] | None, RobotFileParser] = {}
 
     def wait(self, target_url: str = '') -> None:
         """次のHTTP要求を開始できるまで待機
@@ -159,9 +163,20 @@ class _RequestRateLimiter:
 class _RateLimitedHTTPHandler(HTTPHandler):
     """HTTP送信直前に共有rate limiterを通すhandler"""
 
-    def __init__(self, rate_limiter: _RequestRateLimiter) -> None:
+    def __init__(
+        self,
+        rate_limiter: _RequestRateLimiter,
+        before_request: Callable[[Request], None] | None = None,
+    ) -> None:
+        """送信前確認と要求間隔制御を保持
+
+        Args:
+            rate_limiter: 同じ実行内の要求間隔制御
+            before_request: HTTP送信前の許可確認
+        """
         super().__init__()
         self._rate_limiter = rate_limiter
+        self._before_request = before_request
 
     def http_open(self, req: Request) -> Any:
         """HTTP要求を送信
@@ -173,6 +188,8 @@ class _RateLimitedHTTPHandler(HTTPHandler):
             HTTPレスポンス
         """
 
+        if self._before_request is not None:
+            self._before_request(req)
         self._rate_limiter.wait(req.full_url)
         return self.do_open(http.client.HTTPConnection, req)
 
@@ -180,9 +197,20 @@ class _RateLimitedHTTPHandler(HTTPHandler):
 class _RateLimitedHTTPSHandler(HTTPSHandler):
     """HTTPS送信直前に共有rate limiterを通すhandler"""
 
-    def __init__(self, rate_limiter: _RequestRateLimiter) -> None:
+    def __init__(
+        self,
+        rate_limiter: _RequestRateLimiter,
+        before_request: Callable[[Request], None] | None = None,
+    ) -> None:
+        """送信前確認と要求間隔制御を保持
+
+        Args:
+            rate_limiter: 同じ実行内の要求間隔制御
+            before_request: HTTP送信前の許可確認
+        """
         super().__init__()
         self._rate_limiter = rate_limiter
+        self._before_request = before_request
 
     def https_open(self, req: Request) -> Any:
         """HTTPS要求を送信
@@ -194,6 +222,8 @@ class _RateLimitedHTTPSHandler(HTTPSHandler):
             HTTPSレスポンス
         """
 
+        if self._before_request is not None:
+            self._before_request(req)
         self._rate_limiter.wait(req.full_url)
         return self.do_open(
             http.client.HTTPSConnection,
@@ -423,13 +453,14 @@ def fetch_press_page_html(
     Args:
         url: 取得対象のURL
         timeout: HTTPリクエストのタイムアウト秒数
-        rate_limiter: 同じ取得処理内で共有する要求間隔制御
+        rate_limiter: 同じ取得処理内で共有する要求間隔制御とrobots解析結果
 
     Returns:
         レスポンスの文字コードに従ってデコードしたHTML
 
     Raises:
         InvalidFetchUrlError: 取得対象URLが取得条件を満たさない場合
+        RobotsCheckError: robotsの禁止または確認不能の場合
     """
 
     try:
@@ -446,10 +477,20 @@ def fetch_press_page_html(
         headers={USER_AGENT_HEADER: USER_AGENT},
     )
     rate_limiter = rate_limiter or _RequestRateLimiter()
+
+    def check(request: Request) -> None:
+        """初回およびredirect先の許可を送信前に確認
+
+        Args:
+            request: 実際の送信対象
+        """
+        _check_robots(request, timeout, rate_limiter)
+
     with _open_same_origin_url(
         request,
         timeout,
         rate_limiter=rate_limiter,
+        before_request=check,
     ) as response:
         charset = response.headers.get_content_charset() or CHARSET
         return response.read().decode(charset, errors='replace')
@@ -987,11 +1028,111 @@ def _url_origin(url: str) -> tuple[str, str, int] | None:
     return scheme, hostname, port
 
 
+class _RejectRobotsRedirectHandler(HTTPRedirectHandler):
+    """robots取得時のredirectを送信前に拒否するhandler"""
+
+    def redirect_request(
+        self,
+        req: Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> NoReturn:
+        """転送元応答を閉じて確認不能を通知
+
+        Args:
+            req: 転送元の要求
+            fp: 転送元の応答
+            code: HTTPステータス
+            msg: HTTPメッセージ
+            headers: 応答ヘッダー
+            newurl: 転送先
+
+        Raises:
+            RobotsCheckError: robotsのredirectを受け取った場合
+        """
+        if fp is not None:
+            fp.close()
+        raise RobotsCheckError('robots check failed: redirect rejected')
+
+
+def _check_robots(
+    request: Request,
+    timeout: float,
+    rate_limiter: _RequestRateLimiter,
+) -> None:
+    """実行内のrobotsを再利用して送信対象の許可を確認
+
+    Args:
+        request: 許可確認する要求
+        timeout: robots要求のタイムアウト秒数
+        rate_limiter: robotsと対象ページで共有する間隔制御・キャッシュ
+
+    Raises:
+        RobotsCheckError: 禁止またはrobots確認不能の場合
+    """
+    parts = urlsplit(request.full_url)
+    if parts.path.startswith('//'):
+        raise RobotsCheckError('robots check failed: unsupported target path')
+    target_url = urlunsplit(
+        (parts.scheme, parts.netloc, parts.path or '/', '', '')
+    )
+    # urlunsplitだけでは失われる末尾の空queryも、実際の送信先と同じ形で保持する。
+    if '?' in request.full_url.partition('#')[0]:
+        target_url += f'?{parts.query}'
+    origin = _url_origin(request.full_url)
+    if origin not in rate_limiter._robots_cache:
+        robots_url = urlunsplit(
+            (parts.scheme, parts.netloc, '/robots.txt', '', '')
+        )
+        robots_request = Request(
+            robots_url, headers={USER_AGENT_HEADER: USER_AGENT},
+        )
+        try:
+            with _open_same_origin_url(
+                robots_request,
+                timeout,
+                rate_limiter=rate_limiter,
+                robots_request=True,
+            ) as response:
+                content_type = response.headers.get('Content-Type', '')
+                media_type = content_type.partition(';')[0].strip().lower()
+                if (
+                    response.getcode() != 200
+                    or media_type != 'text/plain'
+                ):
+                    raise RobotsCheckError('robots check failed: unexpected response')
+                body = response.read(MAX_ROBOTS_BODY_BYTES + 1)
+                if len(body) > MAX_ROBOTS_BODY_BYTES:
+                    raise RobotsCheckError('robots check failed: body too large')
+                content_length = response.headers.get('Content-Length')
+                if content_length is not None and int(content_length) != len(body):
+                    raise RobotsCheckError('robots check failed: incomplete body')
+                parser = parse_robots(body)
+        except RobotsCheckError:
+            raise
+        except HTTPError as exc:
+            exc.close()
+            raise RobotsCheckError('robots check failed: HTTP error') from exc
+        except Exception as exc:
+            raise RobotsCheckError('robots check failed: fetch failed') from exc
+        rate_limiter._robots_cache[origin] = parser
+    if not rate_limiter._robots_cache[origin].can_fetch(
+        USER_AGENT,
+        target_url,
+    ):
+        raise RobotsCheckError('robots check failed: disallowed')
+
+
 def _open_same_origin_url(
     request: Request,
     timeout: float,
     *,
     rate_limiter: _RequestRateLimiter,
+    before_request: Callable[[Request], None] | None = None,
+    robots_request: bool = False,
 ) -> Any:
     """同一オリジンのリダイレクトだけを許可してURLを開く
 
@@ -999,15 +1140,21 @@ def _open_same_origin_url(
         request: 取得対象のHTTP Request
         timeout: HTTPリクエストのタイムアウト秒数
         rate_limiter: 初回要求とredirect先で共有する要求間隔制御
+        before_request: 各HTTP送信前の許可確認
+        robots_request: robots要求としてredirectを拒否するかどうか
 
     Returns:
         context managerとして利用できるHTTPレスポンス
     """
 
     opener = build_opener(
-        _SameOriginRedirectHandler(),
-        _RateLimitedHTTPHandler(rate_limiter),
-        _RateLimitedHTTPSHandler(rate_limiter),
+        (
+            _RejectRobotsRedirectHandler()
+            if robots_request
+            else _SameOriginRedirectHandler()
+        ),
+        _RateLimitedHTTPHandler(rate_limiter, before_request),
+        _RateLimitedHTTPSHandler(rate_limiter, before_request),
     )
     return opener.open(request, timeout=timeout)
 
