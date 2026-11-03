@@ -44,6 +44,38 @@ class FetchAndSaveCommandTest(unittest.TestCase):
             ),
         )
 
+    def test_robots_failure_from_scraper_prevents_save(self) -> None:
+        """scraperのrobots失敗を伝達し保存Sessionを作成しないこと"""
+        session_factory = Mock()
+        stdout, stderr = io.StringIO(), io.StringIO()
+        completed = Mock(
+            returncode=1,
+            stdout='',
+            stderr=(
+                'error: exception=RobotsCheckError '
+                'reason=robots check failed: disallowed'
+            ),
+        )
+        with (
+            patch.object(
+                fetch_and_save_env_press,
+                '_run_scraper_process',
+                return_value=completed,
+            ),
+            patch.object(fetch_and_save_env_press, 'save_press_releases') as save,
+        ):
+            code = main(
+                ['--url', INDEX_URL],
+                session_factory=session_factory,
+                stdout=stdout,
+                stderr=stderr,
+            )
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout.getvalue(), '')
+        self.assertIn('RobotsCheckError', stderr.getvalue())
+        session_factory.assert_not_called()
+        save.assert_not_called()
+
     def test_main_rejects_non_positive_known_release_months(self) -> None:
         """既知URLの取得月数に0以下を許可しないこと"""
 
