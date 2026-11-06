@@ -1,5 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 import { resolve } from "node:path";
+import { testBasicAuth, testBasicAuthEnv } from "./tests/support/basic-auth";
 
 const devURL = "http://127.0.0.1:3105";
 const productionURL = "http://127.0.0.1:3106";
@@ -32,7 +33,10 @@ export default defineConfig({
         "category.spec.ts",
         "url.spec.ts",
       ],
-      use: { baseURL: productionURL },
+      use: {
+        baseURL: productionURL,
+        httpCredentials: { ...testBasicAuth, origin: productionURL },
+      },
     },
   ],
   webServer: [
@@ -51,13 +55,27 @@ export default defineConfig({
     },
     {
       command: "pnpm start --hostname 127.0.0.1 --port 3106",
-      url: `${productionURL}/third-party-notices.txt`,
+      url: `${productionURL}/health`,
       env: {
+        ...testBasicAuthEnv,
         NODE_ENV: "production",
         NEXT_TELEMETRY_DISABLED: "1",
         PRESSWATCH_API_BASE_URL: "http://127.0.0.1:3107",
         NODE_OPTIONS: `--require ${resolve("tests/support/server-clock.cjs")}`,
         PRESSWATCH_TEST_CLOCK_FILE: resolve("../../tmp/playwright/server-clock.json"),
+      },
+      reuseExistingServer: false,
+      timeout: 120_000,
+    },
+    {
+      command: "pnpm start --hostname 127.0.0.1 --port 3110",
+      port: 3110,
+      env: {
+        NODE_ENV: "production",
+        NEXT_TELEMETRY_DISABLED: "1",
+        PRESSWATCH_API_BASE_URL: "http://127.0.0.1:3107",
+        PRESSWATCH_BASIC_AUTH_USER: testBasicAuth.username,
+        PRESSWATCH_BASIC_AUTH_PASSWORD: "",
       },
       reuseExistingServer: false,
       timeout: 120_000,
