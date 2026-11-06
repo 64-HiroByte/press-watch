@@ -11,13 +11,14 @@ Railwayでの設定・配置とSupabaseへの適用は未実施である。
 | 合意済みの計画条件 | 初期のFastAPIは内部用とし、外部プログラム向けの入口は必要になった時点で検討する |
 | 合意済みの計画条件 | Railwayの請求期間内の対象利用量が$10に達したら停止し、翌請求期間の自動再開を許容する |
 | ユーザーの希望 | 通常の差分取得は1日2回を希望。正確な時刻は未確定 |
-| 構成の第一候補 | RailwayにNext.js・FastAPI・取得ジョブをまとめ、採用済みのSupabase PostgreSQLをDBとして使う。WebをVercelへ分離しない |
+| 決定した配置先 | 初回のNext.jsとFastAPIはRailwayに配置し、DBは採用済みのSupabase PostgreSQLを使う |
+| 取得ジョブの配置案 | Railwayへの配置を候補とし、後続タスクで配置と手動検証を行う |
 | 選定で重視すること | 管理先の少なさ、既存Python実装の活用、想定外の高額請求を抑えること |
 | 将来の希望 | Supabase Authによるユーザー登録とユーザー別ブックマーク。MVP後の別タスクとする |
 
 有料契約、クラウド設定・配置、Supabase接続・適用、依存更新は、対象と影響を示して段階ごとに承認を得る。
 
-## 構成の第一候補
+## 限定配置の構成
 
 | 配置先 | 責務と接続 |
 | --- | --- |
@@ -41,10 +42,10 @@ Next.jsサーバーからAPIを呼ぶ現在の構成を維持できるため、�
 - VercelのWeb・APIとGitHub Actionsの取得ジョブは、各無料枠内なら低コストにできる。
   Vercel Hobbyは個人・非商用利用に限られるため、無料枠と用途条件の両方を満たす必要がある。
   ただし、DB接続管理の調整と、定期実行の遅延・欠落、公開リポジトリで60日間活動がない場合の自動停止を考慮する必要がある。
-  現在は管理をまとめる方針からRailwayを第一候補にしている。
+  管理先をまとめ、既存のPython APIを活用するため、Web・APIの配置先にはRailwayを選んだ。
   [Vercel Hobby](https://vercel.com/docs/plans/hobby)、[GitHub Actionsの定期実行](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)を参照する。
 - Render Freeは15分の無通信で休止し、再起動に約1分かかる。
-  現行WebのAPI通信期限10秒とは相性が悪いため、第一候補にしない。
+  現行WebのAPI通信期限10秒とは相性が悪いため、選定から外した。
   [Render Freeの制限](https://render.com/docs/free)を参照する。
 
 ## 費用の見込みと停止条件
