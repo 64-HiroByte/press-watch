@@ -433,9 +433,11 @@ pnpm test:web
 `test:web`は現在のソースで本番ビルド済みであることを前提とします。
 Web側の`pnpm test`も同じ専用ブラウザー保存先を使い、取得時は共有キャッシュの旧版を削除する処理を無効にします。
 Playwrightが応答制御サーバーを`127.0.0.1:3107`、開発サーバーを`127.0.0.1:3105`、本番サーバーを`127.0.0.1:3106`で起動します。
-Webの準備完了はAPI取得を発生させない`/third-party-notices.txt`、応答制御サーバーは`/__ready`で確認します。
+準備完了は開発Webで`/third-party-notices.txt`、本番Webで`/health`、応答制御サーバーで`/__ready`を確認します。
+本番Webは検証専用のダミー資格情報で起動し、拒否試験では資格情報を送らない要求を使います。
+空の認証設定で503を確認する本番サーバーは`127.0.0.1:3110`で起動します。
 既存サーバーは再利用せず、ポート占有時は失敗させます。
-終了後は3105・3106・3107番に待受プロセスが残っていないことを確認します。
+終了後は3105・3106・3107・3110番に待受プロセスが残っていないことを確認します。
 
 CIでは`test.only`・`test.describe.only`を`forbidOnly`で拒否します。
 traceは`retain-on-failure`、スクリーンショットは`only-on-failure`とし、出力先はルートの`tmp/playwright/test-results`です。
@@ -475,6 +477,8 @@ PLAYWRIGHT_BROWSERS_PATH="$PWD/tmp/playwright/browsers" pnpm --filter @press-wat
 ```
 
 このconfigはWebだけを`127.0.0.1:3108`で起動・終了し、API接続先を8001番に固定します。
+Webには通常画面テストと同じダミー資格情報を設定します。
+成果物のtraceには実サービスの認証情報を含めません。
 一覧の画面上で1→2→1ページを移動し、50／12／50件の各表示をAPIの順序・タイトル・リンク・日付・全所属と照合します。
 通常の検索ボタンから日本語検索・公開日指定・リセットを行い、カテゴリ付き検索とページ送りの結果も実APIと照合します。
 カテゴリボタンから個別選択・解除・全選択・全解除を操作し、ORの件数・検索と日付とのAND・全所属・未分類・未定義slugとページ位置を照合します。
@@ -493,19 +497,20 @@ Web URLの期待値は`categories`・`from`・`to`、比較用API照会は従来
 
 実APIテスト終了後、3108番のテスト用Webが終了し、待受けがないことを確認します。
 一時Webコピーのルートで、別のターミナルから次を実行します。
-Node.js・pnpmの実行パスは[一時環境の実行方法](#製品一覧の接続先と実api画面テスト)に従い、既存の秘密情報を継承しません。
+Node.jsの実行パスは[一時環境の実行方法](#製品一覧の接続先と実api画面テスト)に従い、導入済みのNext.jsを直接起動します。
 
 ```bash
 env -i PATH="$PATH" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" LANG="${LANG:-en_US.UTF-8}" \
   NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 \
-  npm_config_userconfig=/dev/null npm_config_globalconfig=/dev/null \
   PRESSWATCH_API_BASE_URL=http://127.0.0.1:8001 \
-  pnpm --filter @press-watch/web exec next start --hostname 127.0.0.1 --port 3108
+  PRESSWATCH_BASIC_AUTH_USER=presswatch-test PRESSWATCH_BASIC_AUTH_PASSWORD=local-test-only \
+  node apps/web/node_modules/next/dist/bin/next start apps/web --hostname 127.0.0.1 --port 3108
 ```
 
 実行環境のプロセス管理機能を使う場合も、同じ環境と引数で起動し、今回のWeb・APIのPID・プロセスグループ、専用Compose projectを記録します。
 3108番を自動テストと同時に使わず、既存プロセスを停止したり別ポートへ自動で切り替えたりしません。
 Webの起動と専用API由来の合成一覧を確認してから、`http://127.0.0.1:3108`を案内します。
+ブラウザーの認証ダイアログには、上の起動例のダミー資格情報を入力します。
 一覧内の検索・公開日・カテゴリ・ページ送り・下書き・履歴・各解除、文字サイズ・テーマ・狭い画面・キーボードを確認し、記事の外部リンクは開きません。
 
 案内後は「手動確認待ち」とし、本人の終了・中断・省略の指示までサービスを維持します。
@@ -920,13 +925,14 @@ Phase 7の作業は開始していません。
 通常ソースのproduction確認は、型生成・型チェック・ビルドの後に次を実行する。
 
 ```bash
-pnpm --filter @press-watch/web start --hostname 127.0.0.1
+PRESSWATCH_BASIC_AUTH_USER=presswatch-test PRESSWATCH_BASIC_AUTH_PASSWORD=local-test-only \
+  pnpm --filter @press-watch/web start --hostname 127.0.0.1
 ```
 
 productionで7部品を確認する時は、秘密ファイル・既存依存・生成物を含まない一時コピーを作る。
 そのコピーだけで確認ページのdevelopment判定と`notFound()`呼び出しを外し、frozen install・型生成・型チェック・build/startを行う。
 納品ソースにはこの変更を取り込まず、通常ソースのproductionで404になることも別に確認する。
-DockerではWeb Dockerfileの`development`ターゲット（`build --target development`）とCorepack経路を使い、新規コンテナ内で検証した後、同じコンテナ内の本番ビルドを`start --hostname 0.0.0.0`で起動する。
+DockerではWeb Dockerfileの`development`ターゲット（`build --target development`）とCorepack経路を使い、新規コンテナ内で検証した後、同じコンテナ内の本番ビルドを上と同じダミー資格情報で`start --hostname 0.0.0.0`により起動する。
 ホスト側は`127.0.0.1`へ限定して公開し、確認後に今回作成したリソースだけを片付ける。
 Dockerの開発画面は`http://localhost:<公開ポート>/ui-foundation`で開く。
 コンテナ内を`0.0.0.0`で起動した場合、閲覧先の`127.0.0.1`はNext.jsの開発リソースのorigin制限に拒否されるため、ループバック公開を維持して`localhost`を使う。
@@ -2157,7 +2163,8 @@ ID・作成日時・更新日時は環境間で一致を要求せず、各DBへ�
    起動方法とコマンドの契約は、[固定カテゴリの初期データを取り込む](#固定カテゴリの初期データを取り込む)と[既存報道発表を固定カテゴリで再分類する](#既存報道発表を固定カテゴリで再分類する)を参照してください。
    migration後と再分類後に、原本全8列が投入直後の基準から変わっていないことを確認しました。
 6. APIをDBセッションの既定が読み取り専用となる設定で`127.0.0.1:8002`へ起動し、秘密ファイルを含めない一時Webを`127.0.0.1:3109`へ起動します。
-   Webへ渡すのはローカルAPIのURLだけとし、DB資格情報は渡しません。
+   WebにはローカルAPIのURLを設定し、DB資格情報は渡しません。
+   再実行時の本番Webには、[手動確認手順](#専用実apiで本人の画面操作を確認する)と同じダミー資格情報を設定します。
    通常のWeb起動で既存の秘密設定を意図せず読み込まないよう、今回の確認には必要なソースと固定lockfileだけを複製した環境を使いました。
 7. 今回起動したAPI・Webだけを停止した後、同じコンテナ・同じ永続ボリュームのDBを再起動します。
    再起動後にrevision・業務4テーブルの全列・全所属・連番状態を比較し、API・Webを再開して確認します。
@@ -2239,8 +2246,14 @@ Phase 6の実データ確認は永続開発DBを対象として完了し、Supab
 検討済みの公式ソースから専用ディレクトリへビルドする方法は、Phase 7の実行前に必要性・配布物・依存先を再確認します。
 ツールの取得・ビルド・配置とSupabaseのバックアップ取得は未実施であり、この文書更新を実行承認として扱いません。
 
-今回の読み取り専用診断では、SupabaseはPostgreSQL 17.6・revision`9f2c7a4e1d63`・原本0件・カテゴリ3テーブルなしでした。
+過去の読み取り専用診断では、SupabaseはPostgreSQL 17.6・revision`9f2c7a4e1d63`・原本0件・カテゴリ3テーブルなしでした。
 ローカルと同じ保存済み34,421件を使う方針であり、Supabaseを初回の実データ検証先にはしません。
+
+限定配置は記事0件とカテゴリ定義で先に検証します。
+このためのmigration・seed・API専用ロールの作成も、現況確認と直前バックアップの後、別承認で行います。
+変更対象のロール属性・所属・設定・権限の前後と承認SQLを秘密情報なしで記録します。
+通常の`pg_dump`にはロール定義・所属が含まれないため、復旧方法はこの記録とバックアップを基に決めます。
+実データ適用時は、すでに適用したrevision・カテゴリ定義・権限・記事集合・連番を確認し、その時点の状態に合わせて手順を計画します。
 
 - ツールの取得・ビルド・配置、一時手順の作成、読み取り専用の現況確認とバックアップ取得・検査を準備段階として具体化し、必要な承認を得ます。
   準備結果と制約を報告してから、DB更新と必要なAPI・Web利用の適用段階へ進みます。
@@ -2249,9 +2262,9 @@ Phase 6の実データ確認は永続開発DBを対象として完了し、Supab
 - 承認後も、書込み処理を止めた直後かつ適用直前に接続先・revision・原本集合・所属・権限を再確認し、Supabase側のバックアップを先に取得・検査します。
 - 対象原本がローカルで検証した集合と違う場合は、未検証のままSupabaseへ適用せず、ローカルへの準備・再検証の計画と必要な承認へ戻ります。
   件数だけでなく、URLをキーにタイトル・公開日・取得元カテゴリ・取得日時を比較します。
-  現在の0件は投入前の状態であり、既存行が増えた場合に同じ空DB投入手順を流用しません。
-- SupabaseのData APIは無効で、Direct connectionによるDB接続とは別の設定です。
-  `anon`・`authenticated`の原本SELECT権限はありませんが、他の書込み権限やデフォルト権限が残り、RLSも無効のため、公開可能な状態の確認が済んだとは扱いません。
+  過去の0件は投入前の状態であり、既存行が増えた場合に同じ空DB投入手順を流用しません。
+- SupabaseのData APIはDirect connectionによるDB接続とは別の設定であり、過去の診断では無効でした。
+  過去の診断では`anon`・`authenticated`の原本SELECT権限はなく、他の書込み権限とデフォルト権限、RLSの未設定を確認しました。
   所有者接続と`service_role`もRLSを回避できるため、RLSだけを安全性の根拠にしません。
   Data API・権限・RLSの変更は今回行わず、将来の有効化やmigration・公開前に再確認し、必要な変更は別承認にします。
 
@@ -2264,14 +2277,19 @@ Direct connection は IPv6 を使用するため、接続元の環境が IPv6 �
 接続には Supabase ダッシュボードの Direct connection URI と DB パスワードを使用します。
 実際の URI、パスワード、プロジェクト識別子は、この文書、コマンド履歴、ログへ記録しません。
 URI とパスワードは非表示入力で現在のシェルだけへ読み込み、既存の `DATABASE_URL` へ変換します。
+対象プロジェクトのダッシュボードからCAを取得し、絶対パスを`PGSSLROOTCERT`で指定して`sslmode=verify-full`で接続します。
+証明書・ホスト名の検証に失敗した場合は原因を確認して停止します。
+[SupabaseのSSL接続](https://supabase.com/docs/guides/platform/ssl-enforcement)を参照してください。
 
 ```zsh
 cd apps/api
 set +x
-unset DATABASE_URL
+unset DATABASE_URL PGSSLROOTCERT
 
 prepare_supabase_url() {
-    local SUPABASE_DIRECT_URI SUPABASE_DB_PASSWORD url_build_status
+    local SUPABASE_CA_FILE SUPABASE_DIRECT_URI SUPABASE_DB_PASSWORD url_build_status
+    read -r "SUPABASE_CA_FILE?対象プロジェクトのCAファイルの絶対パス: " || return 1
+    [[ "$SUPABASE_CA_FILE" == /* && -f "$SUPABASE_CA_FILE" && -r "$SUPABASE_CA_FILE" ]] || return 1
     read -r -s "SUPABASE_DIRECT_URI?Direct connection URIを貼り付けてEnter: " || return 1
     echo
     read -r -s "SUPABASE_DB_PASSWORD?DBパスワードを貼り付けてEnter: " || return 1
@@ -2296,14 +2314,14 @@ try:
         and re.fullmatch(r"db\.[a-z0-9-]+\.supabase\.co", direct_url.host or "")
         and direct_url.port == 5432
         and direct_url.database == "postgres"
-        and dict(direct_url.query) in ({}, {"sslmode": "require"})
+        and dict(direct_url.query) in ({}, {"sslmode": "require"}, {"sslmode": "verify-full"})
         and password
     ):
         raise ValueError("invalid direct URI")
     database_url = URL.create(
         "postgresql+psycopg", username="postgres", password=password,
         host=direct_url.host, port=5432, database="postgres",
-        query={"sslmode": "require"},
+        query={"sslmode": "verify-full"},
     )
     print(database_url.render_as_string(hide_password=False))
 except (Exception, KeyboardInterrupt):
@@ -2315,13 +2333,13 @@ PY
         unset DATABASE_URL
         return 1
     fi
-    export DATABASE_URL
+    export DATABASE_URL PGSSLROOTCERT="$SUPABASE_CA_FILE"
 }
 
 if prepare_supabase_url; then
     echo "DATABASE_URL_READY=true"
 else
-    unset DATABASE_URL
+    unset DATABASE_URL PGSSLROOTCERT
     echo "DATABASE_URL_READY=false"
 fi
 unfunction prepare_supabase_url
@@ -2331,7 +2349,8 @@ unfunction prepare_supabase_url
 事前にAPIの開発環境セットアップを済ませ、既存の`.venv`を直接使います。
 この接続手順では依存の同期や`.env`ファイルの読取りを行いません。
 入力を中断した場合やURI形式が不正な場合は、古い`DATABASE_URL`も残さず、接続を試しません。
-URIの追加パラメータは`sslmode=require`以外を受け付けず、ホスト・資格情報・TLS設定の上書きを持ち込みません。
+URIの追加パラメータは単一の`sslmode=require`または`sslmode=verify-full`だけを受理し、どちらも出力は`verify-full`に固定します。
+追加の接続先・CA・資格情報をURIのパラメータから引き継ぎません。
 `DATABASE_URL_READY=true`を確認し、対象環境への読み取り専用接続が承認された範囲で次の確認を行います。
 
 ```bash
@@ -2341,6 +2360,7 @@ import os
 engine = None
 try:
     database_url = os.environ["DATABASE_URL"]
+    ca_file = os.environ["PGSSLROOTCERT"]
     runtime_environment = {
         key: os.environ[key] for key in ("HOME", "PATH") if key in os.environ
     }
@@ -2351,7 +2371,8 @@ try:
     from sqlalchemy.engine import make_url
 
     readonly_url = make_url(database_url).update_query_dict({
-        "sslmode": "require",
+        "sslmode": "verify-full",
+        "sslrootcert": ca_file,
         "connect_timeout": "5",
         "options": "-c search_path=public -c default_transaction_read_only=on -c statement_timeout=15000 -c lock_timeout=2000",
     })
@@ -2374,14 +2395,16 @@ finally:
 PY
 ```
 
-`DATABASE_CONNECTION_OK=true`は、読み取り専用・SSL接続とDB・ユーザー・schemaの確認を表します。
-診断では入力済みURLを保持した後、接続前に環境変数を`HOME`・`PATH`だけに絞ります。
+`DATABASE_CONNECTION_OK=true`は、証明書とホスト名を検証した読み取り専用のTLS接続とDB・ユーザー・schemaの確認を表します。
+診断では入力済みURLと明示したCAパスを保持した後、接続前に環境変数を`HOME`・`PATH`だけに絞り、CAパスは接続オプションで渡します。
 親の`PGHOSTADDR`・`PGSERVICE`などによる接続先の変更や、別の`DATABASE_URL`の引継ぎを防ぎます。
 プロジェクトの識別は、非表示入力したURIの接続先をダッシュボードの対象と別途照合します。
 この確認で、元の`DATABASE_URL`をDB更新へ使う承認が得られるわけではありません。
 エラー時は詳細な例外を出力せず、URI形式、パスワード、IPv6到達性を秘密情報なしで切り分けます。
 Supabaseへのmigration適用は、[永続開発DBで実データを確認する](#永続開発dbで実データを確認する)の条件と別承認に従います。
-利用後は`unset DATABASE_URL`で現在のシェルから接続情報を除きます。
+バックアップ・Alembicも、接続先を再照合し、他の`PG*`を除去した環境に承認済みの接続情報とCAパスだけを渡します。
+`pg_dump`には`PGSSLMODE=verify-full`と`PGSSLROOTCERT`を明示し、パスワードは非表示入力にします。
+利用後は`unset DATABASE_URL PGSSLROOTCERT`で現在のシェルから接続情報を除きます。
 
 ## 手動で取得してDBへ保存する
 

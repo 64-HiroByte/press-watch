@@ -1,9 +1,14 @@
 import importlib
 import os
+from pathlib import Path
+import stat
 import unittest
 from unittest.mock import patch
 
+from fastapi.testclient import TestClient
+
 from press_watch_api.config import load_settings
+from press_watch_api.main import app
 
 
 TEST_DATABASE_URL = "postgresql+psycopg://presswatch@127.0.0.1:5432/presswatch"
@@ -37,7 +42,7 @@ class DatabaseTest(unittest.TestCase):
         self.assertTrue(callable(reloaded_db.get_session_factory))
 
     def test_get_engine_builds_engine_from_database_url(self) -> None:
-        """Engine getterの初回呼び出しでDB設定を反映すること"""
+        """DB URLと接続上限を反映した共有Engineを初回だけ生成"""
 
         with patch.dict(os.environ, {"DATABASE_URL": TEST_DATABASE_URL}):
             db = importlib.import_module("press_watch_api.db")
@@ -51,12 +56,14 @@ class DatabaseTest(unittest.TestCase):
                 engine = reloaded_db.get_engine()
 
         self.addCleanup(engine.dispose)
-        create_engine_mock.assert_called_once_with(
-            TEST_DATABASE_URL,
-            pool_pre_ping=True,
-        )
+        self.assertEqual(create_engine_mock.call_count, 1)
+        self.assertEqual(create_engine_mock.call_args.args, (TEST_DATABASE_URL,))
+        self.assertTrue(create_engine_mock.call_args.kwargs["pool_pre_ping"])
+        self.assertEqual(create_engine_mock.call_args.kwargs.get("max_overflow"), 0)
         self.assertEqual(engine.url.drivername, "postgresql+psycopg")
         self.assertEqual(engine.url.host, "127.0.0.1")
+        self.assertEqual(engine.pool.size(), 2)
+        self.assertEqual(engine.pool.timeout(), 5)
         self.assertIs(reloaded_db.get_engine(), engine)
 
     def test_get_session_factory_reuses_engine(self) -> None:
@@ -90,6 +97,29 @@ class DatabaseTest(unittest.TestCase):
                 "DATABASE_URL is not set",
             ):
                 reloaded_db.get_engine()
+
+
+class ApiCertificateTest(unittest.TestCase):
+    """API起動時のlibpq用CA指定に関するテスト"""
+
+    def test_api_uses_owner_only_ca_file_until_shutdown(self) -> None:
+        """CA環境変数を所有者専用ファイルに保存し、終了時に元の設定へ復元"""
+
+        certificate = "dummy certificate for the file lifecycle test\n"
+        with patch.dict(
+            os.environ,
+            {"PRESSWATCH_DB_CA_CERT": certificate, "PGSSLROOTCERT": "original.crt"},
+            clear=True,
+        ):
+            with TestClient(app) as client:
+                self.assertEqual(client.get("/health").status_code, 200)
+                ca_path = Path(os.environ["PGSSLROOTCERT"])
+                self.assertTrue(ca_path.is_absolute())
+                self.assertEqual(ca_path.read_text(encoding="utf-8"), certificate)
+                self.assertEqual(stat.S_IMODE(ca_path.stat().st_mode), 0o600)
+
+            self.assertFalse(ca_path.exists())
+            self.assertEqual(os.environ["PGSSLROOTCERT"], "original.crt")
 
 
 if __name__ == "__main__":

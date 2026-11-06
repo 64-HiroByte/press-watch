@@ -11,11 +11,14 @@ PythonのAPI用venvは開発・本番とも`/app/.venv`に置き、本番ソー�
 
 | 対象 | 起動・設定 |
 | --- | --- |
-| Web | `node apps/web/server.js`。`HOSTNAME`は既定`0.0.0.0`、`PORT`は既定3000、`PRESSWATCH_API_BASE_URL`を実行時に設定する |
-| API | Uvicornを1 worker・reloadなしで起動する。`HOST`は既定`0.0.0.0`、`PORT`は既定8000、`DATABASE_URL`を実行時に設定する |
+| Web | `node apps/web/server.js`。`HOSTNAME`は既定`0.0.0.0`、`PORT`は既定3000、`PRESSWATCH_API_BASE_URL`とBasic認証の2変数を実行時に設定する |
+| API | Uvicornを1 worker・reloadなしで起動する。`HOST`は既定`0.0.0.0`、`PORT`は既定8000、`DATABASE_URL`を実行時に設定する。Supabase接続時は`PRESSWATCH_DB_CA_CERT`も渡す |
 | ジョブ | 既存の`fetch_and_save_env_press`をentrypointとし、コンテナ引数をCLIへ渡す。`DATABASE_URL`を実行時に設定する |
 
 Webのstandalone出力は本番Dockerのビルド時だけ`PRESSWATCH_STANDALONE=1`で有効にする。
+本番Webは`PRESSWATCH_BASIC_AUTH_USER`と`PRESSWATCH_BASIC_AUTH_PASSWORD`を必要とし、設定不足は503を返す。
+`/health`は有効な認証設定のもとで固定の生存応答を返す。
+Railwayの設定値、DB接続の条件、公開前の確認は[限定配置手順](deployment.md#railwayでの限定配置手順)を参照する。
 開発Webは`pnpm --filter @press-watch/web exec node --version`で`verifyDepsBeforeRun: error`による依存検証を通し、成功後に`exec`でNext.js CLIへ置き換えて停止要求をCLIの終了処理へ渡す。
 依存ボリュームを再利用する場合も検証し、不整合があれば起動を失敗させる。
 現在の`dev`スクリプトと同じ`next dev`を実行しており、スクリプトに前処理等を追加する場合はDockerの起動方法も確認する。
@@ -77,6 +80,7 @@ production_validation_cli() {
 
 4サービスを内部ネットワークだけに接続し、ホストへポートを公開しない。
 HTTPの確認にはWebイメージに含まれるNode.jsを使う。
+WebにはCompose内のダミー資格情報を使う。
 このComposeは本番配置には使わない。
 
 同名のproject・イメージ・コンテナ・ネットワークがあれば作業を止めて確認する。
@@ -95,7 +99,10 @@ production_validation_cli compose -f infra/compose.production-test.yml run --rm 
 production_validation_cli compose -f infra/compose.production-test.yml run --rm -T job
 production_validation_cli compose -f infra/compose.production-test.yml up -d web api
 production_validation_cli compose -f infra/compose.production-test.yml exec -T web node --input-type=module <<'JS'
-for (const url of ["http://api:8000/health", "http://api:8000/press-releases", "http://127.0.0.1:3000/"]) {
+import assert from "node:assert/strict";
+
+const web = "http://127.0.0.1:3000";
+for (const url of ["http://api:8000/health", web + "/health"]) {
   let response;
   for (let attempt = 0; attempt < 30; attempt++) {
     response = await fetch(url, { signal: AbortSignal.timeout(1000) }).catch(() => null);
@@ -105,6 +112,16 @@ for (const url of ["http://api:8000/health", "http://api:8000/press-releases", "
   if (!response?.ok) throw new Error(`起動・HTTP応答の確認失敗: ${url}`);
   console.log(url, response.status);
 }
+assert.equal((await fetch(web)).status, 401);
+const user = process.env.PRESSWATCH_BASIC_AUTH_USER;
+const password = process.env.PRESSWATCH_BASIC_AUTH_PASSWORD;
+const token = Buffer.from(user + ":" + password).toString("base64");
+const headers = { authorization: "Basic " + token };
+assert.equal((await fetch("http://api:8000/press-releases")).status, 200);
+assert.equal((await fetch(web, { headers })).status, 200);
+assert.equal((await fetch(web + "/third-party-notices.txt", { headers })).status, 200);
+assert.equal((await fetch(web + "/mock", { headers })).status, 404);
+assert.equal((await fetch(web + "/ui-foundation", { headers })).status, 404);
 JS
 )
 ```
@@ -133,6 +150,14 @@ Web・APIの起動と一時ソース変更の反映を確認した後、依存�
 終了時は専用projectのボリュームだけを削除する。
 
 ## 検証範囲と公開前の確認
+
+2026年11月6日に、ローカルのLinux arm64コンテナと隔離PostgreSQL 17で限定配置の準備を確認した。
+記事0件＋固定カテゴリ定義で、認証済みWebから内部APIを経由した一覧・カテゴリ取得と未認証の拒否を確認した。
+試験用証明書を使い、CAとホスト名が一致した場合の接続、誤CA・誤ホスト名の拒否、APIロールでの書込み拒否、接続・プール待ち・SQLの期限、接続解放後の回復を確認した。
+合成62件では、別途起動したローカルWebからコンテナ内のAPIを使い、実APIの画面テスト3件を確認した。
+このテストに限り、APIをホストのループバックへ一時公開して終了時に解除した。
+各1 vCPU、Web 512MiB・API 256MiBの上限で起動・応答・停止を確認し、待機時の1回の観測ではWeb約120MiB、API約84MiBだった。
+この値は費用見積もりや長時間の負荷試験の代わりにはならない。
 
 合成62件による検証から、実データ規模での性能・配置先の費用を判断しない。
 性能や費用の判断には、現行イメージと想定する負荷での測定が必要になる。

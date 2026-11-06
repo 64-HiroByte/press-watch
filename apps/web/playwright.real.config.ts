@@ -1,4 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
+import { testBasicAuth, testBasicAuthEnv } from "./tests/support/basic-auth";
+
+const webURL = "http://127.0.0.1:3108";
 
 export default defineConfig({
   testDir: "./tests/real-api",
@@ -8,15 +11,17 @@ export default defineConfig({
   retries: 0,
   use: {
     ...devices["Desktop Chrome"],
-    baseURL: "http://127.0.0.1:3108",
+    baseURL: webURL,
+    httpCredentials: { ...testBasicAuth, origin: webURL },
     viewport: { width: 1280, height: 720 },
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
   webServer: {
     command: "pnpm start --hostname 127.0.0.1 --port 3108",
-    url: "http://127.0.0.1:3108/third-party-notices.txt",
+    url: `${webURL}/health`,
     env: {
+      ...testBasicAuthEnv,
       NODE_ENV: "production",
       NEXT_TELEMETRY_DISABLED: "1",
       PRESSWATCH_API_BASE_URL: "http://127.0.0.1:8001",

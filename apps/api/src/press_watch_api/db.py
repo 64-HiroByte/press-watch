@@ -55,6 +55,9 @@ class _DatabaseResourceProvider:
         engine = create_engine(
             settings.database_url,
             pool_pre_ping=True,
+            pool_size=2,
+            max_overflow=0,
+            pool_timeout=5,
         )
         return _DatabaseResources(
             engine=engine,

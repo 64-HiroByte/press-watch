@@ -332,7 +332,7 @@ Phase 6-11では実APIの連続操作と応答制御の自動確認を実施し�
 - PostgreSQL ドライバには psycopg を採用する
 - FastAPI から `DATABASE_URL` を使って PostgreSQL へ接続する既存の構成を維持する
 - Supabase への接続には、継続稼働する FastAPI と Alembic migration に適した Direct connection を使用する
-- Supabase の接続確認では `sslmode=require` を指定し、実際の接続が SSL を使用していることを確認する
+- Supabaseへの接続では`sslmode=verify-full`と明示したCAを使い、証明書とホスト名を検証する
 - Phase 5 の最初の読み取り API では Supabase SDK、Data API、Auth を利用しない
 - Phase 3 初期では、報道発表の原本に近いデータを `press_releases` に保存することを優先する
 - `press_releases.source_url` には、環境省の報道発表詳細ページURLを保存し、一意制約で重複登録を防ぐ
@@ -500,22 +500,18 @@ press-watch/
 
 ### Phase 7のデプロイ・運用計画
 
-2026年11月1日時点では、RailwayにNext.js・FastAPI・取得ジョブをまとめ、採用済みのSupabase PostgreSQLを使う構成を第一候補とする。
+初回のWeb・APIはRailwayに配置し、DBには採用済みのSupabase PostgreSQLを使う。
 初期のFastAPIは内部用とし、Webからだけ呼び、外部連携が必要になった時点で公開方法を検討する計画である。
-限定配置と一般公開を分け、限定配置の閲覧対象者・保護方式は配置前に確定する。
-Railwayの対象利用量$10で停止する案を費用計画の基準とし、差分取得は1日2回を希望しているが、時刻は未確定である。
+差分取得は1日2回を希望しているが、時刻は未確定である。
 将来はSupabase Authとユーザー別ブックマークを検討するが、今回のMVP実装には含めない。
 
-費用の仮定、参考メモリ測定、公開時の保護、接続案、未確定事項、承認境界は[デプロイ構成と運用計画](deployment.md)を正本とする。
-Node.js等のセキュリティ更新を本番用Docker整備・Linux費用測定より先に行う案も、同文書に記録する。
-今回の依存更新・契約・設定・デプロイと、固定カテゴリ・実データのSupabase適用は未実施であり、現行のバージョン・接続方針は変更していない。
+限定配置の閲覧制限・DB接続・費用停止・公開前の検証と、外部操作の承認条件は[デプロイ構成と運用計画](deployment.md)を正本とする。
 
 ### 引き続き見直す項目
 
 以下は、今後のタスクで決定する項目、または必要に応じて見直す項目である。
 
-- 定期実行方式（Cron を含む）
-- デプロイ先
+- 取得ジョブの配置と定期実行方式（Cron を含む）
 - 公開APIのリクエスト数を制限する方式
 - CI/CD 構成
 - 本番向け Docker 最適化
