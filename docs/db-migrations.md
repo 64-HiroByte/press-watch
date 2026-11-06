@@ -117,24 +117,43 @@ Docker Compose の API コンテナから実行する場合:
 docker compose --env-file .env -f infra/compose.yml exec api uv run alembic upgrade head
 ```
 
-Supabaseの空DBへ初めて適用する場合は、`docs/local-development.md`の安全な手順でDirect connectionの`DATABASE_URL`を現在のシェルへ設定します。
-初回適用前はSQLAlchemy + psycopgで接続できること、SSLが使用されていること、`public.press_releases`と`public.alembic_version`が未作成であることを確認します。
+Supabaseへ適用する場合は、[接続手順](local-development.md#supabase-postgresql-へ接続する)で管理接続の`DATABASE_URL`と`PGSSLROOTCERT`を用意し、`sslmode=verify-full`で接続を確認します。
+初回適用前は、`public.press_releases`と`public.alembic_version`が未作成であることを確認します。
 初回適用対象のテーブルがすでに存在する場合は、状態を確認せずmigrationを実行しません。
 
 既存のSupabaseへ後続migrationを適用する場合は、現在のrevision、追加対象テーブルが未作成であること、影響範囲を再確認します。
-今回追加した固定カテゴリmigrationはSupabaseへ未適用であり、旧head`9f2c7a4e1d63`からの適用はローカル実データ検証の成功後、別承認を得て実行します。
+限定配置のために既存の固定カテゴリmigrationとseedを適用する場合は、記事0件と想定revisionを確認し、書込み停止後のバックアップ取得・検査と別承認を経て実行します。
+管理接続を使い、API専用ロールの権限と期限を管理処理へ流用しません。
 
-影響するテーブル、制約、インデックスを確認してから、`apps/api` で既存 migration を適用します。
+影響するテーブル、制約、インデックスを確認してから、ローカルでは`apps/api`で既存migrationを適用します。
 
 ```bash
 uv run alembic upgrade head
 uv run alembic current
 ```
 
+Supabaseの場合は、承認した`DATABASE_URL`と`PGSSLROOTCERT`を環境変数で渡し、他の接続設定を除いて実行します。
+
+```bash
+supabase_alembic() {
+    .venv/bin/python -I -B - "$@" <<'PY'
+import os
+import sys
+
+environment = {key: os.environ[key] for key in ("HOME", "PATH") if key in os.environ}
+for key in ("DATABASE_URL", "PGSSLROOTCERT"):
+    environment[key] = os.environ[key]
+os.execve(".venv/bin/alembic", [".venv/bin/alembic", *sys.argv[1:]], environment)
+PY
+}
+supabase_alembic upgrade head && supabase_alembic current
+```
+
 リポジトリの現在headまで適用した場合は、`alembic current`で`a51eab6808f3 (head)`と表示されることを確認します。
 適用後は`public.press_releases`と固定カテゴリ用3テーブル、各制約、外部キー削除規則、必要なインデックスが存在することを確認します。
 永続開発DBには`a51eab6808f3`を適用し、保存済み実データ34,421件の原本を保持したseed・再分類とDB再起動後の保持を確認済みです。
-Supabaseは読み取り専用の現況確認で`9f2c7a4e1d63`・原本0件であり、固定カテゴリmigration・seed・データ投入・再分類は未実施です。
+Supabaseの過去の読み取り診断では`9f2c7a4e1d63`・原本0件でした。
+適用直前に再確認し、想定と異なる状態では続行しません。
 対象、投入・検証・復旧とSupabaseへ進む条件は[永続開発DBで実データを確認する](local-development.md#永続開発dbで実データを確認する)を参照してください。
 実際の `DATABASE_URL`、DB パスワード、プロジェクト識別子はコマンド出力や文書へ記録しません。
 

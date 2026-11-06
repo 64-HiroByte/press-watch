@@ -2,22 +2,20 @@
 
 ## 記録の位置付け
 
-2026年11月1日までの調査とユーザー判断を記録する。
-公式資料の確認日も2026年11月1日であり、契約・適用前には料金・制限・セキュリティ情報を再確認する。
-アプリは未デプロイであり、この文書は実行済みの設定や運用手順を表さない。
+2026年11月1日の調査と、11月6日までに合意した本人向けの限定配置方針を記録する。
+契約・適用前には料金・制限・セキュリティ情報を再確認する。
+Railwayでの設定・配置とSupabaseへの適用は未実施である。
 
 | 区分 | 内容 |
 | --- | --- |
 | 合意済みの計画条件 | 初期のFastAPIは内部用とし、外部プログラム向けの入口は必要になった時点で検討する |
-| 合意済みの計画条件 | Railwayの請求期間内の対象利用量が$10に達したら停止する案を基準にする |
+| 合意済みの計画条件 | Railwayの請求期間内の対象利用量が$10に達したら停止し、翌請求期間の自動再開を許容する |
 | ユーザーの希望 | 通常の差分取得は1日2回を希望。正確な時刻は未確定 |
 | 構成の第一候補 | RailwayにNext.js・FastAPI・取得ジョブをまとめ、採用済みのSupabase PostgreSQLをDBとして使う。WebをVercelへ分離しない |
 | 選定で重視すること | 管理先の少なさ、既存Python実装の活用、想定外の高額請求を抑えること |
 | 将来の希望 | Supabase Authによるユーザー登録とユーザー別ブックマーク。MVP後の別タスクとする |
 
-構成の最終採用・契約、設定、デプロイ、DB適用の承認は得ていない。
-アクセス制限値、実行時間上限、接続権限の分離など、以下の実装案も未確定である。
-文書への記録を、依存更新や実装・外部操作の承認へ広げない。
+有料契約、クラウド設定・配置、Supabase接続・適用、依存更新は、対象と影響を示して段階ごとに承認を得る。
 
 ## 構成の第一候補
 
@@ -34,7 +32,7 @@ Railway内の同じ環境に置いたサービス間は、公開インターネ�
 [Railway Private Networking](https://docs.railway.com/networking/private-networking)、[費用管理](https://docs.railway.com/pricing/cost-control)を参照する。
 
 Next.jsサーバーからAPIを呼ぶ現在の構成を維持できるため、初期公開にブラウザからFastAPIへ直接接続する入口は必要ない。
-内部用APIでもWeb経由の大量検索は可能なので、アクセス制限を省略しない。
+本人向けの限定配置ではWebをBasic認証で保護し、過剰要求対策は一般公開前に実施する。
 将来Authを使う場合は、認証情報の検証とブックマークの所有者確認を設計する。
 内部ネットワークやDB接続資格情報だけで、利用者ごとの認可が完了するとは扱わない。
 
@@ -94,17 +92,20 @@ APIはDB未接続で、待機とヘルスチェックのみである。
 測定プロセスは停止済み、一時ファイルも削除済みとの報告であり、元の測定成果物を再検査することはできない。
 各時点の値を月平均やRailwayの課金対象メモリへ直接置き換えず、依存更新後のLinux測定と実環境のメトリクスで費用判断を更新する。
 
-### 費用を抑えるための設定案
+### 限定配置の費用設定
 
 合意済みなのは利用量$10で停止する計画基準であり、以下の設定を実施したわけではない。
 
-- Compute UsageのHard limitを請求期間ごとに$10とし、上限到達時にWeb・API・取得ジョブが停止することを受け入れる。
-  初期のメール通知は$5を案とし、通知だけでは停止しないことを確認する。
-- 自動増台、PRごとの複製環境、不要な常駐サービス・永続ディスクを作らない案とする。
-  CPU・メモリ上限も設定するが、具体値はLinuxでの測定後に決める。
+- Hobbyを基準とし、Compute UsageのHard limitを請求期間ごとに$10、追加メール通知を$5に設定する。
+  停止はワークスペース全体に及ぶため、対象と他のサービスへの影響を設定前に確認する。
+- Web・APIは各1レプリカ、APIは1 workerとする。
+  CPU上限は各1 vCPU、メモリ上限はWeb 512MiB・API 256MiBを暫定値とし、Linuxで不足すれば配置を保留して見直す。
+  初回はServerlessを無効にし、再起動ポリシーをNeverに設定する。
+  自動増台、PR環境、永続ディスク、追加サービスは作らない。
 - Railway Agentは使わない案とし、Compute UsageとAgent Usageの上限は別であることを確認する。
-- 停止後に上限を自動で引き上げる仕組みは作らない案とする。
-  再開条件、翌請求期間の挙動、上限到達から停止までの精度・対象外料金は契約・設定前に確認する。
+- 翌請求期間の自動再開を許容する。
+  手動の上限引上げ・解除・期間途中の再開は別承認とする。
+  上限到達から停止までの精度、対象外料金、再開条件は契約・設定前に確認する。
 
 Railway公式ではHard limitの最小額は$10であり、$5で自動停止する設定ではない。
 Hard limitはワークスペースの対象利用量に対する制御で、Supabaseや税・為替手数料を含む請求総額の保証ではない。
@@ -123,12 +124,16 @@ Freeの定期的なデータ書き出しと外部保管は公式の推奨であ�
 
 ## 公開時の保護とSupabase接続
 
-### アクセス制限の初期案
+### 本人向け限定配置の閲覧制限
 
-初期APIの内部用という方針は合意済みだが、下表の方式・値は未承認の実装案である。
-費用確認のための限定配置では、閲覧対象者・接続経路・アクセス制御の方式を配置前に確定し、非許可者を拒否できることを検証する。
-URLを知らせないだけではアクセス制限と扱わず、限定配置の保護をMVP後のユーザー登録・Supabase Authとは別の検証用措置として設計する。
-この方式と一般公開の範囲は未確定であり、一般公開は別途承認を得る。
+閲覧者は本人とし、HTTPSのWeb入口で検証用Basic認証を使う。
+本番モードではページ・RSC・prefetch・静的ファイルを保護し、設定不足は503、未認証・不正な資格情報はチャレンジ付き401で拒否する。
+保護する応答には`private, no-store`を指定し、拒否時はAPIを呼ばない。
+`/health`は認証設定が有効なときに固定の生存応答を返し、DBの接続確認は一覧とカテゴリ取得で行う。
+
+### 一般公開前の過剰要求対策
+
+次の値は一般公開前に評価する案である。
 
 | 対象 | 初期案と検証条件 |
 | --- | --- |
@@ -142,14 +147,20 @@ Under Attack Modeは非ブラウザ通信を拒否するため、サーバー間
 [公開ネットワークの仕様](https://docs.railway.com/networking/public-networking/specs-and-limits)、[Railway WAF](https://docs.railway.com/networking/waf)を参照する。
 内部API化は[要件NFR-006](requirements.md#nfr-006-公開apiへの過剰なリクエストを抑制できること)の過剰要求対策を省く理由にせず、既存APIの入力上限・検索・応答契約を維持する。
 
-### DB接続の案
+### 限定配置のDB接続
 
-- 現行のDirect connectionを維持し、API・取得ジョブごとに外向きIPv6を有効にする案とする。
-  SSLを必須にし、現行の`sslmode=require`に加え、証明書検証を行う`verify-full`の準備・適合も確認する。
-- API用の読取り、ジョブ用の保存、migration等の管理の資格情報・権限を分ける案とする。
-  必要なテーブル・シーケンス等の権限と接続数上限を設計し、WebへDB資格情報を渡さない。
-- Data APIの無効化や過去の`anon`・`authenticated`のSELECT取消だけで公開可能とは判断しない。
-  公開前に原本・分類テーブル、書込み・デフォルト権限、RLSと接続ロールによる回避を確認する。
+- APIは外向きIPv6を有効にし、SupabaseのDirect connectionを`sslmode=verify-full`で利用する。
+  Supabaseから取得したCAをAPIの`PRESSWATCH_DB_CA_CERT`へ設定する。
+  APIは起動時に所有者のみ読書きできる一時ファイルを作成し、`PGSSLROOTCERT`に指定する。
+  診断・バックアップ・Alembicには管理手順でCAを明示し、検証に失敗した場合は接続を中止する。
+- API専用ロールは対象DBの`CONNECT`、`public` schemaの`USAGE`、`press_releases`・`fixed_categories`・`press_release_fixed_categories`の`SELECT`だけを付与し、接続上限を4にする。
+  所有・管理・書込み権限を持たないことを、既存ロール所属と`PUBLIC`由来の権限を含めて確認する。
+  migration・seedには別の管理接続を使う。
+- APIの接続URLは`connect_timeout=5`、専用ロールは`statement_timeout='5s'`とする。
+  APIの共有プールは最大2接続・追加接続なし・空き待ち5秒とする。
+  それぞれ別の期限であり、Webの10秒以内に要求全体が完了する保証はない。
+- 記事0件と想定したrevision・権限を確認してから、既存migrationとカテゴリseedだけを適用する。
+  Data API・RLS・既存権限の現況を確認し、追加の変更が必要な場合は作業を保留して別途判断する。
 
 [Railwayの外向きIPv6](https://docs.railway.com/networking/outbound-networking#outbound-ipv6)、[Supabaseの接続・SSL設定](https://supabase.com/docs/guides/database/connecting-to-postgres)を参照する。
 過去のSupabase診断値を現況と断定せず、[Supabaseへ進む条件](local-development.md#supabaseへ進む条件)に従って準備と適用を別承認にする。
@@ -158,6 +169,36 @@ Under Attack Modeは非ブラウザ通信を拒否するため、サーバー間
 将来のAuthでは、FastAPIでSupabaseの認証情報を検証し、確認したユーザーIDに基づいてブックマークを扱う設計を検討する。
 DB所有者等はRLSを回避できるため、RLSを有効にするだけで所有者確認が済むとは扱わない。
 [Supabase JWTの検証](https://supabase.com/docs/guides/auth/jwts)を参照し、Auth・ブックマークの実装やData APIの有効化は今回行わない。
+
+## Railwayでの限定配置手順
+
+1. 本人がRailwayへ登録する。
+   プラン・支払い条件・停止対象を確認し、別承認後に費用上限・通知・サービス上限を設定する。
+2. Supabaseの読取り診断・バックアップを準備し、報告後の別承認で書込みを行う。
+   書込み停止と直前のバックアップ検査を経て`a51eab6808f3`まで適用し、既存カテゴリseedを実行する。
+   想定と異なるrevision・権限・記事件数の場合は中止する。
+3. 準備変更と承認済みのセキュリティ更新を`phase-7/operations`へ統合し、CIと本番イメージの検証を通過したSHAを記録する。
+   GitHub連携では両サービスを`phase-7/operations`へ接続し、初回配置を保留して自動配置を無効にする。
+   手動配置の直前と直後に配置元SHAを照合し、不一致なら公開へ進まない。
+4. 次の設定でWeb・APIを同じRailway環境へ配置する。
+   build contextはリポジトリルートとし、各Dockerfileの最終`production`ステージと既存の起動コマンドを使う。
+5. Webに公開ドメインを付ける前に、内部疎通・拒否応答・DBの証明書検証・記事0件の一覧とカテゴリ表示を確認する。
+   セキュリティ更新・再ビルド・回帰確認が完了した後、WebだけにHTTPSドメインを付け、非許可者の拒否とAPIへの公開経路がないことを再確認する。
+   本人の画面操作と約1週間の利用量を確認する。
+
+| サービス | 配置用の設定 | アプリ用の実行時設定 |
+| --- | --- | --- |
+| Web | `RAILWAY_DOCKERFILE_PATH=infra/docker/web.Dockerfile` | `PRESSWATCH_API_BASE_URL`に内部APIのHTTP URL（例 `http://api.railway.internal:8000`）、`PRESSWATCH_BASIC_AUTH_USER`と`PRESSWATCH_BASIC_AUTH_PASSWORD` |
+| API | `RAILWAY_DOCKERFILE_PATH=infra/docker/python.Dockerfile`、`PORT=8000`、`HOST=::`、外向きIPv6有効、公開ドメイン・TCP Proxyなし | 読取り専用ロールの`DATABASE_URL`、`PRESSWATCH_DB_CA_CERT` |
+
+Basic認証のパスワードは十分に長いランダム値とし、DB資格情報とともに設定先のサービスだけへ渡す。
+Basic認証のユーザー名にはコロンを含めない。
+値をビルド・ログ・クライアントコード・テスト成果物に含めない。
+[Dockerfileの指定](https://docs.railway.com/builds/dockerfiles)と[GitHubの配置設定](https://docs.railway.com/deployments/github-autodeploys)を参照する。
+
+認証迂回や情報露出時はWebの公開ドメインを外して配置を停止し、保護が確認できるまで公開を再開しない。
+DB障害時は追加の書込みを止め、現況・バックアップ・ロールと権限の記録から復旧方法を決めて別承認を得る。
+全体復元やdowngradeを自動実行しない。
 
 ## 定期取得と失敗確認
 
@@ -203,31 +244,29 @@ Hobbyのログ保持は7日である。
 | 対象 | 現行の固定・解決版 | 更新候補と位置付け |
 | --- | --- | --- |
 | Node.js | 24.22.2 | PR #129で更新・ローカル・Docker・実CIの確認を完了 |
-| Next.js | 16.4.1 | 10月14日のセキュリティ修正は反映済み。通常の不具合修正として16.4.3を候補にする |
+| Next.js | 16.4.1 | 11月のセキュリティ修正版16.4.5を別タスクの更新候補とする |
 | React / React DOM | 19.3.1 | 確認時点の最新安定版。維持する案 |
 
-[Node.jsのセキュリティ告知](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases)、[Node.js 24.22.2](https://nodejs.org/en/blog/release/v24.22.2)、[Next.jsのセキュリティ告知](https://nextjs.org/blog/nextjs-security-update-october-14-2026)、[Next.js 16.4.3](https://github.com/vercel/next.js/releases/tag/v16.4.3)、[React 19.3.1](https://github.com/react/react/releases/tag/v19.3.1)を参照する。
+[Node.jsのセキュリティ告知](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases)、[Node.js 24.22.2](https://nodejs.org/en/blog/release/v24.22.2)、[Next.jsの10月のセキュリティ告知](https://nextjs.org/blog/nextjs-security-update-october-14-2026)、[React 19.3.1](https://github.com/react/react/releases/tag/v19.3.1)を参照する。
 Node.jsは承認済みのPhase 7更新で、Volta・Web Dockerfile・Web CIの指定を24.22.2へ揃えた。
 検証結果と未確認範囲は[Node.js更新の検証記録](local-development.md#phase-7のnodejsセキュリティ更新)を参照する。
 Next.js・Reactの更新は今回に含めず、lockfileも維持する。
 
-[10月27日のNext.js公式予告](https://nextjs.org/blog/upcoming-nextjs-security-release-november-2026)では、11月3日にMedium 7件の修正を公開予定としている。
-影響範囲・修正版は未公表であり、16.4.3で対応済みとは扱わない。
-公開後に別タスクで影響・採用版・検証範囲を確認し、追加承認を得る。
+[Next.js 16.4.5の公式リリース](https://github.com/vercel/next.js/releases/tag/v16.4.5)で11月のセキュリティ修正を確認した。
+別タスクで影響・採用版・検証範囲を確認し、対象パッケージのnpm公開から24時間経過後に承認された更新を行う。
+Webを外部から利用可能にする前に、更新後の本番イメージを再ビルドし、回帰検証を完了する。
 
 後続タスクは、次の責務・依存関係で分けて提案する。
 個々の実装・環境利用・外部操作は、対象と影響を示して別途承認を得る。
 
 | 順序 | 対象 | 完了条件と承認境界 |
 | --- | --- | --- |
-| 1 | Node.js等の更新 | 本番用Docker整備・費用測定より先に行う案。候補を再確認し、ローカル・CI・Dockerの版と依存再現性、型・ビルド・画面を検証する。NodeとNext.jsの差分・検証を分け、更新承認を得る |
-| 2 | 本番用DockerとLinux測定 | Web・API・ジョブを分離し、承認された合成データ・検証環境で起動、メモリ・CPU・終了を確認する。実DB検索の測定範囲も先に確定する |
-| 3 | robots.txt・実行制御 | 禁止・取得解析失敗・rate limiter共有・同時実行・時間切れ・親子プロセス終了を検証する。実サイト確認は別承認にする |
-| 4 | 公開時のアクセス制限 | 入口・worker数・制限方式と値を確定し、正常操作・HTTP 429・DB非照会・接続元偽装を検証する |
-| 5 | Supabase準備 | ツール・契約プラン・接続・現況・容量・権限を確認し、対象と復旧方針を確定してバックアップを取得・検査する。Freeの休止・再開条件と運用中のバックアップ方針も決める。準備段階の承認を得る |
-| 6 | Supabase適用 | 準備結果の報告後に別承認を得て、実データ投入・固定カテゴリmigration・seed・再分類、原本保持、API・画面・利用者確認を行う。対象原本がローカル検証時と異なれば戻って再計画する |
-| 7 | Railway限定配置 | 閲覧対象者・接続経路・保護方式を確定し、契約・設定・環境利用の承認を得る。費用停止設定と非許可者の拒否を確認してから、接続・約1週間の使用量・異常系を検証する。Supabase側の条件とは分ける |
-| 8 | 公開・定期実行 | 公開範囲と時刻の確定、公開直前の脆弱性再点検を行い、別承認後に設定する。実際の自動起動・差分保存・失敗と欠落の確認を検証する |
+| 1 | デプロイ準備 | 費用・停止方針、本人向け閲覧制限、DB接続とスキーマの条件を整え、合成データで検証する |
+| 2 | Web・APIの限定配置 | 契約・設定、DB準備と適用、配置を段階ごとに承認する。更新済みのWebから内部APIとSupabaseへ接続し、記事0件とカテゴリ表示、非許可者の拒否、約1週間の使用量を確認する |
+| 3 | Supabaseへの実データ適用 | 限定配置後のrevision・カテゴリ定義・権限・記事集合・連番を確認し、その状態に合わせて適用・検証・復旧手順を計画する。バックアップ後の別承認で適用する |
+| 4 | 取得ジョブの配置と手動検証 | 取得・保存・終了を確認し、実行上限・再試行・重複防止を整える |
+| 5 | 定期実行 | 時刻を確定し、別承認後に自動起動・差分保存・失敗と欠落の確認を検証する |
+| 6 | 一般公開 | 過剰要求対策、最新のセキュリティ情報、実測費用と復旧手順を確認し、別承認後に公開する |
 
 進捗は[Phase 7のタスク](tasks.md#phase-7-定期実行と運用準備)で管理する。
 構成・方式の最終決定と、実装・設定・実運用の完了を区別する。
