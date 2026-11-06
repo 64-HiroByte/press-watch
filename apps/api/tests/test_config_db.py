@@ -37,7 +37,7 @@ class DatabaseTest(unittest.TestCase):
         self.assertTrue(callable(reloaded_db.get_session_factory))
 
     def test_get_engine_builds_engine_from_database_url(self) -> None:
-        """Engine getterの初回呼び出しでDB設定を反映すること"""
+        """DB URLと接続上限を反映した共有Engineを初回だけ生成"""
 
         with patch.dict(os.environ, {"DATABASE_URL": TEST_DATABASE_URL}):
             db = importlib.import_module("press_watch_api.db")
@@ -51,12 +51,14 @@ class DatabaseTest(unittest.TestCase):
                 engine = reloaded_db.get_engine()
 
         self.addCleanup(engine.dispose)
-        create_engine_mock.assert_called_once_with(
-            TEST_DATABASE_URL,
-            pool_pre_ping=True,
-        )
+        self.assertEqual(create_engine_mock.call_count, 1)
+        self.assertEqual(create_engine_mock.call_args.args, (TEST_DATABASE_URL,))
+        self.assertTrue(create_engine_mock.call_args.kwargs["pool_pre_ping"])
+        self.assertEqual(create_engine_mock.call_args.kwargs.get("max_overflow"), 0)
         self.assertEqual(engine.url.drivername, "postgresql+psycopg")
         self.assertEqual(engine.url.host, "127.0.0.1")
+        self.assertEqual(engine.pool.size(), 2)
+        self.assertEqual(engine.pool.timeout(), 5)
         self.assertIs(reloaded_db.get_engine(), engine)
 
     def test_get_session_factory_reuses_engine(self) -> None:
