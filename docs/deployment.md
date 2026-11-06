@@ -239,23 +239,16 @@ Hobbyのログ保持は7日である。
 
 ## セキュリティ更新と後続タスク
 
-2026年11月1日に、設定・lockfileと公式資料を照合した主要Web実行系は次のとおりである。
-依存全体の監査や、ローカルにインストールされた全実行ファイルの版確認は未実施である。
+限定配置に先立ち、主要Web実行系を次の版で検証した。
 
-| 対象 | 現行の固定・解決版 | 更新候補と位置付け |
+| 対象 | 固定・解決版 | 確認内容 |
 | --- | --- | --- |
-| Node.js | 24.22.2 | PR #129で更新・ローカル・Docker・実CIの確認を完了 |
-| Next.js | 16.4.1 | 11月のセキュリティ修正版16.4.5を別タスクの更新候補とする |
-| React / React DOM | 19.3.1 | 確認時点の最新安定版。維持する案 |
+| Node.js | 24.22.2 | PR #129で更新し、ローカル・Docker・実CIで確認 |
+| Next.js | 16.4.5 | 11月の修正版へ更新し、ローカルとLinux arm64の本番イメージで確認 |
+| React / React DOM | 19.3.1 | 従来の解決版でNext.js更新後の回帰を確認 |
 
-[Node.jsのセキュリティ告知](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases)、[Node.js 24.22.2](https://nodejs.org/en/blog/release/v24.22.2)、[Next.jsの10月のセキュリティ告知](https://nextjs.org/blog/nextjs-security-update-october-14-2026)、[React 19.3.1](https://github.com/react/react/releases/tag/v19.3.1)を参照する。
-Node.jsは承認済みのPhase 7更新で、Volta・Web Dockerfile・Web CIの指定を24.22.2へ揃えた。
-検証結果と未確認範囲は[Node.js更新の検証記録](local-development.md#phase-7のnodejsセキュリティ更新)を参照する。
-Next.js・Reactの更新は今回に含めず、lockfileも維持する。
-
-[Next.js 16.4.5の公式リリース](https://github.com/vercel/next.js/releases/tag/v16.4.5)で11月のセキュリティ修正を確認した。
-別タスクで影響・採用版・検証範囲を確認し、対象パッケージのnpm公開から24時間経過後に承認された更新を行う。
-Webを外部から利用可能にする前に、更新後の本番イメージを再ビルドし、回帰検証を完了する。
+Next.js更新後は、Linux arm64のWeb本番イメージを1 vCPU・512 MiBで起動し、合成APIを使って閲覧制限と一覧表示を確認した。
+今回のNext.js更新に対するGitHub Actions、実API・実DBとの結合、Railway上の動作は未確認である。
 
 後続タスクは、次の責務・依存関係で分けて提案する。
 個々の実装・環境利用・外部操作は、対象と影響を示して別途承認を得る。
