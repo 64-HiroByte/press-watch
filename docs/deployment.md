@@ -130,6 +130,74 @@ DB障害時は追加の書込みを止め、現況・バックアップ・ロー
 アーカイブを読み取れたことと、実際のDBへ復元できたことを区別し、全体復元やdowngradeを自動実行しない。
 本番イメージの構成と合成データによる検証手順は[本番用Docker](production-docker.md)を参照する。
 
+## Railway設定のファイル管理
+
+IaCは既存のWeb・API設定を取り込み、理解・再利用できる形にするために使う。
+設定本体は`.railway/railway.ts`で管理し、既存のWeb・APIの設定を取り込んでいる。
+環境変数は秘密値・通常値ともに`preserve()`で既存値を保持し、値そのものはファイルへ保存していない。
+適用・再配置・CIからの自動適用は、この段階の対象外とする。
+
+### ローカルの準備
+
+Node.jsとpnpmはルートの指定版を使い、`pnpm install --frozen-lockfile`でIaC用の開発依存も導入する。
+SDKは`railway` 3.16.0、CLIは5.71.0に固定する。
+CLIは[公式リリース](https://github.com/railwayapp/cli/releases/tag/v5.71.0)からOS・CPUに合う配布物を取得し、公式のSHA-256 digestと照合した後、Git管理外の`tmp/tools/railway/5.71.0/railway`へ配置する。
+macOS arm64の配布物は`railway-v5.71.0-aarch64-apple-darwin.tar.gz`である。
+インストーラーやCLIの自動更新を使わず、別の版への変更は互換性を確認してから判断する。
+
+```bash
+pnpm railway:cli --version
+```
+
+`railway:cli`は固定バイナリの絶対パスと`RAILWAY_NO_AUTO_UPDATE=1`を使い、毎回版を確認する。
+SDKの版確認にも同じ実行ファイルを渡し、旧TypeScript runnerへの環境変数による切替は継承しない。
+認証・接続先選択・pull・planもこの入口を使う。
+CLI認証と接続先保存ではローカルのCLI設定が読み書きされるため、実環境の読み取り承認にはこの操作も含める。
+
+### 承認後の取り込みと照合
+
+対象プロジェクト・環境を示し、設定閲覧、CLI認証・接続先保存、pull・planの承認を得てから実行する。
+DBへの接続や書込みは含めない。
+
+```bash
+pnpm railway:cli login
+pnpm railway:cli link
+pnpm railway:cli config pull --variables=managed
+```
+
+接続先は本人向け限定配置の環境と照合し、予期しないサービスやリソースがあれば取り込み結果を省略せず作業を止める。
+秘密値を展開・復号するオプション、変数を省略するオプション、値を表示するオプションを使わない。
+初回取り込み後、または既存ファイルを退避・比較したうえで再取り込みする場合は、CLIが生成するproject直下の`variables: { managed: true }`だけを除き、SDK 3.16.0の型に合わせる。
+サービスごとの`env`と`preserve()`は保持し、型キャストで検査を回避しない。
+CLI 5.71.0ではprojectの指定省略時もmanaged・除外なしが既定値であり、planの表示で`variables: managed (default)`を確認する。
+
+```bash
+pnpm typecheck:railway
+pnpm plan:railway
+```
+
+設定ファイルが未取り込みの場合、両コマンドは失敗する。
+型検査の成功と実環境での照合は区別し、既存のWeb CI成功をIaC型検査の成功とは扱わない。
+planの終了0と追加・変更・削除ゼロを合格とし、終了2は未解消の差分、その他の非0は実行エラーとして扱う。
+差分が残る場合は内容を報告し、実環境を書き換えてゼロに合わせない。
+
+`preserve()`は実環境に同名変数が存在することを保証しない。
+値を表示せず、Webの`PRESSWATCH_API_BASE_URL`・`PRESSWATCH_BASIC_AUTH_USER`・`PRESSWATCH_BASIC_AUTH_PASSWORD`、APIの`DATABASE_URL`・`PRESSWATCH_DB_CA_CERT`のキーが存在することを別に確認する。
+欠落があれば未完了とし、この段階で追加・変更しない。
+変更ゼロは秘密値の正しさやサービスの正常動作の保証ではない。
+
+### 管理する範囲と新環境で必要な操作
+
+配置元、Dockerfile、起動・ヘルスチェック、地域・レプリカ、再起動、Serverless、外向きIPv6、設定済みリソース上限と通常の環境変数を現況と対応付ける。
+設定値の意味は本書の限定配置手順に従い、明示値とRailway提供値を区別する。
+自動デプロイ無効・初回配置保留、生成HTTPSドメインと転送先ポート、APIに公開経路がないこと、費用上限・通知は手動の設定・確認事項として残す。
+Supabaseのmigration・seed・ロール・バックアップも既存のDB手順で管理する。
+新環境では`preserve()`だけでは通常値も秘密値も用意できないため、上記の配置設定表に従って対象サービスへ必要な値を安全に登録し、接続先と手動管理項目を確認してから配置承認へ進む。
+取り込み時の`build.builder`は`RAILPACK`だが、Dockerfileの選択には既存の`RAILWAY_DOCKERFILE_PATH`が必要であり、この変数も`preserve()`で保持している。
+キーの存在とplanの変更ゼロだけでは、Dockerfileのパスなどの通常値まで新環境へ再現したことにはならない。
+
+[公式IaC手順](https://docs.railway.com/infrastructure-as-code)、[CLI仕様](https://docs.railway.com/cli/config)を参照する。
+
 ## 一般公開前の過剰要求対策
 
 本人向けの閲覧制限と、過剰要求対策は別の条件である。
