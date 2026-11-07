@@ -360,16 +360,16 @@ Phase 6-11では実APIの連続操作と応答制御の自動確認を実施し�
 
 ### DB実装状態と未対応範囲
 
-- Supabase プロジェクトを作成し、Direct connection で同期版 SQLAlchemy + psycopg から PostgreSQL 17.6 へ接続できることを確認済みである
-- Supabase へ既存 Alembic migration を head `9f2c7a4e1d63` まで適用し、`press_releases`、`uq_press_releases_source_url`、`ix_press_releases_published_at` が存在することを確認済みである
-- ローカルの Docker Compose は PostgreSQL 17 へ変更済みであり、新しい空 DB への既存 Alembic migration 適用と、コンテナ再作成後も migration 適用状態が保持されることを確認済みである
-- 固定カテゴリ3テーブルを追加するmigration `a51eab6808f3`はリポジトリへ追加済みであり、テスト専用PostgreSQL 17で適用、旧headへのdowngrade、再upgradeを確認済みである
-  この合成データ検証とは別に、永続開発DBで実データ34,421件への適用・原本保持・DB再起動後の保持を確認済みである
-  利用者の画面確認を含むローカル検証は完了し、Supabaseへの適用は未実施である
-  [開発手順](local-development.md#永続開発dbで実データを確認する)に環境別の状態を記載する
-- Data API は利用せず、Supabase の `anon`・`authenticated` ロールが `public.press_releases` の `SELECT` 権限を持たないことを2026年8月20日に確認済みである
-- `postgres` のデフォルト権限に両ロール向けの `SELECT` が設定され、既存の `public.press_releases` に対する権限の付与元も `postgres` であることを確認したうえで、両方の `SELECT` 権限を取り消して再確認した
-- この結果は現時点の確認であり、Data API や Supabase Auth の採用時、権限や migration の変更時、Supabase プロジェクトや DB の再作成時、本番公開前には再確認する
+- Supabase PostgreSQLへはDirect connectionで同期版SQLAlchemy + psycopgから接続する
+- ローカルのDocker ComposeにはPostgreSQL 17を使い、スキーマはAlembic migrationで管理する
+- 固定カテゴリ3テーブルはmigration `a51eab6808f3`で追加し、カテゴリ・キーワード定義は専用seed CLIで登録する
+  migration・seedを適用したことと、保存済み実データを投入・再分類したことは区別する
+  実データ投入と取得ジョブの配置は後続作業として扱う
+- 実環境の適用revision・記事件数・カテゴリ定義・権限は、変更前に読み取りで確認する
+  限定配置の接続・権限と検証手順は[デプロイ構成と運用計画](deployment.md#限定配置のdb接続)、実データの検証手順は[開発手順](local-development.md#supabaseへ進む条件)を参照する
+- Data APIは利用せず、`anon`・`authenticated`が`public.press_releases`のSELECT権限を持たない状態を配置条件とする
+  既存テーブル・列の実効権限に加え、新規テーブルへ適用されるデフォルト権限も確認する
+  Data APIやSupabase Authの採用時、権限やmigrationの変更時、SupabaseプロジェクトやDBの再作成時、公開前には再確認する
 - SQLAlchemy は同期版から始める
 - Phase 3 初期では保存処理、重複防止、マイグレーションの見通しを優先し、async SQLAlchemy は高並行アクセスや非同期I/Oの必要性が明確になった段階で再検討する
 - DB接続設定は `apps/api/src/press_watch_api/config.py` で `DATABASE_URL` を環境変数から読み込む
@@ -497,7 +497,7 @@ press-watch/
 差分取得は1日2回を希望しているが、時刻は未確定である。
 将来はSupabase Authとユーザー別ブックマークを検討するが、今回のMVP実装には含めない。
 
-限定配置の閲覧制限・DB接続・費用停止・公開前の検証と、外部操作の承認条件は[デプロイ構成と運用計画](deployment.md)を正本とする。
+限定配置の構成・閲覧制限・DB接続・費用確認と、配置・検証・停止の手順は[デプロイ構成と運用計画](deployment.md)を正本とする。
 
 ### 引き続き見直す項目
 

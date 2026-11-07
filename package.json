@@ -6,6 +6,9 @@
     "node": "24.22.2"
   },
   "scripts": {
+    "railway:cli": "node scripts/railway-cli.mjs",
+    "typecheck:railway": "tsc --project .railway/tsconfig.json",
+    "plan:railway": "node scripts/railway-cli.mjs config plan --file .railway/railway.ts --detailed-exit-code",
     "dev:web": "pnpm --filter @press-watch/web dev",
     "build:web": "pnpm --filter @press-watch/web build",
     "typecheck:web": "pnpm --filter @press-watch/web typecheck",
@@ -16,7 +19,10 @@
     "test:web": "pnpm --filter @press-watch/web test"
   },
   "devDependencies": {
+    "@types/node": "24.19.0",
     "oxfmt": "0.72.0",
-    "oxlint": "1.87.0"
+    "oxlint": "1.87.0",
+    "railway": "3.16.0",
+    "typescript": "7.0.2"
   }
 }
