@@ -412,6 +412,11 @@ MVPは、通常の差分取得を定期実行し、失敗を確認できる状�
   - ジョブ保存用ロールとその検証は後続タスクとする。
 - [x] 本人向け限定配置のHTTPS入口追加前に、Supabaseの`anon`・`authenticated`ロールが`public.press_releases`の`SELECT`権限を持たないことを再確認する
   - Data API・Authの採用、権限・migration変更、DB再作成時の再確認条件は[DBの利用方針](tech-stack.md#db実装状態と未対応範囲)に従う。
+- [x] [Issue #136](https://github.com/64-HiroByte/press-watch/issues/136)に従い、Data API無効と既存の保護を維持してPostgRESTログの連発を抑制する
+  - [x] 発行元・既存schema・設定・権限を照合し、適用と元の設定への復旧方法を確定する
+  - [x] 別承認後に公式回避策を適用し、新規ログを最低5分観測して同一エラーの停止と別エラーへの置換がないことを確認する
+  - [x] Data API・DB権限・API非公開・Web認証の維持と、内部API・認証後Webの代表操作を確認する
+  - [x] 設定・手順・確認結果・保証範囲と解除条件を[共有Docs](deployment.md#data-api無効時のpostgrestログ抑制)へ反映する
 - [ ] Web入口と内部APIのリクエスト数を制限する方式・値を決め、正常操作・HTTP 429・DB非照会・接続元偽装を確認する
 - [ ] デプロイ先の機能またはアプリケーション側でリクエスト数を制限する
 - [x] 限定配置の閲覧対象者・接続経路・保護方式を配置前に確定し、非許可者を拒否できることを確認する

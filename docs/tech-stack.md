@@ -371,6 +371,7 @@ Phase 6-11では実APIの連続操作と応答制御の自動確認を実施し�
 - Data APIは利用せず、`anon`・`authenticated`が`public.press_releases`のSELECT権限を持たない状態を配置条件とする
   既存テーブル・列の実効権限に加え、新規テーブルへ適用されるデフォルト権限も確認する
   Data APIやSupabase Authの採用時、権限やmigrationの変更時、SupabaseプロジェクトやDBの再作成時、公開前には再確認する
+  Data API無効時のPostgRESTログ連発は、既存の保護を維持する[確認・回避策・解除手順](deployment.md#data-api無効時のpostgrestログ抑制)に従って扱う
 - SQLAlchemy は同期版から始める
 - Phase 3 初期では保存処理、重複防止、マイグレーションの見通しを優先し、async SQLAlchemy は高並行アクセスや非同期I/Oの必要性が明確になった段階で再検討する
 - DB接続設定は `apps/api/src/press_watch_api/config.py` で `DATABASE_URL` を環境変数から読み込む

@@ -77,6 +77,295 @@ Basic認証は将来のユーザー登録機能とは別であり、Supabase Aut
 準備と適用は[Supabaseへ進む条件](local-development.md#supabaseへ進む条件)に従って分ける。
 ローカルの実データ確認をSupabase適用済みの根拠にしない。
 
+### Data API無効時のPostgRESTログ抑制
+
+Data APIを無効にしてもPostgRESTは停止せず、存在しない`pg_pgrst_no_exposed_schemas`を参照してschema不存在ログを繰り返す既知事象がある。
+[Issue #136](https://github.com/64-HiroByte/press-watch/issues/136)では、監視を妨げるログを[Supabase公式KBの回避策](https://supabase.com/kb/troubleshooting/schema-pg_pgrst_no_exposed_schemas-does-not-exist)で抑制する。
+空の`pgrst_no_exposed_schemas`へPostgRESTの参照先を変更し、Data APIはオフのまま維持する。
+ログに出るschema名と、作成するschema名は異なる。
+業務schemaの公開、追加GRANT、業務データ・API専用ロールの変更、migration・seedの再実行、再配置は含めない。
+
+本節は実行承認を兼ねない。
+実アカウント閲覧と読取り診断は対象・項目・方法を提示して承認後に行い、変更SQL・影響・実行主体・復旧方法・APIとWebの利用を確定してから適用の別承認を得る。
+資格情報の入力と認証後の画面確認は本人操作を基本とする。
+ターミナルを使う場合は接続元・先、読取りか書込みか、記録先、成功判定を先に説明する。
+親の`DATABASE_URL`・`PG*`を除去し、承認された対象の接続情報とCAだけを渡して`sslmode=verify-full`を維持する。
+秘密ファイルは明示許可なく読まず、秘密値をコマンド引数・履歴・ログ・Issue・Docsへ残さない。
+
+#### 適用前の本人確認と読取り診断
+
+1. Supabaseで対象プロジェクトを照合し、Data APIの`Enable Data API`がオフであることを確認する。
+2. Postgresログの直近の発生時刻・件数・間隔と1件の詳細を確認する。
+   エラー文、SQLSTATE `3F000`、約32秒間隔、構造調査SQL、接続情報のPostgREST・`authenticator`との整合を確認する。
+   対象や発行元が違う場合は適用しない。
+3. 対象プロジェクトのSQL Editorで、次の読取り専用SQLを実行する。
+   管理ロールを使い、診断時と適用時の`current_user`を一致させてschema作成者のデフォルト権限を照合する。
+   出力は業務データ・パスワード・設定配列全体を含まず、1つのJSONとして取得する。
+
+```sql
+BEGIN READ ONLY;
+SET LOCAL statement_timeout = '15s';
+SET LOCAL lock_timeout = '2s';
+SET LOCAL search_path = pg_catalog;
+WITH target_schemas AS (
+  SELECT oid, nspname, nspowner, nspacl
+  FROM pg_namespace
+  WHERE nspname IN ('pgrst_no_exposed_schemas', 'pg_pgrst_no_exposed_schemas')
+), role_settings AS (
+  SELECT r.rolname, s.setdatabase, d.datname,
+         substr(v.setting, strpos(v.setting, '=') + 1) AS db_schemas
+  FROM pg_db_role_setting s
+  JOIN pg_roles r ON r.oid = s.setrole
+  LEFT JOIN pg_database d ON d.oid = s.setdatabase
+  CROSS JOIN LATERAL unnest(s.setconfig) AS v(setting)
+  WHERE r.rolname = 'authenticator'
+    AND split_part(v.setting, '=', 1) = 'pgrst.db_schemas'
+)
+SELECT jsonb_build_object(
+  'observed_at', clock_timestamp(),
+  'database', current_database(),
+  'executor', current_user,
+  'server_version', current_setting('server_version'),
+  'transaction_read_only', current_setting('transaction_read_only'),
+  'authenticator_exists', EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticator'),
+  'db_schemas_settings', (SELECT coalesce(jsonb_agg(to_jsonb(s) ORDER BY setdatabase), '[]'::jsonb) FROM role_settings s),
+  'schema_inventory', (
+    SELECT jsonb_agg(jsonb_build_object(
+      'name', nspname, 'owner', pg_get_userbyid(nspowner), 'acl', nspacl
+    ) ORDER BY nspname) FROM pg_namespace
+  ),
+  'target_schema_objects', (
+    SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'schema', n.nspname, 'object', pg_describe_object(d.classid, d.objid, d.objsubid)
+    ) ORDER BY n.nspname, d.classid, d.objid, d.objsubid), '[]'::jsonb)
+    FROM target_schemas n
+    JOIN pg_depend d ON d.refclassid = 'pg_namespace'::regclass AND d.refobjid = n.oid
+  ),
+  'creator_default_acl', (
+    SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'object_type', a.defaclobjtype, 'schema', n.nspname, 'acl', a.defaclacl
+    ) ORDER BY a.defaclnamespace, a.defaclobjtype), '[]'::jsonb)
+    FROM pg_default_acl a
+    LEFT JOIN pg_namespace n ON n.oid = a.defaclnamespace
+    WHERE a.defaclrole = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+  ),
+  'raw_select', (
+    SELECT jsonb_agg(jsonb_build_object(
+      'role', x.role_name, 'role_exists', r.oid IS NOT NULL,
+      'table_exists', c.oid IS NOT NULL,
+      'table_select', has_table_privilege(r.oid, c.oid, 'SELECT'),
+      'any_column_select', has_any_column_privilege(r.oid, c.oid, 'SELECT'),
+      'rls', c.relrowsecurity, 'force_rls', c.relforcerowsecurity
+    ) ORDER BY x.role_name)
+    FROM (VALUES ('anon'), ('authenticated')) AS x(role_name)
+    LEFT JOIN pg_roles r ON r.rolname = x.role_name
+    LEFT JOIN pg_class c ON c.oid = to_regclass('public.press_releases')
+  )
+) AS diagnostic;
+COMMIT;
+```
+
+`transaction_read_only`は`on`、`authenticator_exists`は`true`を期待する。
+`raw_select`は両ロール・原本テーブルが存在し、`table_select`・`any_column_select`とも`false`であることを確認する。
+`null`や対象欠落は権限なしの証拠にせず、診断を未完了とする。
+列単位のGRANTは`has_table_privilege`だけでは検出できないため、[列権限の確認関数](https://www.postgresql.org/docs/17/functions-info.html#FUNCTIONS-INFO-ACCESS-TABLE)も使用する。
+RLSは適用前後で照合し、RLSだけを原本保護の根拠にしない。
+ACLの`null`は権限なしではなく標準のデフォルト権限を表すため、所有者とデフォルト権限を含めて判断する。
+
+4. API専用ロール名を本人が既存の設定・記録と照合し、次の`<API専用ロール名>`だけを置き換えて別に実行する。
+   接続URLやパスワードは貼り付けない。
+   対象ロールの欠落、想定外の所属・所有・権限・設定があれば適用せず調査へ戻る。
+
+```sql
+BEGIN READ ONLY;
+SET LOCAL statement_timeout = '15s';
+SET LOCAL lock_timeout = '2s';
+SET LOCAL search_path = pg_catalog;
+WITH api AS (
+  SELECT oid, rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb,
+         rolcanlogin, rolreplication, rolbypassrls, rolconnlimit
+  FROM pg_roles WHERE rolname = '<API専用ロール名>'
+), objects AS (
+  SELECT c.oid, c.relname, c.relkind
+  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')
+)
+SELECT jsonb_build_object(
+  'observed_at', clock_timestamp(),
+  'database_identity', (
+    SELECT jsonb_build_object('oid', oid, 'name', datname, 'acl', datacl)
+    FROM pg_database WHERE datname = current_database()
+  ),
+  'role_found', EXISTS (SELECT 1 FROM api),
+  'attributes', (SELECT to_jsonb(a) FROM api a),
+  'memberships', (
+    SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'role', r.rolname, 'can_inherit', pg_has_role(a.oid, r.oid, 'USAGE'),
+      'can_set_role', pg_has_role(a.oid, r.oid, 'SET')
+    ) ORDER BY r.rolname), '[]'::jsonb)
+    FROM api a CROSS JOIN pg_roles r
+    WHERE r.oid <> a.oid AND pg_has_role(a.oid, r.oid, 'MEMBER')
+  ),
+  'settings', (
+    SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'database_oid', s.setdatabase, 'key', split_part(v.setting, '=', 1),
+      'value', substr(v.setting, strpos(v.setting, '=') + 1)
+    ) ORDER BY s.setdatabase, v.setting), '[]'::jsonb)
+    FROM api a JOIN pg_db_role_setting s ON s.setrole = a.oid
+    CROSS JOIN LATERAL unnest(s.setconfig) AS v(setting)
+    WHERE split_part(v.setting, '=', 1) IN (
+      'statement_timeout', 'lock_timeout', 'default_transaction_read_only', 'search_path'
+    )
+  ),
+  'owned_objects', (
+    SELECT coalesce(jsonb_agg(pg_describe_object(d.classid, d.objid, d.objsubid)
+      ORDER BY d.classid, d.objid, d.objsubid), '[]'::jsonb)
+    FROM api a JOIN pg_shdepend d ON d.refobjid = a.oid
+    WHERE d.refclassid = 'pg_authid'::regclass AND d.deptype = 'o'
+      AND d.dbid IN (0, (SELECT oid FROM pg_database WHERE datname = current_database()))
+  ),
+  'database_privileges', (
+    SELECT jsonb_build_object(
+      'connect', has_database_privilege(a.oid, current_database(), 'CONNECT'),
+      'create', has_database_privilege(a.oid, current_database(), 'CREATE'),
+      'temporary', has_database_privilege(a.oid, current_database(), 'TEMPORARY')
+    ) FROM api a
+  ),
+  'schema_privileges', (
+    SELECT jsonb_agg(jsonb_build_object(
+      'schema', n.nspname, 'usage', has_schema_privilege(a.oid, n.oid, 'USAGE'),
+      'create', has_schema_privilege(a.oid, n.oid, 'CREATE')
+    ) ORDER BY n.nspname) FROM api a CROSS JOIN pg_namespace n
+    WHERE n.nspname IN ('public', 'pgrst_no_exposed_schemas', 'pg_pgrst_no_exposed_schemas')
+  ),
+  'object_privileges', (
+    SELECT jsonb_agg(jsonb_build_object(
+      'object', c.relname, 'kind', c.relkind,
+      'select', CASE WHEN c.relkind = 'S' THEN has_sequence_privilege(a.oid, c.oid, 'SELECT')
+        ELSE has_table_privilege(a.oid, c.oid, 'SELECT') END,
+      'any_column_select', CASE WHEN c.relkind <> 'S' THEN has_any_column_privilege(a.oid, c.oid, 'SELECT') END,
+      'write_or_definition_privilege', CASE WHEN c.relkind = 'S'
+        THEN has_sequence_privilege(a.oid, c.oid, 'USAGE, UPDATE')
+        ELSE has_table_privilege(a.oid, c.oid, 'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN')
+          OR has_any_column_privilege(a.oid, c.oid, 'INSERT, UPDATE, REFERENCES') END
+    ) ORDER BY c.relname) FROM api a CROSS JOIN objects c
+  )
+) AS api_diagnostic;
+COMMIT;
+```
+
+`role_found`が`true`であることを確認し、属性・所属・所有・設定・権限を[限定配置の基準](#限定配置のdb接続)と照合する。
+`database_identity`でDB別設定のOIDと現在のDBを照合する。
+DBの`TEMPORARY`権限がある場合はDBのACLから付与元を確認し、専用ロールへの直接付与と`PUBLIC`由来の実効権限を区別して記録する。
+`TEMPORARY`は一時テーブルの作成権限であり、業務テーブルへの書込み権限とは別に扱う。
+想定外なら適用を止め、APIロールや`PUBLIC`の権限変更を今回の対応へ自動追加しない。
+権限確認関数は`PUBLIC`・継承由来も含む実効権限を返す。
+直接ログイン時の権限と、所属先へ`SET ROLE`できる権限は区別して確認する。
+このSQLは`public`のテーブル・列・連番と対象schemaを調べるもので、全schemaや全関数の権限監査ではない。
+想定外の所属があれば所属先の権限も確認するまで適用しない。
+
+5. Railwayで本人向け限定配置のプロジェクト・環境、Web・APIの配置SHA、APIに公開ドメイン・TCP Proxyがないことを照合する。
+6. 適用前後で比較する内部APIとWebの代表条件・期待結果を固定する。
+   環境利用の承認後、既存のRailway Console等から一覧・検索・カテゴリ絞り込み・ページ切替の基準を取得する。
+   `/fixed-categories`と`/press-releases`を使い、検索語・カテゴリslug・ページ番号・件数・応答の表示項目を記録する。
+   公開APIや新しいサービスは作成しない。
+
+今回の代表ケースは、カテゴリ一覧、無条件の一覧1ページ目・2ページ目、タイトル検索`q=土壌`、カテゴリ絞り込み`fixed_category=air`の5件とする。
+既存APIサービスのConsoleから`127.0.0.1`の既存待受けポートへGETだけを送り、HTTP 200、件数・ページ情報、応答JSON全体のSHA-256を記録する。
+応答はJSONのキーをソートし、`ensure_ascii=False`、`separators=(",", ":")`で直列化して比較する。
+同じ条件での適用後確認と区別し、過去のハッシュだけを現在の基準にせず、適用前に基準を取得する。
+
+同名schemaがあれば内容・所有者・ACLと用途を調べ、無条件に作成・再利用・削除しない。
+`authenticator`の独自設定、想定外の権限、公式手順の変更があれば、変更範囲と復旧方法を見直して別承認を得る。
+診断時と適用直前の対象・設定・schema・権限が変わっていないことも照合する。
+
+#### 別承認後の適用と解除
+
+事前確認でschemaが存在せず、既存設定との衝突もないことを確認した場合の適用SQLを示す。
+変更用SQLを準備する前に、読取り診断で直前の対象・設定・権限を記録と再照合する。
+結果を報告して適用の承認を得てから、適用SQL用の新しいクエリを作成する。
+読取り診断と変更用SQLは別タブに分け、その段階で実行するSQLを明示する。
+本人が対象プロジェクトのSQL Editorで管理ロールを使い、選択実行せず全体を実行する。
+途中で失敗した場合はコミット成功と扱わず、残ったトランザクションがあれば`ROLLBACK`し、状態を読み取りで確認する。
+
+```sql
+BEGIN;
+CREATE SCHEMA pgrst_no_exposed_schemas;
+ALTER ROLE authenticator SET pgrst.db_schemas = 'pgrst_no_exposed_schemas';
+NOTIFY pgrst;
+COMMIT;
+```
+
+公式の3文をトランザクションにまとめ、変更のコミット後に再読込み通知を配送する。
+`NOTIFY pgrst;`は設定とschemaキャッシュの両方の再読込みを通知するが、通知成功だけで反映済みとは判断しない。
+[PostgreSQLの通知とトランザクション](https://www.postgresql.org/docs/17/sql-notify.html)、[PostgRESTのListener](https://docs.postgrest.org/en/v13/references/listener.html)を参照する。
+
+事前に対象のロール共通設定が未設定だった場合の解除SQLは次のとおりとする。
+既存値があった場合はRESETだけでは復元できないため、元の値と設定スコープへ戻すSQLを適用前に確定する。
+解除も事前承認された復旧範囲だけで行う。
+
+```sql
+BEGIN;
+ALTER ROLE authenticator RESET pgrst.db_schemas;
+NOTIFY pgrst;
+COMMIT;
+```
+
+Data APIがオフのまま解除すると、元のログ連発が再発し得る。
+空schemaの削除やData APIの再有効化は通常の解除に含めず、必要なら依存・権限・公開範囲を調べて別承認を得る。
+
+#### 適用後の判定と記録
+
+1. 読取り診断を再実行し、空schemaの所有者・ACL・オブジェクトなし、`authenticator`の保存設定を確認する。
+   Data APIオフ、原本のテーブル・列SELECT不可、RLS、API専用ロールの既存権限・設定も前後で照合する。
+2. コミット時刻以後の新規ログを最低5分観測する。
+   約32秒間隔の同一エラーが停止し、別のschema・権限・接続エラーへ置き換わっていないことを確認する。
+   過去ログの残存・表示遅延と新規発生を区別し、区別できない場合は停止確認を未完了とする。
+3. 承認された既存内部APIと認証後Webで、基準と同じ一覧・検索・カテゴリ絞り込み・ページ切替を確認する。
+4. 本人が未認証の別ブラウザ環境で認証要求、誤認証で拒否、正しい認証で表示されることを確認する。
+   Railway APIに公開ドメイン・TCP Proxyがないことも再確認する。
+
+SQL Editor自身の`current_setting()`や`SET ROLE`後の値を、PostgRESTの設定反映の証拠にしない。
+保存設定とPostgRESTの新規ログ・既存機能を合わせて判定する。
+`SET ROLE`ではログイン時の設定は読み直されないことを[PostgreSQL公式](https://www.postgresql.org/docs/17/sql-alterrole.html)でも説明している。
+Webのブラウザ操作、HTTP応答・ヘッダー、設定閲覧は別の確認として記録し、未実施のRSC等の全経路まで確認済みと報告しない。
+新たなエラー・公開範囲の変化・APIやWebの不具合があれば後続変更を止め、事前記録と照合して報告する。
+復旧は事前承認された設定復元の範囲を守る。
+
+必要な実行記録は秘密値を含めずGit管理外へ保存する。
+共有する結果には実施主体、対象の一致、公式手順の確認日、適用・観測開始・終了の時刻とタイムゾーン、前後の設定とログ、API・Webの条件と結果、保証範囲・未確認事項、解除条件を残す。
+確認後に本節へ結果を反映し、完了条件を満たした項目だけ[Phase 7の進捗](tasks.md#phase-7-定期実行と運用準備)へ反映する。
+
+#### 限定配置での確認状況
+
+2026年11月8日、本人がPressWatchのSupabaseのSQL Editorで公式回避策を適用し、`Success. No rows returned`と正常終了した。
+同日に公式KBの手順を照合し、適用前に対象schema・設定・原本権限を再確認した。
+実環境の操作主体は本人であり、確認結果はSQL Editor・Railway Consoleの出力、本人の画面操作の報告と提供画像に基づく。
+PostgreSQLは17.6、ログの発行元はPostgREST 14.5・`authenticator`で、適用前はSQLSTATE `3F000`の同一エラーが約32秒間隔で発生していた。
+
+| 対象 | 適用・確認結果 |
+| --- | --- |
+| schema・保存設定 | 適用前は対象2schemaなし、`pgrst.db_schemas`はロール共通・DB別とも未設定。適用後は空の`pgrst_no_exposed_schemas`、所有者`postgres`、標準のデフォルトACL、オブジェクト0件。`authenticator`のロール共通設定はこのschemaだけを指定 |
+| 原本の保護 | 前後とも`anon`・`authenticated`は原本のテーブル・列SELECT不可。原本のRLSとFORCE RLSはオフのまま維持 |
+| API専用ロール | `presswatch_api_readonly`の既存属性・所属・所有・権限・設定は前後一致。指定3テーブルのSELECTのみ、確認対象のテーブル・連番の書込み等権限、所有、所属、管理属性なし。接続上限4、対象DBの`statement_timeout=5s`。新しい空schemaへのUSAGE・CREATEなし |
+| DB権限の区別 | DBのACLは前後一致。専用ロールへの直接付与はCONNECTのみ。既存の`PUBLIC`由来のCONNECT・TEMPORARYを維持し、一時テーブル作成権限もあることを区別して記録 |
+| Data API・API非公開 | 本人の適用後の設定閲覧でもData APIオフ、Railway APIの公開ドメイン・TCP Proxyなしを再確認 |
+| 既存内部API | 前後の代表5件すべてHTTP 200。応答全体のSHA-256・件数・ページ情報・API配置SHAが一致。カテゴリ10件、原本34,421件、検索「土壌」823件、カテゴリ`air`1,004件 |
+| Web・認証拒否 | 本人のブラウザ操作で代表4操作の件数・ページ切替が前後一致。適用後も未認証・誤認証で一覧を見られないことを確認 |
+| 配置コード | 作業中のWeb・APIの稼働SHAを`1c43cd80f87ca0023bce2bf6d9ddea9c86757eba`と照合。再配置は行わず、適用後のAPI確認でも同じSHA |
+
+DBの適用後確認は06:41:52 UTC、APIロールの権限照合は06:44:39 UTCに行った。
+内部APIの比較基準は06:19:51 UTC、適用後の確認は06:46:17 UTCの本人のConsole出力を使用した。
+本人提供のPostgresログ画像では、表示時刻15:39:08を最後に同一エラーが止まり、15:39:24に適用SQLの記録、15:42:40・15:42:41に正常なcheckpointログがある。
+15:51頃までの表示範囲で、適用後5分以上の同一エラー停止と別のschema・権限・接続エラーへの置換がないことを確認し、保存設定と合わせてPostgRESTへの反映を判断した。
+画像内ではタイムゾーンが明示されていないため、これらは画面表示時刻として記録し、SQL結果のUTC時刻と区別する。
+
+保証範囲は当日の診断・ログ画像・代表操作であり、将来の無期限の無発生や全schema・全関数の権限監査は含まない。
+WebのHTTPステータス・ヘッダーやRSC等の全経路を今回実測したとは扱わず、ブラウザ上で確認した範囲と区別する。
+解除SQLによる復旧試験は行っていない。
+今回の適用前設定は未設定だったため、解除には本節のRESETと再読込み通知を使う。
+上流修正の採用や将来のData API再有効化で解除が必要になった場合は、その時点の公式手順・保存設定・公開範囲と承認を再確認する。
+
 ## Railwayでの限定配置手順
 
 1. 利用プランと費用・停止条件を確認する。
