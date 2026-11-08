@@ -364,7 +364,8 @@ Phase 6-11では実APIの連続操作と応答制御の自動確認を実施し�
 - ローカルのDocker ComposeにはPostgreSQL 17を使い、スキーマはAlembic migrationで管理する
 - 固定カテゴリ3テーブルはmigration `a51eab6808f3`で追加し、カテゴリ・キーワード定義は専用seed CLIで登録する
   migration・seedを適用したことと、保存済み実データを投入・再分類したことは区別する
-  実データ投入と取得ジョブの配置は後続作業として扱う
+  保存済み実データのSupabaseへの投入・再分類と限定配置での動作確認は完了し、[適用・確認状況](supabase-data-import.md#限定配置の適用と確認状況)に確認範囲を記録している
+  取得ジョブの配置は後続作業として扱う
 - 実環境の適用revision・記事件数・カテゴリ定義・権限は、変更前に読み取りで確認する
   限定配置の接続・権限と検証手順は[デプロイ構成と運用計画](deployment.md#限定配置のdb接続)、実データの検証手順は[開発手順](local-development.md#supabaseへ進む条件)を参照する
 - Data APIは利用せず、`anon`・`authenticated`が`public.press_releases`のSELECT権限を持たない状態を配置条件とする
