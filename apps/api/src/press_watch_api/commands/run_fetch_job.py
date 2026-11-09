@@ -24,6 +24,7 @@ HEARTBEAT_SECONDS = 5
 RESPONSE_SECONDS = 5
 RUN_SECONDS = 1800
 GRACE_SECONDS = 15
+SUPERVISOR_FAILURE_REASON = 'supervisor_failed_save_state_unknown'
 
 
 def connection_environment(environment: Mapping[str, str]) -> dict[str, str]:
@@ -321,7 +322,7 @@ def supervise(
                 break
             time.sleep(.02)
     except Exception:
-        code, reason = 1, 'supervisor_failed_save_state_unknown'
+        code, reason = 1, SUPERVISOR_FAILURE_REASON
     finally:
         child.close()
         cleanup_deadline = time.monotonic() + grace
@@ -427,20 +428,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         # APIと同じCAの寿命を利用し、子だけへ対象の接続設定を渡す。
         with certificate_environment():
             env['PGSSLROOTCERT'] = os.environ['PGSSLROOTCERT']
-            return supervise(
-                [
-                    sys.executable,
-                    '-m',
-                    fetch.__name__,
-                    *rest,
-                ],
-                env, check_only=options.check_db_only,
-                expected_identity=expected_identity,
-                timeout=max(0, RUN_SECONDS - (time.monotonic() - started)),
-            )
+            try:
+                return supervise(
+                    [
+                        sys.executable,
+                        '-m',
+                        fetch.__name__,
+                        *rest,
+                    ],
+                    env, check_only=options.check_db_only,
+                    expected_identity=expected_identity,
+                    timeout=max(0, RUN_SECONDS - (time.monotonic() - started)),
+                )
+            except Exception:
+                reason = SUPERVISOR_FAILURE_REASON
     except Exception:
-        _report('configuration_failed', 1)
-        return 1
+        reason = 'configuration_failed'
+    _report(reason, 1)
+    return 1
 
 
 if __name__ == '__main__':

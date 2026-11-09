@@ -57,6 +57,48 @@ class InvalidPreparationTest(unittest.TestCase):
                 spawn.assert_not_called()
 
 
+class JobFailureReportingTest(unittest.TestCase):
+    """接続準備と監督実行で異なる失敗理由を返すこと"""
+
+    def test_invalid_configuration_stops_before_supervisor(self) -> None:
+        """接続設定が不十分なら監督処理を始めず設定エラーを報告すること"""
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch.object(job, 'supervise') as supervise,
+            redirect_stderr(io.StringIO()) as output,
+        ):
+            code = job.main([])
+
+        self.assertEqual(code, 1)
+        supervise.assert_not_called()
+        self.assertEqual(output.getvalue().strip(), 'job reason=configuration_failed exit_code=1')
+
+    def test_supervisor_failure_reports_runtime_error_and_removes_ca(self) -> None:
+        """監督例外の詳細を出さず、一時CAを削除して設定を復元すること"""
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    'DATABASE_URL': 'postgresql://writer:example@db.invalid/postgres?sslmode=verify-full',
+                    'PRESSWATCH_DB_CA_CERT': 'synthetic-ca',
+                    'PGSSLROOTCERT': '/previous/ca.crt',
+                },
+                clear=True,
+            ),
+            patch.object(job, 'supervise', side_effect=OSError('synthetic detail')) as supervise,
+            redirect_stderr(io.StringIO()) as output,
+        ):
+            code = job.main([])
+            self.assertEqual(os.environ['PGSSLROOTCERT'], '/previous/ca.crt')
+
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            output.getvalue().strip(),
+            'job reason=supervisor_failed_save_state_unknown exit_code=1',
+        )
+        self.assertFalse(Path(supervise.call_args.args[1]['PGSSLROOTCERT']).exists())
+
+
 class DiagnosticIdentityTest(unittest.TestCase):
     """接続診断で承認したDB・ロールとの一致を確認"""
 
