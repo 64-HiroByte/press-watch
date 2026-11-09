@@ -2850,3 +2850,53 @@ DBボリュームの削除は保存済みデータを失う操作であるため
 ## Phase 7の本番用Docker
 
 本番用イメージの構成と隔離した合成DB検証の手順は[本番用Docker](production-docker.md)を参照してください。
+
+## 定期取得の監督CLIを検証する
+
+既存の取得・分類・保存CLIの外側に`press_watch_api.commands.run_fetch_job`を置く。
+月別巡回を指定して0ページだった場合は保存前に失敗し、正常な新着0件とファイル入力は許容する。
+
+各コード例はリポジトリルートから開始する。
+
+```bash
+(cd apps/api
+PYTHONPATH=src uv run --locked python -m unittest discover -s tests -p 'test_run_fetch_job.py'
+PYTHONPATH=src uv run --locked python -m unittest discover -s tests -p 'test_job_tls.py'
+PYTHONPATH=src uv run --locked python -m press_watch_api.commands.run_fetch_job --prepare-only --archive-month-limit 6)
+```
+
+合成ロックプロセスを使うテストは実DB・実サイトへ接続しない。
+接続設定の検証、競合見送り、時間切れ、応答停止、SIGTERM時の終了順序、出力詰まりを確認する。
+実際のPostgreSQL advisory lock、TLS handshake、保存ロールの実効権限、RailwayのSIGTERM・Cronは別の統合・実環境確認が必要となる。
+API側CAの任意指定・空値拒否・復元と、既存jobの合成ファイル入力も回帰確認する。
+Docker・隔離DB・必要イメージやツールの取得は承認範囲を確認してから行う。
+実環境の接続・起動・停止再開の条件は[定期取得ジョブの運用](scheduled-fetch.md)を参照する。
+
+停止監督のプロセス群テストはLinux専用とし、macOSのテスト一覧ではskipする。
+LinuxではSIGTERMを無視する孫プロセスも含めて強制終了・回収を確認する。
+検証済みの依存を備えたLinuxコンテナ上で`test_run_fetch_job.SupervisorTest`を実行する。
+
+TLS・ロック・最小保存権限・期限のローカル統合検証は、承認後に次を使用する。
+既存の`postgres:17`イメージと、次のコマンドでビルドするローカル検証用jobイメージを使い、ランダム名の一時コンテナとlocalhostの一時ポートを作る。
+テスト用証明書・鍵とパスワードを生成し、実環境の接続情報を使わず、終了時にコンテナと一時ファイルを削除する。
+合成fixtureを保存して重複再実行、UPDATE・DELETE・TRUNCATE・schema CREATEの拒否、パスワード期限切れと復帰を確認する。
+保存CLIのcommit直前・直後でSIGTERMを受けた場合のDB状態、既存原本・所属の保持、重複再実行も照合する。
+新実行の競合見送り後に旧実行を中断する順序を合成し、見送り3・中断143を通常成功へ数えないことを確認する。
+検証runnerは親の`PG*`を最初の接続から除去し、Docker Desktopの既知Unix socket（Linuxでは`/var/run/docker.sock`）と固定CLI・一時設定ディレクトリだけを使う。
+対応するsocketがなければ起動前に止まり、親のremote contextへフォールバックしない。
+DB schemaはモデルから作成するため、migrationの検証は既存のPostgreSQL integrationで別に行う。
+
+ビルド前に[本番用Dockerの隔離手順](production-docker.md)で`production_validation_cli`と最新ソースをコピーした`validation_root`を準備する。
+Dockerビルドはその固定CLI・既知ローカルsocketを通し、通常のDocker contextへ依存させない。
+以下は準備した同じシェルで実行し、ビルドやディレクトリ移動に失敗した場合は後続の検証を停止する。
+
+```bash
+(
+set -e
+(cd "${validation_root:?}"
+production_validation_cli build --target job -f infra/docker/python.Dockerfile -t presswatch-original-job-validation:local .
+production_validation_cli build --target scheduled-job -f infra/docker/python.Dockerfile -t presswatch-scheduled-job-validation:local .)
+(cd apps/api
+PYTHONPATH=src uv run --locked python -m integration_tests.run_fetch_job_tls)
+)
+```

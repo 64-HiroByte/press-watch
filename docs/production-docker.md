@@ -164,3 +164,27 @@ Web・APIの起動と一時ソース変更の反映を確認した後、依存�
 現行構成に対するamd64・実CI・本番Dockerでのブラウザー操作、実HTTP巡回中・DB保存中の中断確認は未完了である。
 実サイト・既存DB・Supabase・クラウド配置の確認は、合成データによる検証とは別に行う。
 公開前の依存更新・配置・定期実行の条件は[デプロイ構成と運用計画](deployment.md)を参照する。
+
+## 定期取得用scheduled-jobターゲット
+
+`scheduled-job`は既存`job`から派生し、依存とscraperを共有して監督CLIを起動する。
+既存`job`の入口・SIGINT・TLSなしの合成ファイル入力検証を維持し、`scheduled-job`はSIGTERMを使用する。
+既定ビルドは`PRESSWATCH_PYTHON_TARGET=production`でAPIを起動する。
+Railwayジョブではこのビルド引数を`scheduled-job`へ変更する。
+
+事前に[合成データによる検証手順](#合成データによる検証手順)に従い、固定CLIの`production_validation_cli`と最新ソースをコピーした隔離ディレクトリ`validation_root`を準備する。
+以下は準備した同じシェルで実行し、Docker操作には固定CLI・既知ローカルsocket・専用設定を使用する。
+
+```bash
+(
+set -e
+cd "${validation_root:?}"
+production_validation_cli build --target scheduled-job -f infra/docker/python.Dockerfile -t presswatch-scheduled-job-validation:local .
+production_validation_cli run --rm --pull never --network none presswatch-scheduled-job-validation:local --prepare-only --archive-month-limit 6
+)
+```
+
+`--prepare-only`は引数、API側依存、uvとscraperの仮想環境の存在を確認し、外部HTTP・DB接続・保存を行わない。
+本番の接続検証はCAと`verify-full`に加え、`--check-db-only --expected-db-user presswatch_fetch_writer --expected-db-name postgres`で承認した接続主体との一致を確認する。
+Start Command上書き時は完全なPythonコマンドを指定し、HTTP healthcheckを付けない。
+[定期取得ジョブの運用](scheduled-fetch.md)で接続・起動コマンド・停止再開の条件を確認する。

@@ -502,18 +502,12 @@ Under Attack Modeは非ブラウザ通信への影響も確認してから使う
 
 Supabaseのプラン・容量・通信量・休止条件を確認し、休止後は状態確認・必要な再開操作・DB接続確認を行う。
 Railway側の再開だけで復旧すると仮定しない。
-運用中のバックアップ頻度・保管先・復元確認を、適用前バックアップとは別に決める。
+ローカルバックアップは初回投入やDB移行などの変更前に取得する。
+取得と検査の手順は[定期取得ジョブの運用](scheduled-fetch.md#バックアップの実行と検査)に従う。
 [Supabaseの休止条件](https://supabase.com/docs/guides/platform/free-project-pausing)、[バックアップ](https://supabase.com/docs/guides/platform/backups)、[費用管理](https://supabase.com/docs/guides/platform/cost-control)を参照する。
 
-取得ジョブの配置先候補はRailwayとし、既存の`press_watch_api.commands.fetch_and_save_env_press`を実行入口とする。
-APIとは別の保存用ロールを用意し、本番用Dockerの`job`ターゲットで取得・保存・終了を手動検証してから定期実行へ進む。
-実行コマンドとrobots.txtの確認条件は[取得・保存の手順](local-development.md#手動で取得してdbへ保存する)と[scraper単体の手順](local-development.md#scraper-を単体で起動する)に従う。
-正確な実行時刻、実行上限、再試行、重複防止、親子プロセス終了と失敗・欠落の確認方法は配置前に確定する。
-
-Cronは厳密な開始時刻を保証せず、前回実行が残る場合のスキップも考慮する。
-終了コードだけで未保存とは判断せず、失敗時の診断を確認してから再実行する。
-既存の終了コード・stdout・stderrとサービスの実行結果を使い、独自の実行履歴DBや長期ログ基盤は必要性を確認してから追加する。
-[Railway Cron](https://docs.railway.com/cron-jobs)、[再起動方針](https://docs.railway.com/deployments/restart-policy)、[ログ](https://docs.railway.com/observability/logs)を参照する。
+取得ジョブはRailwayの`fetch-job`に配置し、`scheduled-job`ターゲットの`press_watch_api.commands.run_fetch_job`を手動・Cron共通の入口とする。
+構成と確認状況は[定期取得ジョブ](#定期取得ジョブ)、実行上限・排他・終了処理・失敗時の対応は同節から運用手順を参照する。
 
 ## セキュリティ更新と後続タスク
 
@@ -521,5 +515,15 @@ Cronは厳密な開始時刻を保証せず、前回実行が残る場合のス�
 更新した場合は本番イメージを再ビルドし、依存再現性・回帰確認・配置SHAの照合まで行う。
 固定・解決版は各マニフェストとlockfile、残作業は[Phase 7のタスク](tasks.md#phase-7-定期実行と運用準備)で管理する。
 
-後続作業は、限定配置の利用量評価、取得ジョブの配置と手動検証、定期実行、一般公開の順で条件を確認する。
+限定配置の利用量評価と一般公開の残条件は[Phase 7の進捗](tasks.md#phase-7-定期実行と運用準備)で管理する。
 一般公開前には過剰要求対策、最新のセキュリティ情報、実測費用、DBの復旧とバックアップ方針を再確認する。
+
+## 定期取得ジョブ
+
+`fetch-job`はAPIと分離した専用保存用ロールで動かし、同じ監督CLIを手動実行とRailway Cronに使用する。
+実行コマンド、TLS・権限、バックアップ、費用上限、期限管理、結果確認、停止・再開は[定期取得ジョブの運用](scheduled-fetch.md)を参照する。
+Docker構成とローカル検証は[本番用Docker](production-docker.md#定期取得用scheduled-jobターゲット)と[監督CLIの検証](local-development.md#定期取得の監督cliを検証する)に記載する。
+
+初回の手動取得では249件を追加し、既存データ保持・分類・API・Webの正常動作を確認した。
+Cronは毎日10:30・16:30 JSTで設定し、両枠の起動・終了と、新着の保存・Web表示・DB件数の一致を確認した。
+長期費用評価や一般公開に必要な残作業は[Phase 7の進捗](tasks.md#phase-7-定期実行と運用準備)で管理する。
