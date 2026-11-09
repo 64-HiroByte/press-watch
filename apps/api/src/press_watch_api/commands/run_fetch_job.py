@@ -16,6 +16,7 @@ import time
 
 from sqlalchemy.engine import make_url
 
+from press_watch_api.config import DATABASE_URL_ENV
 from press_watch_api.db_tls import certificate_environment
 
 LOCK_KEY = 0x5052455353574154
@@ -35,30 +36,38 @@ def connection_environment(environment: Mapping[str, str]) -> dict[str, str]:
         対象URL、CA、接続待ち・SQL待ちの上限を設定した子プロセス環境
 
     Raises:
-        ValueError: CA、Direct接続先またはTLS指定が不適切な場合
+        ValueError: CAまたはDirect接続用URLの形式・接続情報・TLS指定が不適切な場合
     """
     if not environment.get('PRESSWATCH_DB_CA_CERT', '').strip():
         raise ValueError('job CA is required')
+
+    invalid_url_message = 'job requires a Direct URL with only sslmode=verify-full'
+    database_url = environment.get(DATABASE_URL_ENV, '')
     try:
-        url = make_url(environment.get('DATABASE_URL', ''))
-        valid = (
-            url.drivername in ('postgresql', 'postgresql+psycopg')
-            and url.host and not url.host.startswith(('/', '@'))
-            and ',' not in url.host
-            and 'pooler' not in url.host.lower()
-            and url.username and url.password and url.database
-            and url.query.get('sslmode') == 'verify-full'
-            and set(url.query) <= {'sslmode'}
-        )
+        url = make_url(database_url)
     except Exception:
-        valid = False
-    if not valid:
-        raise ValueError('job requires a Direct URL with only sslmode=verify-full')
+        url = None
+    if url is None:
+        raise ValueError(invalid_url_message)
+
+    if url.drivername not in ('postgresql', 'postgresql+psycopg'):
+        raise ValueError(invalid_url_message)
+
+    host = url.host
+    if not host or host.startswith(('/', '@')) or ',' in host or 'pooler' in host.lower():
+        raise ValueError(invalid_url_message)
+
+    if not (url.username and url.password and url.database):
+        raise ValueError(invalid_url_message)
+
+    if set(url.query) != {'sslmode'} or url.query['sslmode'] != 'verify-full':
+        raise ValueError(invalid_url_message)
+
     env = {
         key: value
         for key, value in environment.items()
         if not key.startswith('PG')
-        and key not in ('DATABASE_URL', 'PRESSWATCH_LOCK_FD')
+        and key not in (DATABASE_URL_ENV, 'PRESSWATCH_LOCK_FD')
     }
     url = url.set(drivername='postgresql+psycopg').update_query_dict(
         {
@@ -66,7 +75,7 @@ def connection_environment(environment: Mapping[str, str]) -> dict[str, str]:
             'options': '-c statement_timeout=30000 -c lock_timeout=5000',
         }
     )
-    env['DATABASE_URL'] = url.render_as_string(hide_password=False)
+    env[DATABASE_URL_ENV] = url.render_as_string(hide_password=False)
     return env
 
 
@@ -107,7 +116,7 @@ def _lock_worker(expected_identity: tuple[str, str] | None = None) -> int:
     channel = socket.socket(fileno=int(os.environ['PRESSWATCH_LOCK_FD']))
     channel.settimeout(HEARTBEAT_SECONDS)
     try:
-        url = make_url(os.environ['DATABASE_URL'])
+        url = make_url(os.environ[DATABASE_URL_ENV])
         with psycopg.connect(
             host=url.host,
             port=url.port or 5432,
@@ -422,7 +431,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 [
                     sys.executable,
                     '-m',
-                    'press_watch_api.commands.fetch_and_save_env_press',
+                    fetch.__name__,
                     *rest,
                 ],
                 env, check_only=options.check_db_only,

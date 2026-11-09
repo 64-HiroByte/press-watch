@@ -19,6 +19,7 @@ import press_watch_api.models  # noqa: F401
 from press_watch_api.models.base import Base
 from press_watch_api.commands import run_fetch_job as job
 from press_watch_api.commands.seed_fixed_categories import main as seed
+from press_watch_api.config import DATABASE_URL_ENV
 
 ROOT = Path(__file__).resolve().parents[3]
 DOCKER_BINARY = (
@@ -146,7 +147,7 @@ def _verify_database(
         )
         env = {
             **environment,
-            'DATABASE_URL': target.render_as_string(hide_password=False),
+            DATABASE_URL_ENV: target.render_as_string(hide_password=False),
             'PRESSWATCH_DB_CA_CERT': ca.read_text(),
         }
         with patch.dict(os.environ, env, clear=True):
@@ -167,7 +168,7 @@ def _verify_database(
                 with patch.dict(
                     os.environ,
                     {
-                        'DATABASE_URL': target.set(host=host).render_as_string(
+                        DATABASE_URL_ENV: target.set(host=host).render_as_string(
                             hide_password=False,
                         ),
                         'PRESSWATCH_DB_CA_CERT': certificate.read_text(),
@@ -198,7 +199,7 @@ def _verify_database(
                 )
                 container_env = {
                     **environment,
-                    'DATABASE_URL': container_url.render_as_string(hide_password=False),
+                    DATABASE_URL_ENV: container_url.render_as_string(hide_password=False),
                 }
                 if tls:
                     container_env['PRESSWATCH_DB_CA_CERT'] = ca.read_text()
@@ -211,7 +212,7 @@ def _verify_database(
                     '--network',
                     f'container:{container}',
                     '-e',
-                    'DATABASE_URL',
+                    DATABASE_URL_ENV,
                     '-v',
                     f'{ROOT / "infra/fixtures/api-validation-press.html"}'
                     ':/fixtures/press.html:ro',
@@ -271,7 +272,7 @@ def _interrupted_saves(
     memberships = admin.execute('SELECT * FROM press_release_fixed_categories ORDER BY 1, 2').fetchall()
     env = {
         **environment,
-        'DATABASE_URL': target.set(port=5432).render_as_string(hide_password=False),
+        DATABASE_URL_ENV: target.set(port=5432).render_as_string(hide_password=False),
         'PRESSWATCH_DB_CA_CERT': certificate,
     }
     prefix = [
@@ -283,7 +284,7 @@ def _interrupted_saves(
         '--network',
         f'container:{container}',
         '-e',
-        'DATABASE_URL',
+        DATABASE_URL_ENV,
         '-e',
         'PRESSWATCH_DB_CA_CERT',
     ]
@@ -447,7 +448,7 @@ def main() -> int:
         key: value
         for key, value in os.environ.items()
         if not key.startswith('PG')
-        and key not in ('DATABASE_URL', 'PRESSWATCH_DB_CA_CERT')
+        and key not in (DATABASE_URL_ENV, 'PRESSWATCH_DB_CA_CERT')
     }
     password = secrets.token_urlsafe(24)
     name = f'presswatch-job-tls-{secrets.token_hex(5)}'
@@ -537,7 +538,7 @@ def local_environment(environment: dict[str, str], config: str) -> dict[str, str
         key: value
         for key, value in environment.items()
         if not key.startswith(('PG', 'DOCKER_'))
-        and key not in ('DATABASE_URL', 'PRESSWATCH_DB_CA_CERT', 'BUILDX_CONFIG')
+        and key not in (DATABASE_URL_ENV, 'PRESSWATCH_DB_CA_CERT', 'BUILDX_CONFIG')
     }
     env.update(DOCKER_HOST=f'unix://{endpoint}', DOCKER_CONFIG=config)
     return env

@@ -44,23 +44,43 @@ class CertificateEnvironmentTest(unittest.TestCase):
 class JobConnectionTest(unittest.TestCase):
     """本番監督入口でTLSの弱い指定を許容しないこと"""
 
-    def test_conflicting_tls_and_indirect_hosts_are_rejected(self) -> None:
-        """弱いTLS、別CA、pooler、Unix socketを取得前に拒否すること"""
-        for url in (
+    def test_invalid_connection_settings_are_rejected(self) -> None:
+        """ドライバー、接続先、認証情報、TLSの不適切な指定を拒否すること"""
+        invalid_urls = [
+            'postgresql+psycopg2://writer:example@db.example/postgres?sslmode=verify-full',
             'postgresql://writer:example@db.example/postgres?sslmode=require',
             'postgresql://writer:example@db.example/postgres?sslmode=verify-full&sslrootcert=other',
+            'postgresql://writer:example@db.example/postgres?sslmode=verify-full&sslmode=verify-full',
+            'postgresql://writer:example@db.example/postgres',
+            'postgresql://:example@db.example/postgres?sslmode=verify-full',
+            'postgresql://writer@db.example/postgres?sslmode=verify-full',
+            'postgresql://writer:example@db.example?sslmode=verify-full',
             'postgresql://writer:example@pooler.supabase.com/postgres?sslmode=verify-full',
             'postgresql:///postgres?sslmode=verify-full',
             'postgresql://writer:example@@test/postgres?sslmode=verify-full',
             'postgresql://writer:example@db.invalid,@test/postgres?sslmode=verify-full',
             'postgresql://writer:example@db.invalid,/postgres?sslmode=verify-full',
-        ):
+        ]
+        for url in invalid_urls:
             with self.subTest(url=url), self.assertRaises(ValueError):
                 job.connection_environment({
                     'DATABASE_URL': url,
                     'PRESSWATCH_DB_CA_CERT': 'ca',
                     'PGHOST': 'inherited',
                 })
+
+    def test_malformed_url_does_not_expose_credentials(self) -> None:
+        """URL解析に失敗した場合に入力値や解析元の例外を外へ渡さないこと"""
+        with self.assertRaises(ValueError) as failure:
+            job.connection_environment({
+                'DATABASE_URL': 'malformed:sample-user:sample-password@db.invalid/postgres',
+                'PRESSWATCH_DB_CA_CERT': 'ca',
+            })
+
+        error = failure.exception
+        for value in ('malformed:', 'sample-user', 'sample-password', 'db.invalid'):
+            self.assertNotIn(value, str(error))
+        self.assertIsNone(error.__context__)
 
     def test_target_connection_drops_inherited_pg_settings(self) -> None:
         """対象URLを維持しつつ親の接続先とパスワードを除くこと"""
