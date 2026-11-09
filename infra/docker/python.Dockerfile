@@ -1,3 +1,4 @@
+ARG PRESSWATCH_PYTHON_TARGET=production
 FROM python:3.14-slim@sha256:cd89c30eda26ee911a4611b18680086e0ea42e6f5f8cbe653d07fa7958c9cec8 AS base
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 
@@ -40,6 +41,12 @@ USER app
 STOPSIGNAL SIGINT
 ENTRYPOINT ["/app/.venv/bin/python", "-m", "press_watch_api.commands.fetch_and_save_env_press"]
 
+FROM job AS scheduled-job
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/app/.venv/bin/python", "-m", "press_watch_api.commands.run_fetch_job"]
+
 FROM runtime AS production
 EXPOSE 8000
 CMD ["/bin/sh", "-c", "exec /app/.venv/bin/uvicorn press_watch_api.main:app --host \"${HOST:-0.0.0.0}\" --port \"${PORT:-8000}\" --workers 1"]
+
+FROM ${PRESSWATCH_PYTHON_TARGET} AS selected
