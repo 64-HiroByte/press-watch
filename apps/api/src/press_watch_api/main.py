@@ -1,11 +1,10 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-import os
-from tempfile import NamedTemporaryFile
 
 from fastapi import FastAPI
 from sqlalchemy.exc import SQLAlchemyError
 
+from press_watch_api.db_tls import certificate_environment
 from press_watch_api.http_errors import (
     DatabaseLifecycleError,
     database_error_handler,
@@ -28,25 +27,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         RuntimeError: CA用の環境変数が設定済みで空の場合
     """
 
-    certificate = os.getenv("PRESSWATCH_DB_CA_CERT")
-    if certificate is None:
+    with certificate_environment():
         yield
-        return
-    if not certificate.strip():
-        raise RuntimeError("PRESSWATCH_DB_CA_CERT is empty.")
-
-    previous = os.environ.get("PGSSLROOTCERT")
-    with NamedTemporaryFile(mode="w", encoding="utf-8", prefix="presswatch-ca-") as ca_file:
-        ca_file.write(certificate)
-        ca_file.flush()
-        os.environ["PGSSLROOTCERT"] = ca_file.name
-        try:
-            yield
-        finally:
-            if previous is None:
-                os.environ.pop("PGSSLROOTCERT", None)
-            else:
-                os.environ["PGSSLROOTCERT"] = previous
 
 
 app = FastAPI(title="PressWatch API", lifespan=lifespan)

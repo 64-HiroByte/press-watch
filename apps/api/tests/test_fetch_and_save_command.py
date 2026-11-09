@@ -44,6 +44,25 @@ class FetchAndSaveCommandTest(unittest.TestCase):
             ),
         )
 
+    def test_archive_without_pages_is_rejected_before_save(self) -> None:
+        """月別巡回でページを認識できない場合は保存Sessionを作らないこと"""
+        factory = Mock()
+        collected = CollectedPressReleases(INDEX_URL, (), (), None)
+        with (
+            patch.object(fetch_and_save_env_press, "save_press_releases") as save,
+            patch.object(fetch_and_save_env_press, "_load_known_release_urls", return_value=()),
+        ):
+            code = main(
+                ["--archive-month-limit", "6"],
+                session_factory=factory,
+                collect_releases=Mock(return_value=collected),
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+        self.assertEqual(code, 1)
+        save.assert_not_called()
+        factory.assert_not_called()
+
     def test_robots_failure_from_scraper_prevents_save(self) -> None:
         """scraperのrobots失敗を伝達し保存Sessionを作成しないこと"""
         session_factory = Mock()
@@ -75,6 +94,43 @@ class FetchAndSaveCommandTest(unittest.TestCase):
         self.assertIn('RobotsCheckError', stderr.getvalue())
         session_factory.assert_not_called()
         save.assert_not_called()
+
+    def test_zero_new_items_and_empty_file_input_remain_successful(self) -> None:
+        """月別巡回済みの新着0件と既存の空ファイル入力を成功として扱うこと"""
+        empty_result_cases = (
+            (["--archive-month-limit", "6"], (INDEX_URL,)),
+            (["--from-file", __file__], ()),
+        )
+        for arguments, pages in empty_result_cases:
+            with self.subTest(arguments=arguments):
+                session = Mock()
+                output = io.StringIO()
+                with (
+                    patch.object(
+                        fetch_and_save_env_press,
+                        "_load_known_release_urls",
+                        return_value=(),
+                    ),
+                    patch.object(
+                        fetch_and_save_env_press,
+                        "save_press_releases",
+                        return_value=Mock(saved_count=0, skipped_count=0),
+                    ),
+                ):
+                    code = main(
+                        arguments,
+                        session_factory=Mock(return_value=session),
+                        collect_releases=Mock(
+                            return_value=CollectedPressReleases(
+                                INDEX_URL, (), pages, None,
+                            ),
+                        ),
+                        stdout=output,
+                        stderr=io.StringIO(),
+                    )
+                self.assertEqual(code, 0)
+                self.assertEqual(json.loads(output.getvalue())["saved_count"], 0)
+                session.commit.assert_called_once_with()
 
     def test_main_rejects_non_positive_known_release_months(self) -> None:
         """既知URLの取得月数に0以下を許可しないこと"""
