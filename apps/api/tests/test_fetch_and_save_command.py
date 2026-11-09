@@ -97,10 +97,11 @@ class FetchAndSaveCommandTest(unittest.TestCase):
 
     def test_zero_new_items_and_empty_file_input_remain_successful(self) -> None:
         """月別巡回済みの新着0件と既存の空ファイル入力を成功として扱うこと"""
-        for arguments, pages in (
+        empty_result_cases = (
             (["--archive-month-limit", "6"], (INDEX_URL,)),
             (["--from-file", __file__], ()),
-        ):
+        )
+        for arguments, pages in empty_result_cases:
             with self.subTest(arguments=arguments):
                 session = Mock()
                 output = io.StringIO()

@@ -41,10 +41,11 @@ class InvalidPreparationTest(unittest.TestCase):
 
     def test_invalid_crawl_arguments_fail_before_starting(self) -> None:
         """負の巡回上限とファイル入力との併用を子起動前に拒否すること"""
-        for arguments in (
+        invalid_arguments = (
             ['--archive-month-limit', '-1'],
             ['--from-file', '/tmp/unused.html', '--archive-month-limit', '6'],
-        ):
+        )
+        for arguments in invalid_arguments:
             with (
                 self.subTest(arguments=arguments),
                 patch('subprocess.Popen') as spawn,
@@ -105,11 +106,12 @@ class DiagnosticIdentityTest(unittest.TestCase):
 
     def test_worker_rejects_wrong_identity_before_lock(self) -> None:
         """管理ロール・APIロール・別DBではロックを取らず診断に失敗すること"""
-        for actual in (
+        mismatched_identities = (
             ('postgres', 'postgres'),
             ('presswatch_api_readonly', 'postgres'),
             ('presswatch_fetch_writer', 'other'),
-        ):
+        )
+        for actual in mismatched_identities:
             with self.subTest(actual=actual):
                 code, connection, channel = self.run_worker(actual)
                 self.assertEqual(code, 1)
@@ -164,7 +166,7 @@ class DiagnosticIdentityTest(unittest.TestCase):
 
     def test_diagnostic_requires_both_expectations_before_starting(self) -> None:
         """診断の期待値不足や診断以外への指定を子起動前に拒否すること"""
-        for arguments in (
+        invalid_arguments = (
             ['--check-db-only'],
             ['--check-db-only', '--expected-db-user', 'writer'],
             [
@@ -172,7 +174,8 @@ class DiagnosticIdentityTest(unittest.TestCase):
                 '--expected-db-name', 'postgres',
             ],
             ['--expected-db-user', 'writer', '--expected-db-name', 'postgres'],
-        ):
+        )
+        for arguments in invalid_arguments:
             with self.subTest(arguments=arguments), patch('subprocess.Popen') as spawn:
                 with (
                     redirect_stderr(io.StringIO()),
@@ -274,7 +277,8 @@ class SupervisorTest(unittest.TestCase):
 
     def test_timeout_and_unresponsive_lock_are_bounded(self) -> None:
         """取得の時間切れとロック保持プロセスの応答停止を有限時間で止めること"""
-        for timeout, heartbeat, expected in ((.4, 10, 124), (10, .4, 1)):
+        timeout_cases = ((.4, 10, 124), (10, .4, 1))
+        for timeout, heartbeat, expected in timeout_cases:
             with self.subTest(expected=expected), redirect_stderr(io.StringIO()):
                 started = time.monotonic()
                 code = job.supervise(

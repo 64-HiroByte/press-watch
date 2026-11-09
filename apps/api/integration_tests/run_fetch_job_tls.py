@@ -152,19 +152,21 @@ def _verify_database(
         }
         with patch.dict(os.environ, env, clear=True):
             assert job.main(CHECK_DATABASE_ARGS) == 0
-            for expected in (
+            mismatched_identities = (
                 ('postgres', TEST_DATABASE),
                 ('job_writer', 'other'),
-            ):
+            )
+            for expected_user, expected_database in mismatched_identities:
                 assert job.main([
                     '--check-db-only',
-                    '--expected-db-user', expected[0],
-                    '--expected-db-name', expected[1],
+                    '--expected-db-user', expected_user,
+                    '--expected-db-name', expected_database,
                 ]) == 1
-            for host, certificate in (
+            rejected_tls_cases = (
                 ('localhost', ca),
                 ('127.0.0.1', directory / 'wrong.crt'),
-            ):
+            )
+            for host, certificate in rejected_tls_cases:
                 with patch.dict(
                     os.environ,
                     {
@@ -189,10 +191,11 @@ def _verify_database(
             assert first > 0
             assert job.main(command) == 0
             assert admin.execute('SELECT count(*) FROM press_releases').fetchone()[0] == first
-            for image, tls in (
+            job_image_cases = (
                 (ORIGINAL_JOB_IMAGE, False),
                 (SCHEDULED_JOB_IMAGE, True),
-            ):
+            )
+            for image, tls in job_image_cases:
                 container_url = target.set(
                     port=5432,
                     query={'sslmode': 'verify-full'} if tls else {},
@@ -227,19 +230,19 @@ def _verify_database(
                 )
                 assert admin.execute('SELECT count(*) FROM press_releases').fetchone()[0] == first
             _interrupted_saves(admin, target, environment, container, ca.read_text())
-            for query in (
+            forbidden_queries = (
                 'UPDATE press_releases SET title=title',
                 'DELETE FROM press_releases',
                 'TRUNCATE press_releases',
                 'CREATE TABLE public.forbidden(id int)',
-            ):
-                with psycopg.connect(
-                    **{
-                        **options,
-                        'user': 'job_writer',
-                        'password': writer_password,
-                    }
-                ) as writer:
+            )
+            writer_options = {
+                **options,
+                'user': 'job_writer',
+                'password': writer_password,
+            }
+            for query in forbidden_queries:
+                with psycopg.connect(**writer_options) as writer:
                     try:
                         writer.execute(query)
                     except psycopg.errors.InsufficientPrivilege:
@@ -406,16 +409,17 @@ def _interrupted_saves(
             ).fetchall() == memberships
             replay = worker.replace('Session.commit = commit', '# 通常のcommitで再実行')
             replay_driver = driver.replace(repr(worker), repr(replay))
+            replay_command = [
+                *prefix,
+                '--entrypoint',
+                JOB_PYTHON,
+                SCHEDULED_JOB_IMAGE,
+                '-c',
+                replay_driver,
+            ]
             for _ in range(2):
                 result = subprocess.run(
-                    [
-                        *prefix,
-                        '--entrypoint',
-                        JOB_PYTHON,
-                        SCHEDULED_JOB_IMAGE,
-                        '-c',
-                        replay_driver,
-                    ],
+                    replay_command,
                     env=env,
                     stdout=subprocess.DEVNULL,
                 )
