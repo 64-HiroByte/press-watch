@@ -20,6 +20,7 @@ from press_watch_api.config import DATABASE_URL_ENV
 from press_watch_api.db_tls import certificate_environment
 
 LOCK_KEY = 0x5052455353574154
+PR_SET_CHILD_SUBREAPER = 36
 HEARTBEAT_SECONDS = 5
 RESPONSE_SECONDS = 5
 RUN_SECONDS = 1800
@@ -238,13 +239,16 @@ def supervise(
         if not received_signal:
             received_signal = number
 
+    shutdown_signals = (signal.SIGTERM, signal.SIGINT)
     previous = {
         number: signal.signal(number, on_signal)
-        for number in (signal.SIGTERM, signal.SIGINT)
+        for number in shutdown_signals
     }
     if sys.platform == 'linux':
         # PID 1以外の起動でも、uvが先に終了した場合の子孫を回収する。
-        if ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0) != 0:
+        if ctypes.CDLL(None, use_errno=True).prctl(
+            PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0,
+        ) != 0:
             for number, handler in previous.items():
                 signal.signal(number, handler)
             _report('subreaper_failed', 1)
@@ -257,14 +261,15 @@ def supervise(
     env = dict(environment)
     env['PRESSWATCH_LOCK_FD'] = str(child.fileno())
     try:
+        lock_worker_command = lock_command or [
+            sys.executable,
+            '-m',
+            'press_watch_api.commands.run_fetch_job',
+            '--lock-worker',
+            *(expected_identity or ()),
+        ]
         lock_process = subprocess.Popen(
-            lock_command or [
-                sys.executable,
-                '-m',
-                'press_watch_api.commands.run_fetch_job',
-                '--lock-worker',
-                *(expected_identity or ()),
-            ],
+            lock_worker_command,
             env=env,
             pass_fds=(child.fileno(),),
             start_new_session=True,
@@ -341,15 +346,14 @@ def supervise(
             except OSError:
                 pass
             try:
-                lock_process.wait(
-                    timeout=max(
-                        0,
-                        min(
-                            RESPONSE_SECONDS + .2,
-                            cleanup_deadline - time.monotonic(),
-                        ),
+                lock_release_timeout = max(
+                    0,
+                    min(
+                        RESPONSE_SECONDS + .2,
+                        cleanup_deadline - time.monotonic(),
                     ),
                 )
+                lock_process.wait(timeout=lock_release_timeout)
             except subprocess.TimeoutExpired:
                 lock_process.kill()
                 lock_process.wait()
@@ -411,11 +415,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     ):
         fetch_parser.error('--from-file cannot be used with --archive-month-limit.')
     if options.prepare_only:
+        required_modules = ('psycopg', 'sqlalchemy')
         if (
-            not all(importlib.util.find_spec(name) for name in (
-                'psycopg',
-                'sqlalchemy',
-            ))
+            not all(importlib.util.find_spec(name) for name in required_modules)
             or not shutil.which('uv')
             or not (fetch._scraper_package_dir() / '.venv/bin/python').is_file()
         ):
@@ -429,13 +431,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         with certificate_environment():
             env['PGSSLROOTCERT'] = os.environ['PGSSLROOTCERT']
             try:
+                fetch_command = [sys.executable, '-m', fetch.__name__, *rest]
                 return supervise(
-                    [
-                        sys.executable,
-                        '-m',
-                        fetch.__name__,
-                        *rest,
-                    ],
+                    fetch_command,
                     env, check_only=options.check_db_only,
                     expected_identity=expected_identity,
                     timeout=max(0, RUN_SECONDS - (time.monotonic() - started)),
