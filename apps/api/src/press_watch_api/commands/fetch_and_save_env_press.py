@@ -291,6 +291,8 @@ def main(
             error_output,
             known_release_urls,
         )
+        if _uses_archive_crawl(args) and not collected.fetched_page_urls:
+            raise RuntimeError("archive crawl returned no month pages")
         session = session_factory()
         save_result = save_press_releases(
             session,
