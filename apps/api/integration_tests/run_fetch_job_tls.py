@@ -291,59 +291,59 @@ def _interrupted_saves(
     for phase in ('before', 'after'):
         source = f'https://www.env.go.jp/press/synthetic-{phase}.html'
         worker = f"""
-from datetime import date
-from pathlib import Path
-import time
+            from datetime import date
+            from pathlib import Path
+            import time
 
-from sqlalchemy.orm import Session
+            from sqlalchemy.orm import Session
 
-from press_watch_api.commands import fetch_and_save_env_press as fetch
+            from press_watch_api.commands import fetch_and_save_env_press as fetch
 
-original = Session.commit
-
-
-def commit(self):
-    if {phase!r} == 'after':
-        original(self)
-    Path('/tmp/save-ready').touch()
-    time.sleep(60)
-    if {phase!r} == 'before':
-        original(self)
+            original = Session.commit
 
 
-Session.commit = commit
-release = fetch.ScraperCliRelease(
-    '大気の合成検証', date(2026, 11, 1), {source!r}, (),
-)
-result = fetch.CollectedPressReleases('synthetic', (release,), (), None)
-raise SystemExit(
-    fetch.main(
-        ['--from-file', '/unused'],
-        collect_releases=lambda *args: result,
-    )
-)
-"""
+            def commit(self):
+                if {phase!r} == 'after':
+                    original(self)
+                Path('/tmp/save-ready').touch()
+                time.sleep(60)
+                if {phase!r} == 'before':
+                    original(self)
+
+
+            Session.commit = commit
+            release = fetch.ScraperCliRelease(
+                '大気の合成検証', date(2026, 11, 1), {source!r}, (),
+            )
+            result = fetch.CollectedPressReleases('synthetic', (release,), (), None)
+            raise SystemExit(
+                fetch.main(
+                    ['--from-file', '/unused'],
+                    collect_releases=lambda *args: result,
+                )
+            )
+        """
         driver = f"""
-import os
-import sys
+            import os
+            import sys
 
-from press_watch_api.commands.run_fetch_job import (
-    connection_environment,
-    supervise,
-)
-from press_watch_api.db_tls import certificate_environment
+            from press_watch_api.commands.run_fetch_job import (
+                connection_environment,
+                supervise,
+            )
+            from press_watch_api.db_tls import certificate_environment
 
-with certificate_environment():
-    env = connection_environment(os.environ)
-    env['PGSSLROOTCERT'] = os.environ['PGSSLROOTCERT']
-    code = supervise(
-        [sys.executable, '-c', {worker!r}],
-        env,
-        timeout=30,
-        grace=2,
-    )
-raise SystemExit(code)
-"""
+            with certificate_environment():
+                env = connection_environment(os.environ)
+                env['PGSSLROOTCERT'] = os.environ['PGSSLROOTCERT']
+                code = supervise(
+                    [sys.executable, '-c', {worker!r}],
+                    env,
+                    timeout=30,
+                    grace=2,
+                )
+            raise SystemExit(code)
+        """
         name = f'presswatch-save-stop-{secrets.token_hex(4)}'
         process = subprocess.Popen(
             [

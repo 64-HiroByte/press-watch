@@ -7,6 +7,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+from textwrap import dedent
 import time
 import unittest
 from contextlib import redirect_stderr
@@ -220,17 +221,17 @@ class DiagnosticIdentityTest(unittest.TestCase):
         )
 
 
-LOCK_READY = """
-import os
-import socket
-import time
+LOCK_READY = dedent("""
+    import os
+    import socket
+    import time
 
-s = socket.socket(fileno=int(os.environ['PRESSWATCH_LOCK_FD']))
-s.send(b'locked')
-while True:
-    if s.recv(100) == b'stop':
-        break
-"""
+    s = socket.socket(fileno=int(os.environ['PRESSWATCH_LOCK_FD']))
+    s.send(b'locked')
+    while True:
+        if s.recv(100) == b'stop':
+            break
+""")
 
 
 @unittest.skipUnless(sys.platform == 'linux', 'プロセス群とsubreaperは本番と同じLinuxで検証')
@@ -245,10 +246,10 @@ class SupervisorTest(unittest.TestCase):
                 sys.executable,
                 '-c',
                 f"""
-from pathlib import Path
+                    from pathlib import Path
 
-Path({str(marker)!r}).touch()
-""",
+                    Path({str(marker)!r}).touch()
+                """,
             ]
             with redirect_stderr(io.StringIO()):
                 code = job.supervise(
@@ -294,43 +295,43 @@ Path({str(marker)!r}).touch()
             stopped = Path(directory) / 'stopped'
             released = Path(directory) / 'released'
             worker = f"""
-import signal
-import time
-from pathlib import Path
+                import signal
+                import time
+                from pathlib import Path
 
 
-def stop(*args):
-    Path({str(stopped)!r}).touch()
-    raise SystemExit(0)
+                def stop(*args):
+                    Path({str(stopped)!r}).touch()
+                    raise SystemExit(0)
 
 
-signal.signal(signal.SIGTERM, stop)
-Path({str(started)!r}).touch()
-while True:
-    time.sleep(0.01)
-"""
-            lock = LOCK_READY + f"""
-from pathlib import Path
+                signal.signal(signal.SIGTERM, stop)
+                Path({str(started)!r}).touch()
+                while True:
+                    time.sleep(0.01)
+            """
+            lock = LOCK_READY + dedent(f"""
+                from pathlib import Path
 
-Path({str(released)!r}).write_text(
-    str(Path({str(stopped)!r}).exists())
-)
-"""
+                Path({str(released)!r}).write_text(
+                    str(Path({str(stopped)!r}).exists())
+                )
+            """)
             driver = f"""
-import os
-import sys
+                import os
+                import sys
 
-from press_watch_api.commands.run_fetch_job import supervise
+                from press_watch_api.commands.run_fetch_job import supervise
 
-raise SystemExit(
-    supervise(
-        [sys.executable, '-c', {worker!r}],
-        dict(os.environ),
-        lock_command=[sys.executable, '-c', {lock!r}],
-        grace=0.5,
-    )
-)
-"""
+                raise SystemExit(
+                    supervise(
+                        [sys.executable, '-c', {worker!r}],
+                        dict(os.environ),
+                        lock_command=[sys.executable, '-c', {lock!r}],
+                        grace=0.5,
+                    )
+                )
+            """
             process = subprocess.Popen(
                 [sys.executable, '-c', driver],
                 stdout=subprocess.DEVNULL,
@@ -352,12 +353,12 @@ raise SystemExit(
     def test_output_blocking_does_not_prevent_timeout(self) -> None:
         """取得プロセスの出力が詰まっても監督が時間切れで停止すること"""
         blocked = '''
-import os
+            import os
 
-r, w = os.pipe()
-while True:
-    os.write(w, b"x" * 65536)
-'''
+            r, w = os.pipe()
+            while True:
+                os.write(w, b"x" * 65536)
+        '''
         with redirect_stderr(io.StringIO()):
             started = time.monotonic()
             code = job.supervise(
@@ -373,21 +374,21 @@ while True:
     def test_supervisor_diagnostic_with_full_stderr_does_not_block_exit(self) -> None:
         """監督自身のstderrが満杯でも終了時のフラッシュ待ちを起こさないこと"""
         driver = '''
-import os
-import fcntl
+            import os
+            import fcntl
 
-from press_watch_api.commands.run_fetch_job import _report
+            from press_watch_api.commands.run_fetch_job import _report
 
-flags = fcntl.fcntl(2, fcntl.F_GETFL)
-fcntl.fcntl(2, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-try:
-    while True:
-        os.write(2, b'x' * 4096)
-except BlockingIOError:
-    pass
-fcntl.fcntl(2, fcntl.F_SETFL, flags)
-_report('timeout', 124)
-'''
+            flags = fcntl.fcntl(2, fcntl.F_GETFL)
+            fcntl.fcntl(2, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+            try:
+                while True:
+                    os.write(2, b'x' * 4096)
+            except BlockingIOError:
+                pass
+            fcntl.fcntl(2, fcntl.F_SETFL, flags)
+            _report('timeout', 124)
+        '''
         process = subprocess.Popen(
             [sys.executable, '-c', driver],
             stderr=subprocess.PIPE,
@@ -420,18 +421,18 @@ _report('timeout', 124)
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / 'grandchild'
             worker = f'''
-import os
-import signal
-import time
-from pathlib import Path
+                import os
+                import signal
+                import time
+                from pathlib import Path
 
-signal.signal(signal.SIGTERM, signal.SIG_IGN)
-pid = os.fork()
-if pid:
-    Path({str(marker)!r}).write_text(str(pid))
-while True:
-    time.sleep(0.1)
-'''
+                signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                pid = os.fork()
+                if pid:
+                    Path({str(marker)!r}).write_text(str(pid))
+                while True:
+                    time.sleep(0.1)
+            '''
             with redirect_stderr(io.StringIO()):
                 code = job.supervise(
                     [sys.executable, '-c', worker],
@@ -449,11 +450,13 @@ while True:
         """取得完了後のロック解放中に受けたSIGTERMも中断として返すこと"""
         lock = LOCK_READY.replace(
             "if s.recv(100) == b'stop':\n        break",
-            """if s.recv(100) == b'stop':
-        import signal
-        os.kill(os.getppid(), signal.SIGTERM)
-        time.sleep(0.05)
-        break""",
+            (
+                "if s.recv(100) == b'stop':\n"
+                "        import signal\n"
+                "        os.kill(os.getppid(), signal.SIGTERM)\n"
+                "        time.sleep(0.05)\n"
+                "        break"
+            ),
         )
         with redirect_stderr(io.StringIO()):
             code = job.supervise(
@@ -466,16 +469,16 @@ while True:
     def test_normal_heartbeat_finishes_before_lock_release(self) -> None:
         """応答期限内の監視照会中に取得が完了しても通常終了を維持すること"""
         lock = """
-import os
-import socket
-import time
+            import os
+            import socket
+            import time
 
-s = socket.socket(fileno=int(os.environ['PRESSWATCH_LOCK_FD']))
-s.send(b'locked')
-time.sleep(0.6)
-s.send(b'alive')
-s.recv(100)
-"""
+            s = socket.socket(fileno=int(os.environ['PRESSWATCH_LOCK_FD']))
+            s.send(b'locked')
+            time.sleep(0.6)
+            s.send(b'alive')
+            s.recv(100)
+        """
         with redirect_stderr(io.StringIO()):
             code = job.supervise(
                 [sys.executable, '-c', 'import time\ntime.sleep(0.25)'],
