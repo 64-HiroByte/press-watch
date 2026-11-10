@@ -9,7 +9,7 @@
 | --- | --- |
 | 対象 | Railway brilliant-compassion / production / fetch-job、Supabase PressWatch / postgres |
 | ビルド | `infra/docker/python.Dockerfile`、`PRESSWATCH_PYTHON_TARGET=scheduled-job` |
-| 実行基盤 | iad 1 replica、既存Trial枠2 vCPU・1 GB、restart NEVER、draining 30秒 |
+| 実行基盤 | シンガポール（`asia-southeast1-eqsg3a`）に1レプリカ、既存Trial枠2 vCPU・1 GB、restart NEVER、draining 30秒 |
 | Cron | `30 1,7 * * *` UTC、毎日10:30・16:30 JST |
 | 接続 | Direct connection・外向きIPv6・`verify-full`、専用保存用ロール |
 

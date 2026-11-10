@@ -7,7 +7,7 @@ export default defineRailway(() => {
     source: pressWatch,
     build: { buildEnvironment: "V3", builder: "RAILPACK" },
     healthcheck: "/health",
-    replicas: { iad: 1 },
+    replicas: { "asia-southeast1-eqsg3a": 1 },
     deploy: { ipv6EgressEnabled: true, restartPolicyType: "NEVER" },
     env: {
       DATABASE_URL: preserve(),
@@ -21,7 +21,7 @@ export default defineRailway(() => {
     source: pressWatch,
     build: { buildEnvironment: "V3", builder: "RAILPACK" },
     healthcheck: "/health",
-    replicas: { iad: 1 },
+    replicas: { "asia-southeast1-eqsg3a": 1 },
     deploy: { restartPolicyType: "NEVER" },
     env: {
       PRESSWATCH_API_BASE_URL: preserve(),
@@ -33,16 +33,11 @@ export default defineRailway(() => {
 
   // 既存のAPI・Webに影響しないよう、設定変更はfetch-jobだけに適用する。
   const fetchJob = service("fetch-job", {
-    build: {
-      buildEnvironment: "V3",
-      builder: "DOCKERFILE",
-      dockerfilePath: "infra/docker/python.Dockerfile",
-    },
-    replicas: { iad: 1 },
+    build: { buildEnvironment: "V3" },
+    replicas: { "asia-southeast1-eqsg3a": 1 },
     deploy: {
       ipv6EgressEnabled: true,
       restartPolicyType: "NEVER",
-      drainingSeconds: 30,
       startCommand: "/app/.venv/bin/python -m press_watch_api.commands.run_fetch_job --url https://www.env.go.jp/press/index.html --archive-month-limit 6 --known-release-months 3 --verbose",
       cronSchedule: "30 1,7 * * *",
     },
@@ -50,6 +45,7 @@ export default defineRailway(() => {
       DATABASE_URL: preserve(),
       PRESSWATCH_DB_CA_CERT: preserve(),
       PRESSWATCH_PYTHON_TARGET: "scheduled-job",
+      RAILWAY_DEPLOYMENT_DRAINING_SECONDS: "30",
       RAILWAY_DOCKERFILE_PATH: "infra/docker/python.Dockerfile",
     },
   });
