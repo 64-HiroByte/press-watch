@@ -452,7 +452,7 @@ MVPは、通常の差分取得を定期実行し、失敗を確認できる状�
 
 ### 実データ適用後のWeb表示性能の確認
 
-- [ ] Supabaseへの実データ投入と動作確認の完了後、[Issue #135](https://github.com/64-HiroByte/press-watch/issues/135)に従って表示性能を計測し、必要な改善を検討する
+- [x] Supabaseへの実データ投入と動作確認の完了後、[Issue #135](https://github.com/64-HiroByte/press-watch/issues/135)に従って表示性能を計測し、必要な改善を検討する
 
 性能調査は投入前の必須対応に含めない。
 原因は未特定であり、測定条件・数値・画像・完了条件はIssueを正本とする。
