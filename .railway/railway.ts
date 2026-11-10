@@ -7,7 +7,7 @@ export default defineRailway(() => {
     source: pressWatch,
     build: { buildEnvironment: "V3", builder: "RAILPACK" },
     healthcheck: "/health",
-    replicas: { iad: 1 },
+    replicas: { "asia-southeast1-eqsg3a": 1 },
     deploy: { ipv6EgressEnabled: true, restartPolicyType: "NEVER" },
     env: {
       DATABASE_URL: preserve(),
@@ -21,7 +21,7 @@ export default defineRailway(() => {
     source: pressWatch,
     build: { buildEnvironment: "V3", builder: "RAILPACK" },
     healthcheck: "/health",
-    replicas: { iad: 1 },
+    replicas: { "asia-southeast1-eqsg3a": 1 },
     deploy: { restartPolicyType: "NEVER" },
     env: {
       PRESSWATCH_API_BASE_URL: preserve(),
@@ -38,7 +38,7 @@ export default defineRailway(() => {
       builder: "DOCKERFILE",
       dockerfilePath: "infra/docker/python.Dockerfile",
     },
-    replicas: { iad: 1 },
+    replicas: { "asia-southeast1-eqsg3a": 1 },
     deploy: {
       ipv6EgressEnabled: true,
       restartPolicyType: "NEVER",
