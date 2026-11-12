@@ -20,3 +20,19 @@ global.Date = class extends NativeDate {
     return now();
   }
 };
+
+const rateLimitClockFile = process.env.PRESSWATCH_TEST_RATE_LIMIT_CLOCK_FILE;
+if (rateLimitClockFile) {
+  const performanceNow = performance.now.bind(performance);
+  Object.defineProperty(performance, "now", {
+    value() {
+      try {
+        const clock = JSON.parse(readFileSync(rateLimitClockFile, "utf8"));
+        return clock.now ?? performanceNow() + clock.offset;
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+        return performanceNow();
+      }
+    },
+  });
+}
