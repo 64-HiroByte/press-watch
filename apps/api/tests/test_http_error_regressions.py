@@ -17,6 +17,7 @@ from api_test_constants import (
 from press_watch_api.main import app
 from press_watch_api.models.fixed_category import FixedCategory
 from press_watch_api.models.press_release import PressRelease
+from request_rate_limit_test_support import RATE_LIMIT_DEPENDENCY_OVERRIDE
 
 
 INTERNAL_MARKER = "synthetic_regression_internal_marker"
@@ -31,6 +32,10 @@ class HttpErrorRegressionTest(unittest.TestCase):
         Sessionの終了・例外優先順位は実dependencyを通して確認する。
         patchとstderrの差し替えはenterContextで登録したcleanupが解除する。
         """
+        self.enterContext(patch.dict(
+            app.dependency_overrides,
+            RATE_LIMIT_DEPENDENCY_OVERRIDE,
+        ))
 
         self.stderr = self.enterContext(redirect_stderr(io.StringIO()))
         self.session = Mock(spec=Session)
