@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from time import perf_counter
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -27,6 +28,7 @@ from press_watch_api.services.press_release_save import (
     PressReleaseSaveResult,
     save_press_releases,
 )
+from request_rate_limit_test_support import RATE_LIMIT_DEPENDENCY_OVERRIDE
 
 
 _DEFAULT_PAGE_SIZE = 50
@@ -112,13 +114,24 @@ class RealSnapshotPostgreSQLIntegrationTest(unittest.TestCase):
         )
 
         def override_get_db_session() -> Iterator[Session]:
+            """一覧APIの要求に専用DBへの接続を提供
+
+            Yields:
+                要求の処理が終わるまで使う専用DBのSession
+            """
             with Session(self.engine) as session:
                 yield session
 
-        app.dependency_overrides[get_db_session] = override_get_db_session
-        self.addCleanup(app.dependency_overrides.clear)
-
-        with TestClient(app) as client:
+        with (
+            patch.dict(
+                app.dependency_overrides,
+                {
+                    **RATE_LIMIT_DEPENDENCY_OVERRIDE,
+                    get_db_session: override_get_db_session,
+                },
+            ),
+            TestClient(app) as client,
+        ):
             first_page, timings["first_page"] = _timed_get(
                 client,
                 "/press-releases",

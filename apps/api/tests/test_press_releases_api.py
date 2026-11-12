@@ -16,6 +16,7 @@ from api_test_constants import (
     EXPECTED_MAX_FIXED_CATEGORY_COUNT,
     EXPECTED_MAX_FIXED_CATEGORY_LENGTH,
 )
+from request_rate_limit_test_support import RATE_LIMIT_DEPENDENCY_OVERRIDE
 
 EXPECTED_DEFAULT_PAGE_SIZE = 50
 EXPECTED_MIN_PAGE_SIZE = 10
@@ -131,6 +132,10 @@ class PressReleaseListApiTest(unittest.TestCase):
 
     def setUp(self) -> None:
         """APIテスト用のDB Session dependency差し替え"""
+        self.enterContext(patch.dict(
+            app.dependency_overrides,
+            RATE_LIMIT_DEPENDENCY_OVERRIDE,
+        ))
 
         self.session = Mock(spec=Session)
 
@@ -1273,7 +1278,7 @@ class PressReleaseListApiTest(unittest.TestCase):
 
         schema = app.openapi()
         responses = schema["paths"]["/press-releases"]["get"]["responses"]
-        self.assertEqual(set(responses), {"200", "422", "500", "503"})
+        self.assertEqual(set(responses), {"200", "422", "429", "500", "503"})
 
         for status_code, message in (
             ("500", "Internal server error"),

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../support/production-test";
 
 const control = "http://127.0.0.1:3107";
 

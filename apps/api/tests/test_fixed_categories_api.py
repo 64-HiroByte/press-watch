@@ -19,6 +19,7 @@ from starlette.types import Message, Receive, Scope, Send
 
 from press_watch_api.main import app
 from press_watch_api.models.fixed_category import FixedCategory
+from request_rate_limit_test_support import RATE_LIMIT_DEPENDENCY_OVERRIDE
 
 
 _INTERNAL_MARKER = "synthetic_fixed_category_internal_marker"
@@ -34,6 +35,10 @@ class FixedCategoryListApiTest(unittest.TestCase):
         サーバー例外は通常の500応答として観測し、patchとclientは各テスト後に解除する。
         SQLの生成・実行結果はrepositoryテストとDB統合テストで確認する。
         """
+        self.enterContext(patch.dict(
+            app.dependency_overrides,
+            RATE_LIMIT_DEPENDENCY_OVERRIDE,
+        ))
 
         self.stderr = self.enterContext(redirect_stderr(io.StringIO()))
         self.stdout = self.enterContext(redirect_stdout(io.StringIO()))

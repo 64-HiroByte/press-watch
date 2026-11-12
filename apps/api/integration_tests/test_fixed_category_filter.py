@@ -17,6 +17,7 @@ from press_watch_api.models.fixed_category import (
     PressReleaseFixedCategory,
 )
 from press_watch_api.models.press_release import PressRelease
+from request_rate_limit_test_support import RATE_LIMIT_DEPENDENCY_OVERRIDE
 
 
 _CATEGORY_MODELS = (
@@ -104,13 +105,17 @@ class FixedCategoryFilterIntegrationTest(unittest.TestCase):
         cls.addClassCleanup(cls.engine.dispose)
 
     def setUp(self) -> None:
-        """実dependencyの接続先だけを専用DBへ差し替え、合成データを投入
+        """制限を差し替え、専用DBにHTTP検証用の合成データを投入
 
-        Sessionの生成・終了は実dependencyを通し、factoryだけをpatchする。
+        Sessionの生成・終了は実dependencyを通し、接続先はfactoryで指定する。
         データ削除とpatch・TestClientの解除は、登録したunittestのcleanupに委ねる。
         """
 
         self.addCleanup(self._clear_test_data)
+        self.enterContext(patch.dict(
+            app.dependency_overrides,
+            RATE_LIMIT_DEPENDENCY_OVERRIDE,
+        ))
         self.enterContext(patch(
             "press_watch_api.dependencies.get_session_factory",
             return_value=lambda: Session(self.engine, autoflush=False),

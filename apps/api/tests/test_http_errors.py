@@ -18,6 +18,7 @@ from starlette.types import Message, Receive, Scope, Send
 
 from press_watch_api.main import app
 from press_watch_api.models.press_release import PressRelease
+from request_rate_limit_test_support import RATE_LIMIT_DEPENDENCY_OVERRIDE
 
 
 INTERNAL_MARKER = "synthetic_internal_marker"
@@ -32,6 +33,10 @@ class DatabaseErrorHttpTest(unittest.TestCase):
         factory・repositoryのpatchとstdout・stderrの差し替えは、
         addCleanupまたはenterContextで登録したcleanupが解除する。
         """
+        self.enterContext(patch.dict(
+            app.dependency_overrides,
+            RATE_LIMIT_DEPENDENCY_OVERRIDE,
+        ))
 
         self.stderr = self.enterContext(redirect_stderr(io.StringIO()))
         self.stdout = self.enterContext(redirect_stdout(io.StringIO()))

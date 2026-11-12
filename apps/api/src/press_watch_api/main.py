@@ -1,13 +1,18 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from sqlalchemy.exc import SQLAlchemyError
 
 from press_watch_api.db_tls import certificate_environment
 from press_watch_api.http_errors import (
     DatabaseLifecycleError,
     database_error_handler,
+)
+from press_watch_api.request_rate_limit import (
+    RATE_LIMIT_RESPONSES,
+    RequestRateLimit,
+    enforce_request_rate_limit,
 )
 from press_watch_api.routers.fixed_categories import router as fixed_categories_router
 from press_watch_api.routers.press_releases import router as press_releases_router
@@ -34,12 +39,22 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="PressWatch API", lifespan=lifespan)
 app.add_exception_handler(SQLAlchemyError, database_error_handler)
 app.add_exception_handler(DatabaseLifecycleError, database_error_handler)
-app.include_router(fixed_categories_router)
-app.include_router(press_releases_router)
+app.state.request_rate_limit = RequestRateLimit()
+for router in (fixed_categories_router, press_releases_router):
+    app.include_router(
+        router,
+        dependencies=[Depends(enforce_request_rate_limit)],
+        responses=RATE_LIMIT_RESPONSES,
+    )
 
 
 @app.get("/")
 def read_root() -> dict[str, str]:
+    """APIのサービス情報を返す
+
+    Returns:
+        サービス名と固定ステータス `ready`
+    """
     return {
         "service": "press-watch-api",
         "status": "ready",

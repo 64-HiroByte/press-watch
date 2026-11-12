@@ -408,6 +408,7 @@ TypeScript・TSXのそれぞれで、保存時の整形と未使用変数のlint
 Playwright 1.63.0をWebの開発依存へ置き、Chromium、1280×720、1 worker、リトライ0で実行します。
 `dev-mock`はdevelopmentの通常一覧と既存の取得失敗表示への切替を確認します。
 `production-smoke`はproductionの実API取得を応答制御サーバーへ接続し、一覧・取得状態・入力境界・復旧・要求数と`/mock`・`/ui-foundation`のHTTP 404を確認します。
+`request-rate-limit`は専用の本番テストサーバーで、一覧要求の共有枠、HTTP 429、拒否時のAPI非到達、補充後の復帰を確認します。
 対象ファイルと接続先はprojectごとに指定し、Mockの公開ガードを維持します。
 通常カテゴリ操作の画面テストは`tests/e2e/category.spec.ts`を`production-smoke`の明示的な`testMatch`へ登録しています。
 Web URLとAPI送信の分離、旧Webキーの除去、カンマ表記・重複指定・修正フォームの確認は`tests/e2e/url.spec.ts`へ置き、同じprojectで実行します。
@@ -433,18 +434,22 @@ pnpm test:web
 `test:web`は現在のソースで本番ビルド済みであることを前提とします。
 Web側の`pnpm test`も同じ専用ブラウザー保存先を使い、取得時は共有キャッシュの旧版を削除する処理を無効にします。
 Playwrightが応答制御サーバーを`127.0.0.1:3107`、開発サーバーを`127.0.0.1:3105`、本番サーバーを`127.0.0.1:3106`で起動します。
+`request-rate-limit`用の本番サーバーは`127.0.0.1:3111`で起動します。
 準備完了は開発Webで`/third-party-notices.txt`、本番Webで`/health`、応答制御サーバーで`/__ready`を確認します。
 本番Webは検証専用のダミー資格情報で起動し、拒否試験では資格情報を送らない要求を使います。
 空の認証設定で503を確認する本番サーバーは`127.0.0.1:3110`で起動します。
 既存サーバーは再利用せず、ポート占有時は失敗させます。
-終了後は3105・3106・3107・3110番に待受プロセスが残っていないことを確認します。
+終了後は3105・3106・3107・3110・3111番に待受プロセスが残っていないことを確認します。
 
 CIでは`test.only`・`test.describe.only`を`forbidOnly`で拒否します。
 traceは`retain-on-failure`、スクリーンショットは`only-on-failure`とし、出力先はルートの`tmp/playwright/test-results`です。
 MockはAPIを呼びません。
 製品テストでは`tests/support/api-server.mjs`がNext.jsサーバーからの通信を記録し、片側失敗・0件・不正応答・ヘッダー／本文停止・遅延応答・応答前の接続切断を制御します。
-本番テストサーバーには`tests/support/server-clock.cjs`を読み込み、日跨ぎの履歴復元テスト中だけNext.jsとブラウザーの日時を合わせて変更します。
+`production-smoke`と`request-rate-limit`の本番テストサーバーは`tests/support/server-clock.cjs`を読み込みます。
+日跨ぎの履歴復元テスト中はNext.jsとブラウザーの日時を合わせて変更します。
 Next.jsの時刻は`tmp/playwright/server-clock.json`が存在する間だけ変更し、通信期限に使う時間は進め続け、テスト終了時にファイルを削除します。
+制限の補充に使う時計は日時と別に扱い、`production-smoke`では各テスト前に満杯分だけ進めて、その後は実時間で進めます。
+`request-rate-limit`では各回の開始前に満杯分だけ進めて時刻を固定し、復帰を確認する段階で1件分だけ進めます。
 `pnpm test:web`は専用DBや資格情報を使用せず、実API・DBとの結合確認とは別の検証です。
 ブラウザーのリクエスト差し替えだけでServer側の通信を制御できたとは扱いません。
 
