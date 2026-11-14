@@ -56,9 +56,9 @@
 ### Node.js
 
 - Node.js 24系 LTS を採用する
-- 現行の固定版は24.22.2とし、ルートVolta・Webの継承設定・Web Dockerfile・Web CIで揃える
+- 現行の固定版は24.22.3とし、ルートVolta・Webの継承設定・Web Dockerfile・Web CIで揃える
 
-2026年11月1日のPhase 7更新で、24.22.1のセキュリティ修正と24.22.2の後続修正を取り込む。
+[24.22.3](https://nodejs.org/en/blog/release/v24.22.3)で2026年11月11日公開のセキュリティ修正を取り込む。
 PC全体の既定Node.jsは24.21.0を維持し、Voltaの取得キャッシュとプロジェクト指定を使う。
 根拠とローカル・Docker・実CIの実行結果は[Node.js更新の検証記録](local-development.md#phase-7のnodejsセキュリティ更新)を参照する。
 
