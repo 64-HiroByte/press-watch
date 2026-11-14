@@ -3,7 +3,7 @@
   "private": true,
   "packageManager": "pnpm@12.8.1",
   "volta": {
-    "node": "24.22.2"
+    "node": "24.22.3"
   },
   "scripts": {
     "railway:cli": "node scripts/railway-cli.mjs",

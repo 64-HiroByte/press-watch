@@ -16,7 +16,7 @@ docker compose version
 
 ## Web用のNode.jsとpnpm
 
-WebはNode.js 24.22.2とpnpm 12.8.1を使用します。
+WebはNode.js 24.22.3とpnpm 12.8.1を使用します。
 ルートの`package.json`が両者の版数を指定し、`apps/web/package.json`の`volta.extends`がNode.jsの指定を継承します。
 ローカルのNode.jsは既存のVoltaで選択し、pnpmはグローバルに導入した指定版を使用します。
 プロジェクト専用のmise設定、Corepackのshim・キャッシュ、セットアップ補助は使用しません。
@@ -25,11 +25,11 @@ WebはNode.js 24.22.2とpnpm 12.8.1を使用します。
 
 [Voltaの導入手順](https://docs.volta.sh/guide/getting-started)に従い、`node`がVolta経由で実行される状態にします。
 プロジェクト内では`volta.node`の指定が優先され、必要なNode.jsが取得されます。
-このPCの既定Node.jsは24.21.0のままとし、PressWatch内では24.22.2を選択します。
-24.22.2を事前に取得する場合は、既定版を変更しない[volta fetch](https://docs.volta.sh/reference/fetch)を使います。
+このPCの既定Node.jsは24.21.0のままとし、PressWatch内では24.22.3を選択します。
+24.22.3を事前に取得する場合は、既定版を変更しない[volta fetch](https://docs.volta.sh/reference/fetch)を使います。
 
 ```bash
-volta fetch node@24.22.2
+volta fetch node@24.22.3
 ```
 
 pnpmは[公式の導入手順](https://pnpm.io/installation)に従い、12.8.1を用意します。
@@ -53,7 +53,7 @@ command -v pnpm
 pnpm -v
 ```
 
-Node.jsは24.22.2、pnpmは12.8.1と表示される必要があります。
+Node.jsは24.22.3、pnpmは12.8.1と表示される必要があります。
 この構成ではpnpmの版をプロジェクトごとに自動切り替えしないため、`packageManager`の指定を更新した際は、実際に選ばれるグローバルpnpmも合わせて更新します。
 グローバル版の更新は他プロジェクトにも適用されるため、利用中のプロジェクトの起動・ビルドを確認します。
 `pmOnFail: error`・`verifyDepsBeforeRun: error`は維持し、版や依存関係の検証を緩和しません。
@@ -75,9 +75,11 @@ PATH="/opt/homebrew/bin:$PATH" pnpm typecheck:web
 
 ### Phase 7のNode.jsセキュリティ更新
 
+[24.22.3](https://nodejs.org/en/blog/release/v24.22.3)で、2026年11月11日公開の[セキュリティ修正](https://nodejs.org/en/blog/vulnerability/november-2026-security-releases/)を取り込みます。
+
 2026年11月1日にNode.jsを24.21.0から24.22.2へ更新し、ルートVolta・Webの継承設定・Web Dockerfile・Web CIの版指定を揃えました。
-[24.22.1](https://nodejs.org/en/blog/release/v24.22.1)のDNS・TLS・Brotli・HTTP等のセキュリティ修正と、[24.22.2](https://nodejs.org/en/blog/release/v24.22.2)のV8・stream修正を取り込みます。
-PC全体の既定Node.jsは24.21.0のままで、プロジェクト内だけ24.22.2を選択します。
+[24.22.1](https://nodejs.org/en/blog/release/v24.22.1)のDNS・TLS・Brotli・HTTP等のセキュリティ修正と、[24.22.2](https://nodejs.org/en/blog/release/v24.22.2)のV8・stream修正を取り込みました。
+当時のプロジェクト内の指定は24.22.2で、PC全体の既定Node.jsは24.21.0でした。
 
 #### 隔離検証の準備と実行経路
 
@@ -87,8 +89,8 @@ Dockerのbuild contextも同じ許可ファイルから別に作り、ローカ�
 
 必要ファイルをコピーした検証環境へ移動してから、コマンドを次の環境で起動します。
 `validation_root`は今回作成した検証領域の絶対パスとし、設定・cache・state・storeの空ディレクトリをその中へ作成します。
-`node_bin`は比較対象のNode.js実体があるディレクトリとし、このPCでは`$HOME/.volta/tools/image/node/24.22.2/bin`です。
-更新前の比較には24.21.0のディレクトリを指定します。
+`node_bin`には比較対象のNode.js実体があるディレクトリを指定します。
+このPCで24.22.2と24.22.3を比較するときは、それぞれ`$HOME/.volta/tools/image/node/24.22.2/bin`と`$HOME/.volta/tools/image/node/24.22.3/bin`を使います。
 
 ```bash
 env -i \
@@ -157,7 +159,7 @@ docker_validation_cli() {
 専用設定へlogin情報やproxy設定を追加せず、匿名取得や接続に失敗した場合は停止して原因と必要な承認を確認します。
 この隔離はホストのCLI側を対象とし、Docker Desktop・daemon側の既存ネットワーク設定は変更しません。
 
-Docker検証はWeb Dockerfileの`development`ターゲット（`build --target development`）を使い、`.oxlintrc.json`・`.oxfmtrc.json`・`.editorconfig`・`.gitattributes`を検証コピーから`/workspace`の対応位置へ読み取り専用でマウントします。
+Docker内で開発時の型チェックやlintを確認するときは、Web Dockerfileの`development`ターゲットを使い、`.oxlintrc.json`・`.oxfmtrc.json`・`.editorconfig`・`.gitattributes`を検証コピーから`/workspace`の対応位置へ読み取り専用でマウントします。
 コンテナ内のルートで`pnpm install --frozen-lockfile`を実行し、ルートの開発依存であるOxlint・Oxfmtも確認します。
 ホストの認証設定や既存ボリュームは渡さず、pnpmの認証・グローバル設定は同様に隔離します。
 `XDG_CACHE_HOME`を切り替える場合、Corepackにはビルド時の取得先`COREPACK_HOME=/root/.cache/node/corepack`を明示します。
@@ -167,7 +169,7 @@ pnpm storeもビルド時の`/root/.local/share/pnpm/store`を使い、コンテ
 
 コンテナ内の合成応答サーバーは`127.0.0.1:3107`、本番Webは`0.0.0.0:3000`で起動し、Webの接続先をその合成応答サーバーに限定します。
 ホストへの公開は`127.0.0.1:3108:3000`だけとし、`http://localhost:3108/`で確認します。
-ローカルの通常画面テストは3105・3106・3107番を使い、ポート占有時は既存サーバーを再利用・終了せず検証を止めます。
+ローカルの通常画面テストは3105・3106・3107・3110・3111番を使い、ポート占有時は既存サーバーを再利用・終了せず検証を止めます。
 検証終了時は今回起動したサーバー・コンテナを終了し、専用イメージとDocker CLI専用設定を含む検証用ディレクトリを削除します。
 Voltaの取得キャッシュはプロジェクトで継続利用し、Dockerの共有キャッシュは一括削除しません。
 
@@ -194,6 +196,17 @@ productionの`/mock`・`/ui-foundation`はHTTP 404でした。
 Node.js更新はPR #129で実CI確認まで完了しました。
 上記のローカル・Docker結果と、GitHub Actionsの実CI確認は別の検証です。
 Node.js更新時点では、実API・DB・実サイトへの接続、デプロイ・公開、本人による手動確認は行っていません。
+
+#### 24.22.3への更新時の検証結果
+
+macOS arm64の隔離コピーで24.22.2と24.22.3を比較し、両方でpnpm 12.8.1によるfrozen install、型生成・型チェック、lint・書式確認、本番ビルドが成功しました。
+既存のPlaywrightは認証・ヘルスチェック、検索・絞り込み・ページ移動、要求数制限の429と復帰を含めて両方で181件成功しました。
+テスト後の型チェックとfrozen再インストールも成功し、lockfileが一致することを確認しました。
+Volta経由の実行版はルートと`apps/web`で24.22.3、プロジェクト外で24.21.0でした。
+
+Dockerでは指定のdigestからLinux arm64の`production`ターゲットをビルドし、Node.js 24.22.3のstandaloneを模擬APIで起動しました。
+外部ネットワークを遮断したコンテナ内でヘルスチェックの200、未認証の401、認証後の一覧・検索・絞り込み・ページ移動のURLへの200、開発用ページの404を確認しました。
+この記録はローカルと隔離Dockerでの結果です。
 
 ## 用意するファイル
 
@@ -306,7 +319,7 @@ http://127.0.0.1:3000/
 ```
 
 Docker Compose で全体を起動する場合、この単体起動は必須ではありません。
-WebのDockerfileもルートの`packageManager`を読み、Node.js 24.22.2とpnpm 12.8.1を使用します。
+WebのDockerfileもルートの`packageManager`を読み、Node.js 24.22.3とpnpm 12.8.1を使用します。
 ComposeのWebは`node_modules`を名前付きボリュームに保持するため、既存ボリュームを使うと以前の依存関係が残る場合があります。
 新しい依存関係を確認するときは、秘密ファイルと既存の`node_modules`・`.next`を含めない一時build contextでWeb単体をビルドし、既存ボリュームを使わずに起動します。
 ホストの公開ポートは`127.0.0.1`に限定し、確認後は今回作成したコンテナ・イメージだけを削除します。
@@ -465,7 +478,7 @@ API接続先のクエリ・fragment・userinfoとリダイレクトは許可し�
 起動環境も`env -i`等で必要なPATH・既存HOME・TMPDIR・localeとプロセス固有の設定だけに限定します。
 npmのユーザー／global設定とpnpmのユーザー認証設定を`/dev/null`へ、pnpmのグローバル設定・cache・stateを一時ディレクトリへ指定します。
 具体的な設定は[Phase 7の隔離検証手順](#phase-7のnodejsセキュリティ更新)を参照し、既存のホーム配下の認証設定を自動読込みさせません。
-この環境でVoltaのpnpm shimが起動できない場合は、承認版のpnpm 12.8.1本体とNode.js 24.22.2をそのプロセスのPATHへ指定します。
+この環境でVoltaのpnpm shimが起動できない場合は、承認版のpnpm 12.8.1本体とNode.js 24.22.3をそのプロセスのPATHへ指定します。
 プロジェクト・グローバルのツール設定は変更しません。
 
 実APIの画面確認は[専用PostgreSQL 17の手順](#phase-6の接続検証用postgresql-17)で保存済みDBを再利用します。
@@ -1214,7 +1227,7 @@ workflow全体にパス条件を付けず、変更判定と空白検査を実行
 | `.dockerignore`・`infra/compose.production-test.yml` | 実行 |
 | Python専用変更、その他上記の実行対象を含まない変更、差分なし | 理由を表示して省略 |
 
-実行対象を一つでも含むと、Ubuntu 24.04、Node.js 24.22.2、pnpm 12.8.1でfrozen install、型生成、型チェック、lint、format確認、ビルド、Chromium画面テストを順に実行します。
+実行対象を一つでも含むと、Ubuntu 24.04、Node.js 24.22.3、pnpm 12.8.1でfrozen install、型生成、型チェック、lint、format確認、ビルド、Chromium画面テストを順に実行します。
 ChromiumのLinux依存はActions内で取得し、ブラウザーとテスト生成物はルートの`tmp/playwright/`へ保存します。
 画面テスト失敗時のtrace・スクリーンショットは`playwright-diagnostics` artifactで7日間保持する設定です。
 [PR #112の初回Web CI](https://github.com/64-HiroByte/press-watch/actions/runs/38200939844)で、失敗時の保存stepの成功と`playwright-diagnostics` artifactの生成を確認済みです。
