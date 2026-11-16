@@ -534,6 +534,20 @@ Railway側の再開だけで復旧すると仮定しない。
 更新した場合は本番イメージを再ビルドし、依存再現性・回帰確認・配置SHAの照合まで行う。
 固定・解決版は各マニフェストとlockfile、残作業は[Phase 7のタスク](tasks.md#phase-7-定期実行と運用準備)で管理する。
 
+2026年11月16日の調査では、Starlette 1.0.0が[公式アドバイザリ](https://github.com/Kludex/starlette/security/advisories)5件の影響範囲に含まれていた。
+限定配置の設計ではAPIは内部向けであり、現行APIは対象のフォーム解析、`HTTPEndpoint`、`StaticFiles`、`request.url`に基づくアクセス制御を使っていない。
+確認した5件をすべて修正する[最小版の1.3.1](https://github.com/Kludex/starlette/releases/tag/1.3.1)へ更新し、FastAPI 0.136.0との組み合わせを検証した。
+
+- ローカル検証では、lockfileからの導入と既存API unittestを確認した。
+  macOSで309件が成功し、スキップされたLinux専用9件はLinux arm64のコンテナで成功した。
+- 隔離したAPIイメージでは依存版、`/health`、合成記事62件の一覧、固定カテゴリ10件、OpenAPI、末尾スラッシュ補正の`307`と`Location`を確認した。
+  `scheduled-job`イメージでは同じ依存版と、通信を遮断した`prepare-only`の正常終了を確認した。
+- 本番APIは公開ドメインとTCP Proxyがないことをユーザーが確認した。
+  配置SHA `d193fbaaf29882dcd5848f06c3a4b28ed5b6eb07`のlockfileはStarlette 1.0.0とFastAPI 0.136.0を固定しており、同じSHAのDockerfileはlockfileから依存を導入する。
+  配置元からは更新前の組み合わせと判断できるが、稼働コンテナ内の版は未確認である。
+- 本番の`fetch-job`はDeployment ID `6d68669b-77e9-4f35-8033-15937d0cea61`をユーザーが確認した。
+  配置SHAと依存版は未確認である。
+
 限定配置の利用量評価と一般公開の残条件は[Phase 7の進捗](tasks.md#phase-7-定期実行と運用準備)で管理する。
 一般公開前には過剰要求対策、最新のセキュリティ情報、実測費用、DBの復旧とバックアップ方針を再確認する。
 
