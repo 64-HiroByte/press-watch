@@ -28,8 +28,7 @@
 
 - `status`、`diff`、`log`、`show`、ブランチ一覧、`fetch`などの確認は実行できる。
 - worktree・index・ローカル履歴を変えるGit操作、ブランチ作成・削除、push、PR作成・マージは、対象と影響を示して明示的な了承後に行う。
-- ブランチ作成前にGit状態、親ブランチ、作業ブランチ案を報告する。
-  Phase運用とPR baseは`phase-branch-workflow-ja`に従う。
+- タスクの編集開始前、ブランチ操作やコミットの前、PRの作成・本文更新前に、[phase-branch-workflow-ja](.codex/skills/phase-branch-workflow-ja/SKILL.md)に従う。
 - commit・push・PR作成は、検証結果と全差分の再監査結果を提示した後に改めて許可を得る。
 
 ## 検証と完了
