@@ -70,9 +70,9 @@ Outbound IPv6が画面にない場合は固定CLIの`outbound-network ipv6 enabl
 | 項目 | 現在の運転条件 |
 | --- | --- |
 | 運転方針 | 定期取得を継続したまま、RailwayのTrial終了前に本人がHobbyへ切り替える |
-| ローカルバックアップ | 初回投入やDB移行など、変更前の復元地点が必要なときに取得 |
+| 変更前バックアップ | 初回投入・DB移行・再分類など、変更前の復元地点が必要なときに取得 |
 | 保存と検査 | 本人Macの新規ディレクトリへpublic export。表・連番・ACL、全体読取り、サイズ・SHA-256を検査 |
-| 保持 | 取得済みのdumpを運転期間と終了後7日間保持 |
+| 変更前バックアップの保持 | 変更前に取得したdumpを運転期間と終了後7日間保持 |
 | Supabaseの容量 | DB 400 MB・ディスク1.6 GB・今期Egress 4 GBへの到達・超過予測で停止 |
 | 保存用ロール期限 | 2026-12-08 13:24:24.276826 UTC / 22:24:24.276826 JST。延長して運転する場合は7日前までに継続・更新を判断 |
 
@@ -81,12 +81,12 @@ Outbound IPv6が画面にない場合は固定CLIの`outbound-network ipv6 enabl
 管理パスワードはpg_dumpの非表示プロンプトへ入力し、親のDATABASE_URL・PG設定・認証ファイルは使用しない。
 
 保存先は`tmp/supabase-scheduled-fetch/<UTC日時>-<乱数>/`で、ディレクトリ700・ファイル600、毎回新規作成する。
-取得・収録検査・全体読取りの成功とサイズ・SHA-256を記録し、同じ形式・schema・17.11の隔離復元実績は再利用する。
+取得・収録検査・全体読取りの成功とサイズ・SHA-256を記録する。
+変更前バックアップでは、対象の手順が認める場合に同じ形式・schema・17.11の隔離復元実績を再利用する。
 既存の補助スクリプトを使う場合は`backup-result.json`の`backup_verified=true`・`archive_read_check=true`がこの検査の成功を表す。
 形式・schema・クライアント変更時は必要な復元検証を行う。
 public限定のため、ロール定義・期限等のSQLと診断記録も併せて保持する。
-Supabase全体・ロールのパスワード・StorageファイルやMac故障に対する二重化は保護範囲に含まない。
-継続的なバックアップの方式と頻度は、許容できるデータ損失と復旧時間を基に別途決める。
+変更前バックアップのローカル保管に加え、[定常バックアップ](deployment.md#定常バックアップ)では別場所の媒体と定期的な隔離復元を使う。
 
 費用・容量は09:30・17:15にRailway Usageの利用額とTrial中の残高、Supabase ProjectsのDB/Egress、InfrastructureのDiskで確認する。
 費用・容量や実行結果の確認を担当できない日は事前に停止する。
@@ -148,6 +148,43 @@ archive-schema.sqlではpresswatch_fetch_writerへのGRANTが収録されてい�
 途中失敗・収録不足があれば、バックアップを前提とするDB変更へ進む前に解消する。
 この例はexportとローカル読取り検査だけを行い、本番復元は行わない。
 
+### 定常バックアップの比較基準と復元確認
+
+1. `fetch-job`の実行終了を確認し、次の起動前に、手動書込み・移行・権限変更も入らない時間を確保する。
+   この時間帯に上記のdumpを取得し、同じDBから比較基準を読取り専用で記録する。
+   接続先の照合・Direct接続・`verify-full`・秘密値の扱いは[取得手順](#バックアップの実行と検査)に従う。
+   dump開始から基準取得完了までに書込み、連番操作、スキーマや権限の変更が入った場合や、時点がそろっていると確認できない場合は、その組を採用しない。
+2. 業務4表の件数、原本の日付範囲、分類の定義と全所属、revision、連番の定義・状態、所有者・ACL・ロール属性・所属を含む権限の基準を残す。
+   原本は次の固定順で読み取り、取得元・隔離復元先ともにUTF-8、`TimeZone=UTC`、`DateStyle=ISO, YMD`を指定して、`COPY TO STDOUT`のテキスト出力だけをSHA-256に入力する。
+
+   ```sql
+   COPY (
+       SELECT id, title, source_url, published_at, source_categories,
+              fetched_at, created_at, updated_at
+       FROM public.press_releases
+       ORDER BY id
+   ) TO STDOUT WITH (FORMAT text, ENCODING 'UTF8');
+   ```
+
+   テキスト形式のタブ区切りと既定のNULL表現を使い、空値・改行・配列の表現を変換しない。
+   `psql`を使う場合は`-X -q -v ON_ERROR_STOP=1`で利用者設定・通常メッセージの混入とSQLエラー後の続行を防ぎ、パイプでハッシュを計算する場合は`pipefail`を有効にする。
+   COPYの完了とハッシュ計算の終了状態を両方確認し、失敗時の部分出力・空出力から得たハッシュは採用しない。
+   原本の出力はファイルやログへ残さず、再計算に必要な設定・列順とハッシュを記録する。
+3. `public`の同じ業務4表と`alembic_version`について、制約と索引の定義を取得元から記録する。
+   制約は`pg_constraint`の種類・`pg_get_constraintdef`で得た定義・検証状態と、`pg_attribute.attnotnull`の列単位の状態を記録する。
+   索引は制約に付随するものも含め、`pg_get_indexdef`の定義と`pg_index`の有効・更新受付・存続状態（`indisvalid`・`indisready`・`indislive`）を記録する。
+   両環境で照合用の`search_path`を`pg_catalog`にそろえ、スキーマ・表・列またはオブジェクト名を固定順で比較する。
+   OIDは取得時の結合に使い、比較値には含めない。
+4. 比較基準を取得時刻・revision・dumpのSHA-256に対応付ける。
+   dumpと基準記録を同じ世代として二重保管し、コピーしたファイルのSHA-256が元の組と一致することを確認する。
+   時点ずれ、記録不足、検査失敗、二重保管の未完了があれば定常バックアップの成功とせず、正常な世代を保持する。
+5. 初回・3か月ごと・形式やスキーマの変更時に、別場所のコピーと基準記録のSHA-256を取得時の記録と照合し、[既存の隔離復元手順](supabase-data-import.md#バックアップと隔離復元)に従って復元する。
+   原本全8列のSHA-256と制約・索引の一覧を同じ条件で再取得し、件数・日付範囲・分類・revision・連番・権限とともに選んだ世代の基準へ照合する。
+   依存不足・復元エラー・未確認項目・ハッシュの差・定義の欠落や追加・状態の相違は未合格とし、切替を保留する。
+   復元候補を実際の切替に使う前にも同じ照合を行い、結果と所要時間を記録する。
+
+[COPYのテキスト形式](https://www.postgresql.org/docs/17/sql-copy.html)、[制約のカタログ](https://www.postgresql.org/docs/17/catalog-pg-constraint.html)、[定義取得関数](https://www.postgresql.org/docs/17/functions-info.html)、[索引のカタログ](https://www.postgresql.org/docs/17/catalog-pg-index.html)を参照する。
+
 ## 結果・失敗の確認
 
 11:15・17:15 JSTを目安にCron Runs / Deploy Logsで予定枠の起動由来・開始終了・結果を確認する。
@@ -189,7 +226,7 @@ commit後の結果出力・接続終了の失敗もあるため、非0終了だ�
 DB照合不能なら保存成否を未確定とし、再実行しない。
 再開は原因が解消し、保存状態が確定してから判断する。
 利用中のRailwayプランで定期取得が可能であること、現在の費用・容量の運転条件を満たすこと、保存用ロールが有効なことを確認し、再実行範囲を決める。
-DB休止時はSupabaseの状態と必要なResume操作を確認し、Railwayの再開だけで復旧すると仮定しない。
+Supabaseの休止・異常、Railwayの費用停止や自動復帰では[DB運用と後続の取得ジョブ](deployment.md#db運用と後続の取得ジョブ)に従う。
 本番復元・既存行削除・全件再分類・強制DBセッション切断は本手順の対象外とし、影響と復旧先を決めて別の手順で扱う。
 
 [Railway Cron](https://docs.railway.com/cron-jobs)、[ログ](https://docs.railway.com/observability/logs)、[Supabaseバックアップ](https://supabase.com/docs/guides/platform/backups)、[休止条件](https://supabase.com/docs/guides/platform/free-project-pausing)を参照する。
