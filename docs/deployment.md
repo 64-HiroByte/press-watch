@@ -519,14 +519,179 @@ Under Attack Modeは非ブラウザ通信への影響も確認してから使う
 
 保存済み原本のSupabaseへの投入・再分類と内部API・本人向けWebの確認は完了し、確認範囲は[限定配置での適用・確認状況](supabase-data-import.md#限定配置の適用と確認状況)に記録する。
 
-Supabaseのプラン・容量・通信量・休止条件を確認し、休止後は状態確認・必要な再開操作・DB接続確認を行う。
-Railway側の再開だけで復旧すると仮定しない。
-ローカルバックアップは初回投入やDB移行などの変更前に取得する。
-取得と検査の手順は[定期取得ジョブの運用](scheduled-fetch.md#バックアップの実行と検査)に従う。
-[Supabaseの休止条件](https://supabase.com/docs/guides/platform/free-project-pausing)、[バックアップ](https://supabase.com/docs/guides/platform/backups)、[費用管理](https://supabase.com/docs/guides/platform/cost-control)を参照する。
-
 取得ジョブはRailwayの`fetch-job`に配置し、`scheduled-job`ターゲットの`press_watch_api.commands.run_fetch_job`を手動・Cron共通の入口とする。
 構成と確認状況は[定期取得ジョブ](#定期取得ジョブ)、実行上限・排他・終了処理・失敗時の対応は同節から運用手順を参照する。
+
+### 復旧の目標と現況確認
+
+本人向けの限定運用では、失う変更を最大7日分（RPO）、障害検知から認証済みWebで閲覧できるまでを48時間以内（RTO）の目標とする。
+閲覧を復旧した後、保存結果と運転条件を確認して取得の再開を判断する。
+事業者の対応・請求期間の更新・承認待ちで48時間を超える見込みになったら、目標未達の見込みと次の判断時刻を記録する。
+
+次の現況値は、本人が確認した値と確認日時を優先し、足りない場合は対象・確認方法・取得項目を示して別承認で読み取る。
+公開仕様と過去の運用記録は日付を付けて扱い、現在のアカウント値として転記しない。
+
+| 対象 | 確認する画面と項目 | 判断に使う目的 |
+| --- | --- | --- |
+| Supabase | Projects／Project Overviewの状態・DBサイズ・休止時バックアップの有無、Infrastructureのディスク使用量、組織のBilling・Usageの契約プラン・請求期間・当期Egress・利用枠の制限、Backupsの利用可能な復元点 | 同じプロジェクトの再開可否、容量・通信量の余力、復元候補を判断 |
+| Railway | Workspace Usage・Billingのプラン・請求期間・使用額・残高・通知額・Compute Hard limit、Deployments・Cron Runsの対象サービスと直近run | 停止原因・自動復帰の時期・保存照合の対象を判断 |
+
+### Supabaseが休止・異常になった場合
+
+1. Dashboardで組織・対象プロジェクトと状態を照合する。
+   `Paused`なら再開可否を確認し、[取得ジョブの停止](scheduled-fetch.md#停止再開)に従って実行終了と次回起動の抑止を確かめてから、同じプロジェクトを`Resume project`で再開する。
+   Railwayも停止中なら[Railwayの起動抑止](#railwayだけが停止した場合)を先に検討する。
+   休止中はDB側の`NOLOGIN`に頼れないため、Railway側で抑止を確認できなければ`Resume project`を保留する。
+   Freeは直近7日間のDB活動が少ないと休止対象になり、有料プランはこの自動休止の対象外となる。
+   同じプロジェクトを再開できる期間は公式ガイド上は休止後1年で、対象のDashboard表示も確認する。
+   期限切れや再開失敗なら、ダウンロードできる休止時バックアップや手元の世代を[復元候補](#バックアップから復元する場合)とする。
+2. `Active`なら、接続設定・サービス障害、ディスクによる読取り専用化・DB停止、組織の利用枠制限、請求問題、欠損・誤変更を切り分ける。
+   容量・利用枠・請求の解消で書込みが戻る場合も、先に取得ジョブの停止と次回起動の抑止を確認する。
+   接続障害ではサービス状態・対象のDirect接続先・TLS・ロールを照合し、原因が不明な間は書込みを止める。
+   欠損・誤変更では後続書込みを止め、元DBを保持して[復元候補](#バックアップから復元する場合)を評価する。
+3. FreeのDB枠は500 MB、ディスクは固定2 GBとなる。
+   ディスク使用率95%を目安に読取り専用になるが、進行中の書込みやWALで満杯になることがある。
+   読取り専用なら書込みを止め、容量の内訳と原因を調べ、しきい値を下回って解除されたことを確認する。
+   満杯でPostgresが止まった場合、元プロジェクトを戻すにはProへ移行して`Restart project`を行うため、別承認に回す。
+4. DB容量枠やEgressによる組織制限では、対象の使用量・請求期間・解除条件を確認し、期間更新を待つか、適用可能なプラン変更を別承認に回す。
+   Egressの当期使用量はデータ削除や復元で減らない。
+   請求問題はBillingで支払い状況と解除条件を確認し、必要な支払い等を別承認に回す。
+
+[Supabaseの休止と再開](https://supabase.com/docs/guides/platform/free-project-pausing)、[期限後の復旧](https://supabase.com/kb/troubleshooting/restore-project-after-90-days-pause)、[DBとディスク容量](https://supabase.com/docs/guides/platform/database-size)、[Egressと利用制限](https://supabase.com/docs/guides/platform/manage-your-usage/egress)、[請求FAQ](https://supabase.com/docs/guides/platform/billing-faq)を参照する。
+
+### Railwayだけが停止した場合
+
+1. Supabaseの状態と読み取りを確認し、Railwayの使用量・請求・配置からCompute Hard limit、Trial枯渇、支払い問題、配置失敗を見分ける。
+   Compute Hard limitではワークロードが停止し、上限を引き上げ・解除すると自動再配置される。
+   次の請求期間にも自動復帰が試行される。
+   Trial枯渇や支払い問題で停止してから30日以内に原因を解消した場合も、サービスが自動再配置される。
+2. 手動の復旧操作や請求期間更新より先に、既存runの終了と起動抑止を確認する。
+   通常は[停止手順](scheduled-fetch.md#停止再開)に従い、`prepare-only`とCron解除を適用して確認する。
+   停止中にこれを確認できない場合は、既存runと専用ロールのDBセッションが終了し、対象の配置が取得前にそのロールで接続することを確認できたときに限り、別承認で保存用ロールを一時的に`NOLOGIN`にする方法を検討する。
+   適用した場合は、対象DBの`pg_roles`で専用ロールの`rolcanlogin`が`false`であり、残存セッションもないことを確認してから抑止済みとする。
+   `NOLOGIN`は既存接続を切断しない。
+   どちらの方法でも抑止を確認できない場合は手動の復旧を保留し、更新前にRailwayサポートに抑止方法を確認する。
+   抑止できずに更新を迎えた場合は未抑止と記録し、配置とrunを監視して、起動を検知した場合は停止手順に従い保存結果を照合する。
+   監視は事後対応として扱う。
+3. 抑止を確認したら、原因に応じて承認済みの上限変更、契約・支払いの解消、または自動復帰の結果確認へ進む。
+   配置失敗や自動復帰に失敗したサービスは、対象配置・起動設定・失敗理由を照合し、再配置が必要なサービスだけを別承認に回す。
+   Supabaseの読み取りが正常なら、DB復元は不要となる。
+4. `NOLOGIN`を使った場合は、Railway復帰後も維持したまま`prepare-only`とCron解除を適用する。
+   対象配置の`prepared acquisition=false exit_code=0`を確認し、旧配置の実行中・開始待ちrunが残っていないことを確かめる。
+   直前のrunと自動復帰時に起動したrunの保存結果が確定し、費用・容量が運転条件を満たすまで`NOLOGIN`を維持する。
+   条件を満たしたら、取得を停止した設定のまま別承認で元の`LOGIN`に戻し、[取得を伴わないDB接続診断](scheduled-fetch.md#db権限と実行保護)で対象DB・ロール・TLS・ロック取得を確認する。
+   診断が成功した後に取得再開を判断する。
+
+[Railwayの費用上限と再開条件](https://docs.railway.com/pricing/cost-control#usage-limits-faq)、[契約・支払いによる停止後の再配置](https://docs.railway.com/pricing/faqs#my-services-were-stopped-what-do-i-do)、[PostgreSQLのロール属性](https://www.postgresql.org/docs/17/role-attributes.html)を参照する。
+
+### バックアップから復元する場合
+
+1. 利用可能な世代と取得時刻、欠損・誤変更の発生時刻、戻すと失われる変更を分かる範囲で照合し、不明点を記録する。
+   元DBが残っていれば保全する。
+   隔離環境で復元してから、対象のバックアップ・復元先・影響を示して本番復元と接続先切替を別承認に回す。
+   定常バックアップを使う場合は、切替に使う世代について[原本・定義・権限の照合](scheduled-fetch.md#定常バックアップの比較基準と復元確認)を先に完了する。
+   手元のcustom形式と事業者側のバックアップは、形式・収録範囲・復元方法を個別に確認する。
+   休止時にダウンロードしたバックアップの形式・展開・投入方法は[事業者の復元手順](https://supabase.com/kb/troubleshooting/restore-project-after-90-days-pause)で確認する。
+   Supabaseへの投入では[既存の接続・認証手順](supabase-data-import.md#接続とツール)を適用し、対象プロジェクトのDirect HostとCAを照合して`sslmode=verify-full`で接続する。
+   管理パスワードはクライアントの非表示プロンプトに入力し、接続文字列やコマンド引数、履歴、ログに含めない。
+   Direct接続を確認できない場合は投入を保留する。
+   取得時の基準がない復元候補は照合未完了と記録し、使う場合は確認できた範囲と未確認の項目を提示して判断を仰ぐ。
+   正常な後続データの救出・部分修復が必要な場合も別に判断する。
+2. 新しいSupabaseでは対象のプロジェクトとDirect接続先を照合し、業務データの投入前にData APIを無効化する。
+   投入後は、接続先を切り替える前に、業務データと定義（列のデフォルト式を含む）が隔離復元の確認結果と一致することを照合する。
+   Data APIの無効化を維持し、`anon`・`authenticated`による原本のテーブル・列のSELECT不可、デフォルト権限、RLS、API読取りロールと取得の保存用ロールの実効権限を確認する。
+   不一致があれば切替を保留する。
+   必要なロールの資格情報は安全に新規設定し、接続するサービスだけへ渡す。
+   `fetch-job`は[停止手順](scheduled-fetch.md#停止再開)の`prepare-only`とCron解除を維持し、旧runの終了を確かめてから接続設定を変更する。
+   `api`と`fetch-job`それぞれの反映済み配置IDを確認する。
+   APIの接続先は[切替後のAPI接続先の照合](#切替後のapi接続先の照合)を行い、`fetch-job`は反映済みの設定が新プロジェクトのDirect Hostを指すことを確認する。
+   各配置が新プロジェクト用のCAを使うことも確認し、接続文字列全体や資格情報は表示・記録しない。
+   旧ホストとの混在や設定の反映を確認できない場合は、切替完了とせず取得停止を維持する。
+   [PostgRESTのログ抑制](#data-api無効時のpostgrestログ抑制)が必要な場合は、既存の保護を確認した上で別途設定する。
+   [DB再作成時の保護要件](tech-stack.md#db実装状態と未対応範囲)と[データ復旧の手順](supabase-data-import.md#停止と復旧)を参照する。
+
+### 切替後のAPI接続先の照合
+
+Railwayの操作承認後、対象のproject・environment・`api`サービスを指定し、[Railway SSH](https://docs.railway.com/cli/ssh)で反映済みの配置に入る。
+下の例にその配置IDと、新しいSupabaseのConnect → Direct connectionに表示されたHostだけを指定する。
+稼働中の配置の環境変数をコンテナ内で照合し、合否だけを出力する。
+
+```bash
+/app/.venv/bin/python -I -B - 'DEPLOYMENT_ID' 'db.example-project.supabase.co' <<'PY'
+import os
+import re
+import sys
+
+try:
+    from sqlalchemy.engine import make_url
+
+    expected_deployment, expected_host = sys.argv[1:]
+    url = make_url(os.environ["DATABASE_URL"])
+    matches = (
+        os.environ.get("RAILWAY_DEPLOYMENT_ID") == expected_deployment
+        and os.environ.get("RAILWAY_SERVICE_NAME") == "api"
+        and re.fullmatch(r"db\.[a-z0-9-]+\.supabase\.co", expected_host) is not None
+        and url.drivername == "postgresql+psycopg"
+        and url.host == expected_host
+        and url.port == 5432
+        and dict(url.query) == {"sslmode": "verify-full", "connect_timeout": "5"}
+        and not any(os.environ.get(name) for name in ("PGHOSTADDR", "PGSERVICE"))
+    )
+except Exception:
+    matches = False
+
+print("API_DIRECT_HOST_MATCH=true" if matches else "API_DIRECT_HOST_MATCH=false")
+sys.exit(0 if matches else 1)
+PY
+```
+
+URLのクエリに接続先の指定があると、SQLAlchemyがURL本体のホストを上書きすることがある。
+APIでは[限定配置のDB接続](#限定配置のdb接続)で定めた2つのパラメータに限り、libpqの`PGHOSTADDR`・`PGSERVICE`による接続先の指定も除外する。
+`API_DIRECT_HOST_MATCH=true`と終了0を確認できた場合に、[共通の復旧確認](#共通の復旧確認と取得再開)で実際のTLS接続とAPIの読み取りを確認する。
+配置や実行環境を特定できない場合、または照合に失敗した場合は切替完了を保留し、`fetch-job`の取得停止を維持する。
+
+### 共通の復旧確認と取得再開
+
+1. 対象DBへのDirect接続、ホスト名と証明書を検証するTLS、専用ロールの権限・期限、revisionを照合する。
+2. APIに公開ドメイン・TCP Proxyがないことを確かめ、内部APIの一覧とカテゴリ、認証済みWebの一覧と絞り込み、未認証・誤認証の拒否を[配置の合格条件](#検証と停止復旧)に沿って順に確認する。
+   不一致があれば次の工程へ進まず、認証迂回や情報露出は同節の停止手順に従う。
+3. 取得再開の前にRailwayのプラン・費用余力、Supabaseの運転基準（DB 400 MB・ディスク1.6 GB・当期Egress 4 GB）、保存用ロールの有効性、停止・復帰に関わる各runのログとDBの保存状態を照合する。
+   接続先を変更した場合は、Cronを解除したまま`fetch-job`に反映した接続設定で[取得を伴わないDB接続診断](scheduled-fetch.md#db権限と実行保護)を行う。
+   診断用の起動に配置変更が必要な場合は別承認を得て診断コマンドだけを起動し、診断後は`prepare-only`に戻す。
+   新プロジェクトのDirect Hostとの一致と診断の成功を確認し、再開時は確認済みの接続設定を使う。
+   ホストの不一致・未確認、診断失敗、上限への到達・超過見込み、保存結果の未確定があれば、手動再実行とCron再開を保留する。
+
+### 定常バックアップ
+
+初回投入・移行・再分類の変更前に取るバックアップとは別に、週1回、16:30 JSTの取得枠の終了後を目安に[定期取得ジョブのバックアップ手順](scheduled-fetch.md#バックアップの実行と検査)で取得する。
+前回の正常な復元点から7日以内に別場所での保管まで完了できるよう、再試行と搬出の時間を見込んで前倒しする。
+正常な直近5世代を保持し、新世代の取得・二重保管を確認してから最古を外す。
+
+[定常バックアップの照合手順](scheduled-fetch.md#定常バックアップの比較基準と復元確認)に従い、取得時の比較基準と復旧に必要な設定の記録を用意し、dumpとともにMacのGit管理外と別場所の暗号化媒体に置く。
+復号手段は媒体と分け、元のMacに保存した情報に頼らず回収し、外部媒体を解錠できることを初回に確かめる。
+対象は`public`の業務4表、revision、連番、制約・索引・ACLで、ロールの属性・所属・期限と復旧設定は秘密値を除いて別記録にする。
+Supabaseの管理スキーマ、Storageファイル、サービス設定、ロールのパスワードはこのdumpの復元範囲外となる。
+
+隔離復元は初回・3か月ごと・形式やスキーマの変更時に行い、別場所の媒体から戻せること、保存した比較基準と一致すること、所要時間を確認する。
+ローカルで測った所要時間には新しいSupabaseの準備・接続先切替・Web確認の時間が含まれない。
+7日以内に取得・二重保管できない場合や正常な復元点が7日より古い場合は目標未達を記録する。
+誤変更の発見が遅れると、保持する世代すべてが誤変更を含むことがある。
+この場合は世代の削除を保留して元DBを保全し、後続の正常データの救出・部分修復を検討する。
+
+| 方式 | 復旧範囲と費用の判断 |
+| --- | --- |
+| Freeと週次エクスポート | 通常の日次バックアップは対象外。別場所の既存媒体を使え、通常運転に月4〜5回のdump・原本のCOPY・その他の比較基準取得、再試行、変更前取得を加えて当期Egressの運転基準4 GB内に収まれば、定常バックアップの追加月額は0 USD。媒体の調達費と作業時間は別途見込む |
+| Proの日次バックアップと外部コピー | 月25 USDから。ディスク8 GB、非キャッシュEgress 250 GB、日次DBバックアップ7日分。事業者側から戻せる復元点を確認し、ロールのパスワードやStorageの実ファイルなどは別途扱う。別場所のコピーも維持する |
+
+初回の承認済み取得でdumpと比較基準取得を合わせた通信量を測り、圧縮後のファイルサイズで判断しない。
+FreeのEgress枠は非キャッシュ・キャッシュ各5 GBで、DBの転送見積りにキャッシュ枠を足さない。
+通信量や容量が収まらない場合は、取得間隔を延ばす前に有料移行または復旧目標の見直しを判断する。
+時点復旧は月100 USDからの追加機能となり、今回の方針は週次エクスポートと別場所での保管を採用する。
+Railway Hobbyは月5 USDの利用料を含み、超過分は別途発生する。
+
+[Supabaseの料金](https://supabase.com/pricing)、[バックアップ](https://supabase.com/docs/guides/platform/backups)、[Egress](https://supabase.com/docs/guides/platform/manage-your-usage/egress)、[Railwayの料金](https://docs.railway.com/pricing/plans)を参照する。
+実アカウント確認・実DB診断・バックアップ取得・復元試験は、対象・方法・影響を示して別承認を得る。
+定常取得・隔離復元・48時間以内の復旧、Railway停止中の取得抑止はこの文書では実績未確認として扱う。
 
 ## セキュリティ更新と後続タスク
 
@@ -542,9 +707,11 @@ Railway側の再開だけで復旧すると仮定しない。
   macOSで309件が成功し、スキップされたLinux専用9件はLinux arm64のコンテナで成功した。
 - 隔離したAPIイメージでは依存版、`/health`、合成記事62件の一覧、固定カテゴリ10件、OpenAPI、末尾スラッシュ補正の`307`と`Location`を確認した。
   `scheduled-job`イメージでは同じ依存版と、通信を遮断した`prepare-only`の正常終了を確認した。
-- 本番APIは公開ドメインとTCP Proxyがないことをユーザーが確認した。
-  配置SHA `d193fbaaf29882dcd5848f06c3a4b28ed5b6eb07`のlockfileはStarlette 1.0.0とFastAPI 0.136.0を固定しており、同じSHAのDockerfileはlockfileから依存を導入する。
-  配置元からは更新前の組み合わせと判断できるが、稼働コンテナ内の版は未確認である。
+- 更新前の本番APIは公開ドメインとTCP Proxyがないことをユーザーが確認した。
+  当時の配置SHA `d193fbaaf29882dcd5848f06c3a4b28ed5b6eb07`のlockfileはStarlette 1.0.0とFastAPI 0.136.0を固定していた。
+  更新後は本番APIだけを再配置し、Railwayの配置画面とWebの動作を確認したとユーザーから報告があった。
+  配置候補 `f431dc1` のlockfileはStarlette 1.3.1とFastAPI 0.136.0を固定している。
+  再配置後のDeployment ID・配置の完全SHA・Build Logsでの依存版確認の有無・稼働コンテナの依存版は未確認である。
 - 本番の`fetch-job`はDeployment ID `6d68669b-77e9-4f35-8033-15937d0cea61`をユーザーが確認した。
   配置SHAと依存版は未確認である。
 
