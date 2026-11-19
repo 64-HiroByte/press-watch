@@ -170,8 +170,10 @@ archive-schema.sqlではpresswatch_fetch_writerへのGRANTが収録されてい�
    `psql`を使う場合は`-X -q -v ON_ERROR_STOP=1`で利用者設定・通常メッセージの混入とSQLエラー後の続行を防ぎ、パイプでハッシュを計算する場合は`pipefail`を有効にする。
    COPYの完了とハッシュ計算の終了状態を両方確認し、失敗時の部分出力・空出力から得たハッシュは採用しない。
    原本の出力はファイルやログへ残さず、再計算に必要な設定・列順とハッシュを記録する。
-3. `public`の同じ業務4表と`alembic_version`について、制約と索引の定義を取得元から記録する。
+3. `public`の同じ業務4表と`alembic_version`について、列のデフォルト式と制約・索引の定義を取得元から記録する。
    制約は`pg_constraint`の種類・`pg_get_constraintdef`で得た定義・検証状態と、`pg_attribute.attnotnull`の列単位の状態を記録する。
+   デフォルト式は`pg_attribute`の削除されていないユーザー列（`attnum > 0`、`attisdropped = false`）に、`pg_attrdef`を表と列の番号（`attrelid = adrelid`、`attnum = adnum`）で左結合し、`pg_get_expr(adbin, adrelid)`の結果を記録する。
+   式のない列も記録に含め、原本の`id`の連番参照や`created_at`・`updated_at`の`now()`が復元先で欠けた場合に検出できるようにする。
    索引は制約に付随するものも含め、`pg_get_indexdef`の定義と`pg_index`の有効・更新受付・存続状態（`indisvalid`・`indisready`・`indislive`）を記録する。
    両環境で照合用の`search_path`を`pg_catalog`にそろえ、スキーマ・表・列またはオブジェクト名を固定順で比較する。
    OIDは取得時の結合に使い、比較値には含めない。
@@ -179,11 +181,11 @@ archive-schema.sqlではpresswatch_fetch_writerへのGRANTが収録されてい�
    dumpと基準記録を同じ世代として二重保管し、コピーしたファイルのSHA-256が元の組と一致することを確認する。
    時点ずれ、記録不足、検査失敗、二重保管の未完了があれば定常バックアップの成功とせず、正常な世代を保持する。
 5. 初回・3か月ごと・形式やスキーマの変更時に、別場所のコピーと基準記録のSHA-256を取得時の記録と照合し、[既存の隔離復元手順](supabase-data-import.md#バックアップと隔離復元)に従って復元する。
-   原本全8列のSHA-256と制約・索引の一覧を同じ条件で再取得し、件数・日付範囲・分類・revision・連番・権限とともに選んだ世代の基準へ照合する。
+   原本全8列のSHA-256と列のデフォルト式・制約・索引の一覧を同じ条件で再取得し、件数・日付範囲・分類・revision・連番・権限とともに選んだ世代の基準へ照合する。
    依存不足・復元エラー・未確認項目・ハッシュの差・定義の欠落や追加・状態の相違は未合格とし、切替を保留する。
    復元候補を実際の切替に使う前にも同じ照合を行い、結果と所要時間を記録する。
 
-[COPYのテキスト形式](https://www.postgresql.org/docs/17/sql-copy.html)、[制約のカタログ](https://www.postgresql.org/docs/17/catalog-pg-constraint.html)、[定義取得関数](https://www.postgresql.org/docs/17/functions-info.html)、[索引のカタログ](https://www.postgresql.org/docs/17/catalog-pg-index.html)を参照する。
+[COPYのテキスト形式](https://www.postgresql.org/docs/17/sql-copy.html)、[デフォルト式のカタログ](https://www.postgresql.org/docs/17/catalog-pg-attrdef.html)、[制約のカタログ](https://www.postgresql.org/docs/17/catalog-pg-constraint.html)、[定義取得関数](https://www.postgresql.org/docs/17/functions-info.html)、[索引のカタログ](https://www.postgresql.org/docs/17/catalog-pg-index.html)を参照する。
 
 ## 結果・失敗の確認
 

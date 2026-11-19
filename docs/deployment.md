@@ -591,16 +591,64 @@ Under Attack Modeは非ブラウザ通信への影響も確認してから使う
    隔離環境で復元してから、対象のバックアップ・復元先・影響を示して本番復元と接続先切替を別承認に回す。
    定常バックアップを使う場合は、切替に使う世代について[原本・定義・権限の照合](scheduled-fetch.md#定常バックアップの比較基準と復元確認)を先に完了する。
    手元のcustom形式と事業者側のバックアップは、形式・収録範囲・復元方法を個別に確認する。
-   休止時にダウンロードしたバックアップは[事業者の復元手順](https://supabase.com/kb/troubleshooting/restore-project-after-90-days-pause)を参照し、手元のcustom形式用の手順を流用しない。
+   休止時にダウンロードしたバックアップの形式・展開・投入方法は[事業者の復元手順](https://supabase.com/kb/troubleshooting/restore-project-after-90-days-pause)で確認する。
+   Supabaseへの投入では[既存の接続・認証手順](supabase-data-import.md#接続とツール)を適用し、対象プロジェクトのDirect HostとCAを照合して`sslmode=verify-full`で接続する。
+   管理パスワードはクライアントの非表示プロンプトに入力し、接続文字列やコマンド引数、履歴、ログに含めない。
+   Direct接続を確認できない場合は投入を保留する。
    取得時の基準がない復元候補は照合未完了と記録し、使う場合は確認できた範囲と未確認の項目を提示して判断を仰ぐ。
    正常な後続データの救出・部分修復が必要な場合も別に判断する。
 2. 新しいSupabaseでは対象のプロジェクトとDirect接続先を照合し、業務データの投入前にData APIを無効化する。
-   投入後は、接続先を切り替える前に、業務データ・定義が隔離復元の確認結果と一致することを照合する。
+   投入後は、接続先を切り替える前に、業務データと定義（列のデフォルト式を含む）が隔離復元の確認結果と一致することを照合する。
    Data APIの無効化を維持し、`anon`・`authenticated`による原本のテーブル・列のSELECT不可、デフォルト権限、RLS、API読取りロールと取得の保存用ロールの実効権限を確認する。
    不一致があれば切替を保留する。
    必要なロールの資格情報は安全に新規設定し、接続するサービスだけへ渡す。
+   `fetch-job`は[停止手順](scheduled-fetch.md#停止再開)の`prepare-only`とCron解除を維持し、旧runの終了を確かめてから接続設定を変更する。
+   `api`と`fetch-job`それぞれの反映済み配置IDを確認する。
+   APIの接続先は[切替後のAPI接続先の照合](#切替後のapi接続先の照合)を行い、`fetch-job`は反映済みの設定が新プロジェクトのDirect Hostを指すことを確認する。
+   各配置が新プロジェクト用のCAを使うことも確認し、接続文字列全体や資格情報は表示・記録しない。
+   旧ホストとの混在や設定の反映を確認できない場合は、切替完了とせず取得停止を維持する。
    [PostgRESTのログ抑制](#data-api無効時のpostgrestログ抑制)が必要な場合は、既存の保護を確認した上で別途設定する。
    [DB再作成時の保護要件](tech-stack.md#db実装状態と未対応範囲)と[データ復旧の手順](supabase-data-import.md#停止と復旧)を参照する。
+
+### 切替後のAPI接続先の照合
+
+Railwayの操作承認後、対象のproject・environment・`api`サービスを指定し、[Railway SSH](https://docs.railway.com/cli/ssh)で反映済みの配置に入る。
+下の例にその配置IDと、新しいSupabaseのConnect → Direct connectionに表示されたHostだけを指定する。
+稼働中の配置の環境変数をコンテナ内で照合し、合否だけを出力する。
+
+```bash
+/app/.venv/bin/python -I -B - 'DEPLOYMENT_ID' 'db.example-project.supabase.co' <<'PY'
+import os
+import re
+import sys
+
+try:
+    from sqlalchemy.engine import make_url
+
+    expected_deployment, expected_host = sys.argv[1:]
+    url = make_url(os.environ["DATABASE_URL"])
+    matches = (
+        os.environ.get("RAILWAY_DEPLOYMENT_ID") == expected_deployment
+        and os.environ.get("RAILWAY_SERVICE_NAME") == "api"
+        and re.fullmatch(r"db\.[a-z0-9-]+\.supabase\.co", expected_host) is not None
+        and url.drivername == "postgresql+psycopg"
+        and url.host == expected_host
+        and url.port == 5432
+        and dict(url.query) == {"sslmode": "verify-full", "connect_timeout": "5"}
+        and not any(os.environ.get(name) for name in ("PGHOSTADDR", "PGSERVICE"))
+    )
+except Exception:
+    matches = False
+
+print("API_DIRECT_HOST_MATCH=true" if matches else "API_DIRECT_HOST_MATCH=false")
+sys.exit(0 if matches else 1)
+PY
+```
+
+URLのクエリに接続先の指定があると、SQLAlchemyがURL本体のホストを上書きすることがある。
+APIでは[限定配置のDB接続](#限定配置のdb接続)で定めた2つのパラメータに限り、libpqの`PGHOSTADDR`・`PGSERVICE`による接続先の指定も除外する。
+`API_DIRECT_HOST_MATCH=true`と終了0を確認できた場合に、[共通の復旧確認](#共通の復旧確認と取得再開)で実際のTLS接続とAPIの読み取りを確認する。
+配置や実行環境を特定できない場合、または照合に失敗した場合は切替完了を保留し、`fetch-job`の取得停止を維持する。
 
 ### 共通の復旧確認と取得再開
 
@@ -608,7 +656,10 @@ Under Attack Modeは非ブラウザ通信への影響も確認してから使う
 2. APIに公開ドメイン・TCP Proxyがないことを確かめ、内部APIの一覧とカテゴリ、認証済みWebの一覧と絞り込み、未認証・誤認証の拒否を[配置の合格条件](#検証と停止復旧)に沿って順に確認する。
    不一致があれば次の工程へ進まず、認証迂回や情報露出は同節の停止手順に従う。
 3. 取得再開の前にRailwayのプラン・費用余力、Supabaseの運転基準（DB 400 MB・ディスク1.6 GB・当期Egress 4 GB）、保存用ロールの有効性、停止・復帰に関わる各runのログとDBの保存状態を照合する。
-   上限への到達・超過が見込まれる場合や保存結果が未確定の場合は、手動再実行とCron再開を保留する。
+   接続先を変更した場合は、Cronを解除したまま`fetch-job`に反映した接続設定で[取得を伴わないDB接続診断](scheduled-fetch.md#db権限と実行保護)を行う。
+   診断用の起動に配置変更が必要な場合は別承認を得て診断コマンドだけを起動し、診断後は`prepare-only`に戻す。
+   新プロジェクトのDirect Hostとの一致と診断の成功を確認し、再開時は確認済みの接続設定を使う。
+   ホストの不一致・未確認、診断失敗、上限への到達・超過見込み、保存結果の未確定があれば、手動再実行とCron再開を保留する。
 
 ### 定常バックアップ
 
